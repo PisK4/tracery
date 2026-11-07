@@ -878,6 +878,43 @@ test('agent 过滤保留整组最近时间，facets 只枚举有可见会话的 
   }
 });
 
+test('可见性过滤走 v15 覆盖索引免回表，索引列顺序钉住', () => {
+  const f = fixture();
+  try {
+    // 索引列顺序在 writer 连接上随种子一并读出：读连接普通 SELECT 会持有 WAL 快照，
+    // 让 close 的 checkpoint(TRUNCATE) 阻塞满 busy_timeout；写事务提交后快照即释放。
+    const indexSql = f.store.write(db => {
+      // 批量插入 120 组：量给足让计划器稳定选覆盖索引，单条 INSERT 避免逐行 run 开销。
+      const values: string[] = [];
+      const params: (number | string)[] = [];
+      for (let s = 0; s < 120; s++) {
+        const key = JSON.stringify(['session', `idx${s}`]);
+        values.push(`(?,'session','actor-a',?,'known',?,'2026-11-08','through','available',1,7,1,1,?)`);
+        params.push(key, s % 2 === 0 ? 'claude' : 'hermes', s * 10, 'participate');
+        values.push(`(?,'session','actor-a','omp','known',?,'2026-11-08','through','available',1,7,1,1,'exclude')`);
+        params.push(key, s * 10 + 1);
+      }
+      db.prepare(`INSERT INTO request(conv_key,conv_source,actor,agent,actor_state,started_ms,day,via,body_state,derive_version,have,created_at,updated_at,purpose_chain)
+        VALUES ${values.join(',')}`).run(...params);
+      return (db.query(
+        "SELECT sql FROM sqlite_master WHERE type='index' AND name='i_req_session_visible'",
+      ).get() as { sql: string }).sql;
+    });
+    // 阶段一 visibleOnly+agent 的 HAVING 形状须选覆盖索引，不回表读 purpose_chain/agent。
+    // EXPLAIN 只编译不开 WAL 快照，读连接上直接跑不会阻塞 close。
+    const plan = explainPlan(f.store.read,
+      `SELECT conv_key, MAX(started_ms) AS last_ms FROM request
+       WHERE conv_key IS NOT NULL GROUP BY conv_key
+       HAVING MAX(CASE WHEN purpose_chain = 'participate' THEN 1 ELSE 0 END) = 1
+          AND MAX(CASE WHEN agent = ? THEN 1 ELSE 0 END) = 1
+       ORDER BY last_ms DESC, conv_key DESC LIMIT ?`, ['claude', 51]);
+    expect(plan).toContain('COVERING INDEX i_req_session_visible');
+    expect(indexSql).toContain('(conv_key, purpose_chain, agent, started_ms DESC)');
+  } finally {
+    f.close();
+  }
+});
+
 test('无正文、零用量、无归属的探针组标 probe，任一条件不满足都不标', () => {
   const f = fixture();
   try {
@@ -1580,7 +1617,7 @@ test('跨组标题短路：有指纹时绑定语义不变，闸门先于相关�
       status: 'ambiguous', title: null, title_matches: 2,
     });
 
-    // 计划：闸门只走单会话时间索引，且排在跨组子查询之前。
+    // 计划：闸门只走单会话覆盖索引（conv_key 定位，v15），且排在跨组子查询之前。
     const hook = captureReadQueries(f.store);
     try {
       listSessions(f.store, 10, null);
@@ -1590,7 +1627,7 @@ test('跨组标题短路：有指纹时绑定语义不变，闸门先于相关�
     const detail = hook.captured.find(c => c.sql.includes('AS title,'));
     if (detail === undefined) throw new Error('title_query_not_captured');
     const plan = explainPlan(f.store.read, detail.sql, detail.params);
-    expect(plan).toContain('SEARCH x USING INDEX i_req_session_time');
+    expect(plan).toContain('SEARCH x USING INDEX i_req_session_visible');
     // 跨组子查询由 title 侧驱动（指纹部分索引只含非空行），qt 退为主键回查；
     // 若回到 current 组全集驱动，成本是 O(组数)×页内指纹会话数，随会话表退化。
     expect(plan).toContain('SEARCH t USING INDEX i_request_user_fingerprint');

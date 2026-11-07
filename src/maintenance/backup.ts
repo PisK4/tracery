@@ -146,11 +146,11 @@ export function backupDatabase(
 /**
  * 可恢复 bundle 接受的库结构版本。
  *
- * v6–v14 的恢复包由当前代码在 staging 里原地迁移到最新版本；更早版本没有升级
+ * v6–v15 的恢复包由当前代码在 staging 里原地迁移到最新版本；更早版本没有升级
  * 路径，更高版本当前代码打不开。备份与恢复都只查这一处，加一个版本就是在这里
  * 加一个数字，不另写第二份版本规则。
  */
-export const RESTORABLE_SCHEMA_VERSIONS: readonly number[] = [6, 7, 8, 9, 10, 11, 12, 13, 14];
+export const RESTORABLE_SCHEMA_VERSIONS: readonly number[] = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 
 const BUNDLE_FILES = ['trace.db', 'redaction.salt', 'manifest.json'] as const;
 
