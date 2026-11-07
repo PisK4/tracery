@@ -145,6 +145,79 @@ test('有账本时hook并入账本请求并迁移正文', () => {
   }
 });
 
+/** 会话适配器先落库：via='session'、没有 route_id，route 候选查找看不到它。 */
+function seedSessionRow(store: Parameters<typeof acceptHook>[0], overrides: {
+  responseId?: string | null; ms?: number | null;
+} = {}): number {
+  return store.write(db => {
+    const reqId = Number(db.run(
+      `INSERT INTO request(response_id_norm,agent,session,conv_key,conv_source,actor,actor_state,
+         started_ms,ms,day,via,body_state,derive_version,have,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,'2026-10-20','session','pending',0,0,1,1)`,
+      [
+        overrides.responseId === undefined ? 'synthetic_1' : overrides.responseId,
+        'alpha', 'synthetic-session', JSON.stringify(['session', 'synthetic-session']),
+        'alpha-session', 'synthetic-session', 'known', 1_700_000_000_000,
+        overrides.ms === undefined ? 1_200 : overrides.ms,
+      ],
+    ).lastInsertRowid);
+    db.run(`INSERT INTO request_evidence(req_id,source_kind,ref_key,merge_state,added_at)
+      VALUES (?,'claude_session_call','session-call-1','merged',1)`, [reqId]);
+    return reqId;
+  });
+}
+
+test('会话行先到、hook 后到：按 response id 认领而不是另建一行', () => {
+  const f = fixture();
+  try {
+    const seeded = seedSessionRow(f.store);
+    // route 候选为零时回落到统一 owner 查找；会话行不带 route_id，正是原缺口。
+    const result = acceptHook(f.store, envelope({ reply: { id: 'msg_synthetic_1', content: [] } }), 2, salt);
+    expect(result.req_id).toBe(seeded);
+    expect(f.store.read.query('SELECT count(*) AS n FROM request').get()).toEqual({ n: 1 });
+    const evidence = f.store.read.query<{ source_kind: string; merge_state: string; match_rule: string | null }, [number]>(
+      'SELECT source_kind, merge_state, match_rule FROM request_evidence WHERE req_id=? ORDER BY source_kind',
+    ).all(seeded);
+    expect(evidence).toEqual([
+      { source_kind: 'claude_session_call', merge_state: 'merged', match_rule: null },
+      { source_kind: 'hook', merge_state: 'merged', match_rule: 'response_id_norm.v1' },
+    ]);
+    expect(f.store.read.query('SELECT count(*) AS n FROM pending_hook').get()).toEqual({ n: 0 });
+  } finally {
+    f.close();
+  }
+});
+
+test('无 response id 时按完成时间对齐认领会话行', () => {
+  const f = fixture();
+  try {
+    const seeded = seedSessionRow(f.store, { responseId: null });
+    const result = acceptHook(f.store, envelope({ reply: { content: [] } }), 2, salt);
+    expect(result.req_id).toBe(seeded);
+    expect(f.store.read.query('SELECT count(*) AS n FROM request').get()).toEqual({ n: 1 });
+    const rule = f.store.read.query<{ match_rule: string | null }, [number]>(
+      "SELECT match_rule FROM request_evidence WHERE req_id=? AND source_kind='hook'",
+    ).get(seeded);
+    expect(rule?.match_rule).toBe('conv_end.v1');
+  } finally {
+    f.close();
+  }
+});
+
+test('完成时间不在窗口内：不合并，也不退回弱开始窗', () => {
+  const f = fixture();
+  try {
+    seedSessionRow(f.store, { responseId: null, ms: 10_000 });
+    const result = acceptHook(f.store, envelope({ reply: { content: [] } }), 2, salt);
+    // 会话结束时刻比 hook 完成时刻晚 8.8 秒：宁可多一行，也不按 60 秒开始窗猜。
+    expect(f.store.read.query('SELECT count(*) AS n FROM request').get()).toEqual({ n: 2 });
+    expect(f.store.read.query('SELECT count(*) AS n FROM pending_hook').get()).toEqual({ n: 1 });
+    expect(result.duplicate).toBe(false);
+  } finally {
+    f.close();
+  }
+});
+
 test('hook回执多一层前缀时仍并入账本请求', () => {
   const f = fixture();
   try {

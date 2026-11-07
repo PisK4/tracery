@@ -492,7 +492,7 @@ hook 的 `model` 与 `success` 只作为独立报告保留在 `raw_hook`：前�
 
 只有唯一命中才认领。零候选或两个以上候选都独立成行，证据行的 `match_rule` 记 `match_absent` 或 `match_ambiguous`，不按最近时间猜。时间与用量线索跳过已带同一来源证据的行：同一来源里相邻的两笔调用是两次真实调用，不是同一笔的重复记录。
 
-droid 在写请求行前调用它；账本在 `route_id` 未命中时调用它，所以账本迟到能认领 OTLP 或 droid 已建的行。hook 走自己的等待队列，OTLP 摄入不调用它，账本先到、OTLP 后到的调用仍保留两行。合并到既有行时 droid 只补空字段，不改变原有 `via`，正文只在对方没有可读骨架且未被回收时补，不覆盖已有值。投影仍只把账本、路由与 hook 当字段来源，OTLP 与 `session_call` 只贡献位图与缺失判定。
+droid 在写请求行前调用它；账本在 `route_id` 未命中时调用它，所以账本迟到能认领 OTLP 或 droid 已建的行。hook 先按 response id 找带路由的候选，没有唯一候选时同样回落到统一查找，因此会话适配器先落库的行不会被 hook 再记一行；hook 提供完成时间，弱开始窗在这一步关闭。OTLP 摄入不调用它，账本先到、OTLP 后到的调用仍保留两行。合并到既有行时 droid 只补空字段，不改变原有 `via`，正文只在对方没有可读骨架且未被回收时补，不覆盖已有值。投影仍只把账本、路由与 hook 当字段来源，OTLP 与 `session_call` 只贡献位图与缺失判定。
 
 请求合并搬运骨架时，正文状态、解析状态、消息数、适配器版本、`body_bytes` 与 `redact_version` 同时取自实际正文供体。源 hook 已登记正文证据、仅保留 partial 且无骨架时，pending 目标随之成为 partial；这只纠正等待状态，不恢复正文。历史修正命令见[正文一致性维护](operations.md#body-consistency-与-body-bytes-backfill)。
 
