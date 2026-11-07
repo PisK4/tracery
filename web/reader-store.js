@@ -34,7 +34,7 @@ import { createReadScheduler } from './read-scheduler.js';
 /**
  * @typedef {Object} ReaderStore
  * @property {() => {sessionKey: string | null, requests: import('../src/queries/projection').RequestRow[], newerCursor: string | null, loading: boolean, error: string | null}} getWindow
- * @property {() => {items: import('../src/queries/sessions').SessionRow[], cursor: string | null, error: string | null, titleLoading: boolean}} getSessions
+ * @property {() => {items: import('../src/queries/sessions').SessionRow[], cursor: string | null, error: string | null, titleLoading: boolean, retrying: boolean}} getSessions
  * @property {(cursor?: string) => Promise<void>} loadSessions
  * @property {(key: string, limit?: number, anchor?: 'start' | 'latest') => Promise<void>} selectSession
  * @property {() => Promise<void>} loadLater
@@ -72,13 +72,14 @@ import { createReadScheduler } from './read-scheduler.js';
  * @param {import('../src/read-contract').ReadTransport} transport 具名读取的唯一执行通道；store 不拼 URL、不 Fetch。
  * @param {(id: number) => void} [onReadChanged] 记录快照异步变化（作废、自动重读
  *   换新或失败）时通知页面重绘；迟到响应与会话切换后的旧任务不通知。
- * @param {{ autoRereadCooldownMs?: number, scheduler?: object, onTurnsChanged?: () => void, onSummaryChanged?: () => void, onTodoChanged?: () => void, onSessionsChanged?: () => void }} [options]
+ * @param {{ autoRereadCooldownMs?: number, titleRetryMs?: number, scheduler?: object, onTurnsChanged?: () => void, onSummaryChanged?: () => void, onTodoChanged?: () => void, onSessionsChanged?: () => void }} [options]
  *   自动重读的冷却窗口，默认 10 秒；scheduler 透传给内部有界调度器；轮次快照、会话
  *   汇总与待办落地（ready 或 absent）时通知，测试可注入短窗；标题回填与标题分次落地时触发。
  * @returns {ReaderStore}
  */
 export function createReaderStore(transport, onReadChanged, options) {
   const autoRereadCooldownMs = options?.autoRereadCooldownMs ?? 10000;
+  const titleRetryMs = options?.titleRetryMs ?? 30000;
   /** 拍摄静默：作废不排自动重读，页面保持静止；手动重读与显式刷新不受限。 */
   let demoSilent = false;
   const onTurnsChanged = options?.onTurnsChanged ?? null;
@@ -120,10 +121,14 @@ export function createReaderStore(transport, onReadChanged, options) {
     return scope;
   }
 
-  /** @type {{items: import('../src/queries/sessions').SessionRow[], cursor: string | null, error: string | null, titleLoading: boolean}} */
-  const sessions = { items: [], cursor: null, error: null, titleLoading: false };
+  /** @type {{items: import('../src/queries/sessions').SessionRow[], cursor: string | null, error: string | null, titleLoading: boolean, retrying: boolean}} */
+  const sessions = { items: [], cursor: null, error: null, titleLoading: false, retrying: false };
   /** @type {Promise<void> | null} 在途的会话列表请求；并发调用共享它而不是被丢弃。 */
   let sessionsInflight = null;
+  /** @type {ReturnType<typeof setTimeout> | null} 标题重试定时器：dirty 组的空标题到点再拉一次。 */
+  let titleRetryTimer = null;
+  /** 最近一次标题回填返回了空标题的 keys，timer 触发时再拉一次。 */
+  let titleRetryKeys = [];
   /** @type {string | null} */
   let sessionKey = null;
   /** @type {import('../src/queries/projection').RequestRow[]} */
@@ -284,6 +289,56 @@ export function createReaderStore(transport, onReadChanged, options) {
     }, wait);
   }
 
+  function clearTitleRetry() {
+    if (titleRetryTimer !== null) { clearTimeout(titleRetryTimer); titleRetryTimer = null; }
+    titleRetryKeys = [];
+    sessions.retrying = false;
+  }
+
+  function scheduleTitleRetry(keys) {
+    if (keys.length === 0 || demoSilent) return;
+    clearTitleRetry();
+    titleRetryKeys = [...keys];
+    sessions.retrying = true;
+    titleRetryTimer = setTimeout(() => {
+      titleRetryTimer = null;
+      const retryKeys = titleRetryKeys;
+      titleRetryKeys = [];
+      sessions.retrying = false;
+      if (retryKeys.length === 0) return;
+      void backfillTitles(retryKeys);
+    }, titleRetryMs);
+  }
+
+  /**
+   * 标题回填：单次调 sessionsTitle，返回仍为空标题的 keys 供调用方决定是否排队重试。
+   * @param {string[]} keys
+   * @param {object} [scope] 执行作用域，默认 pageScope；dispose 时 pageScope 已换新，旧请求走取消异常
+   * @param {boolean} [isRetry]
+   * @returns {Promise<string[]>}
+   */
+  async function backfillTitles(keys, isRetry = false) {
+    const myEpoch = epoch;
+    try {
+      const titles = await execute(pageScope, 'sessionsTitle', { keys });
+      // dispose 后旧结果不得写入新页面的 sessions。
+      if (myEpoch !== epoch) return [];
+      const byKey = new Map(titles.titles.map((/** @type {{conv_key: string, title: string}} */ entry) => [entry.conv_key, entry.title]));
+      for (const item of sessions.items) {
+        const title = byKey.get(item.conv_key);
+        if (title !== undefined && title !== '') item.title = title;
+      }
+      onSessionsChanged?.();
+      // 重试后仍空的即正式无标题，不再排队；重试仍走 retrying 态保持「读取标题中…」。
+      if (!isRetry) sessions.titleLoading = false;
+      return titles.titles.filter((/** @type {{title: string}} */ entry) => entry.title === '').map((/** @type {{conv_key: string}} */ entry) => entry.conv_key);
+    } catch {
+      if (myEpoch !== epoch) return [];
+      if (!isRetry) sessions.titleLoading = false;
+      return isRetry ? [] : keys;
+    }
+  }
+
   /** @param {string | undefined} cursor */
   function loadSessions(cursor) {
     if (sessionsInflight !== null) return sessionsInflight;
@@ -306,17 +361,12 @@ export function createReaderStore(transport, onReadChanged, options) {
         onSessionsChanged?.();
         // 标题回填：首屏先渲染空标题的行，随后按 keys 拉回标题，逐项覆盖。
         const keys = light.items.map((/** @type {{conv_key: string}} */ item) => item.conv_key);
+        clearTitleRetry();
         if (keys.length > 0) {
-          try {
-            const titles = await execute(pageScope, 'sessionsTitle', { keys });
-            const byKey = new Map(titles.titles.map((/** @type {{conv_key: string, title: string}} */ entry) => [entry.conv_key, entry.title]));
-            for (const item of sessions.items) {
-              const title = byKey.get(item.conv_key);
-              if (title !== undefined) item.title = title;
-            }
-          } catch {
-            // 标题失败不阻断列表：失败保留空标题，用户仍可点进会话。
-          }
+          const empty = await backfillTitles(keys);
+          // 首次回填时空标题有两类：dirty 未结算（值得等 30s 再拉一次）
+          // 和已确认无标题（等了也不变）。重试只赌前者，失败与排队态不阻断列表。
+          if (!cursor && empty.length > 0) scheduleTitleRetry(empty);
         }
         sessions.titleLoading = false;
         onSessionsChanged?.();
@@ -471,6 +521,7 @@ export function createReaderStore(transport, onReadChanged, options) {
     turns = { status: 'idle', items: [] };
     bgJobs = { status: 'idle', items: [] };
     summary = { status: 'idle', data: null };
+    clearTitleRetry();
     clearReadsCache();
   }
 
@@ -479,6 +530,7 @@ export function createReaderStore(transport, onReadChanged, options) {
     epoch += 1;
     scheduler.cancelScope(pageScope);
     scheduler.cancelScope(sessionScope);
+    clearTitleRetry();
     clearReadsCache();
     scheduler.dispose();
   }

@@ -16,6 +16,7 @@ Status: implemented
 - 左栏首屏接入骨架条占位（`.sess-skeleton`），数据到达前是占位条而不是空白；主栏等待仍按原文字显示。
 - 标题在途时列表行与中栏会话头标题区显示「读取标题中…」脉动（`.is-loading` + `sess-title-pulse` 动画），这是"light 阶段在飞行中"的临时态，不是"确认无标题"。快照上 `titleLoading` public 标志区分两态：为真时空标题行走 loading 样式，归零后空标题才转入正式「（无标题）」。`onSessionsChanged` 每次触发时同时重渲左栏列表与中栏主区，所以回填到达后左右标题一同切到真实标题。回填失败静默保留空标题并关闭 `titleLoading`，同样落到正式「（无标题）」；用户仍可点进会话，不阻断主流程。
 - 标题失败不阻断列表：失败保留空标题，用户仍可点进会话。
+- 首次回填后仍为空标题的 keys 挂一个 30s 一次性重试：回填时那批 keys 里如果有正在写的 dirty 组，settled 后的标题不会被“回填已结束”误标无标题。重试只发一次、用 `retrying` 态继续显示「读取标题中…」；重试后仍空的才正式落「（无标题）」。`dispose()` / `leaveSession()` 都会清这个 timer，废掉的重试写不回新页面。
 
 ## Alternatives considered
 
