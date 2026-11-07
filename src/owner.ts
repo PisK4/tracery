@@ -7,7 +7,7 @@
  * 3. 同 conv_key、同 agent、±2 秒、四段用量逐段相等（本地会话与网关指纹）；
  * 4. 同 conv_key、同 agent、±2 秒的完成时间对齐（本地只读得到消息落库时刻）；
  * 5. 同 conv_key、同 agent、±60 秒、模型名归一后相等或至少一方缺失（弱线索，
- *    只给没提供完成时间的来源兜底；提供了完成时间的来源不再走这一条）。
+ *    只给没提供完成时间、也没有显式关闭弱窗的来源兜底）。
  *    双方都给出模型且归一后不相等时，即使只有一个候选也不合并。
  *
  * 模型名跨来源写法不同（网关 `group/auto-…`、本地 `auto/…`），因此第 3、4 条不比较
@@ -61,6 +61,13 @@ export type OwnerQuery = {
    * 后面的强指纹）。存量修复传 true；摄入路径不带，线索次序不变。
    */
   skipResponseId?: true;
+  /**
+   * 不启用弱开始窗（第 5 条）。调用方依赖确定性的完成时间语义时使用：
+   * `endMs` 缺失或非法也不退回 ±60 秒猜测，只保留前四条线索。
+   * hook 回落传 true——envelope 的完成时间没有运行时校验，缺字段或 NaN
+   * 不能把弱窗重新打开。
+   */
+  disallowWeakWindow?: true;
 };
 
 const TURN_DEDUPE_WINDOW_MS = 60_000;
@@ -266,6 +273,9 @@ export function findRequestOwnerTx(db: Database, query: OwnerQuery): RequestOwne
   // 来源已经给出完成时间时，弱开始窗不再兜底：完成时刻对不上就是另一笔，
   // 60 秒窗只会把相邻调用并错。缺结束时间的来源才继续用弱窗。
   if (query.endMs !== undefined && query.endMs !== null) return ABSENT;
+  // 调用方声明不启用弱窗时，完成时间缺失或非法也不猜：与上面同样从宽，
+  // 多一行好过错并一行。
+  if (query.disallowWeakWindow === true) return ABSENT;
   // 时间窗只作为弱线索：模型名归一后比较，缺失或不相等都不直接拒绝，
   // 由候选唯一性与模型相等做最后裁决。
   return byConvTimeModel(db, query, query.convKey, query.agent);

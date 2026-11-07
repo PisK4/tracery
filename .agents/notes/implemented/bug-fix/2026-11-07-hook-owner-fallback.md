@@ -12,7 +12,7 @@ Status: implemented
 
 `acceptHook` 在 route 候选与 OTLP turn 候选都没有认领目标时，回落到 `findRequestOwnerTx`。查询带 response id、turn ref、与落库同形的组键、agent、开始时间，以及 `observed_finish_ms` 作为完成时间；`usage` 传 null，hook 不解析回复里的协议用量。
 
-hook 总是提供完成时间，owner 的第 5 条弱开始窗因此关闭，回退只走 response id、turn 与完成时间对齐。命中时证据行的 `match_rule` 写 owner 给出的规则名；未命中时等待队列、证据状态与新建行保持原行为。hook 先到、会话或账本后到的方向不变，那条路径本来就由对方的 owner 查找认领 hook 行。
+hook 的完成时间来自 envelope，没有运行时校验，缺字段或 NaN 都进得来。回落显式传 `disallowWeakWindow`，owner 的第 5 条弱开始窗不参与，只走 response id、turn 与完成时间对齐。命中时证据行的 `match_rule` 写 owner 给出的规则名；未命中时等待队列、证据状态与新建行保持原行为。hook 先到、会话或账本后到的方向不变，那条路径本来就由对方的 owner 查找认领 hook 行。
 
 ## Alternatives considered
 
@@ -24,7 +24,7 @@ hook 总是提供完成时间，owner 的第 5 条弱开始窗因此关闭，回
 
 ## Testing
 
-`tests/hook.test.ts` 新增三条合成测试：会话行先到、hook 按 response id 认领后只剩一行，证据规则为 `response_id_norm.v1`；无 response id 时按完成时间对齐认领，规则为 `conv_end.v1`；会话完成时刻相差 8.8 秒时不合并，也不退回 60 秒开始窗。修复前前两条各得到两行，修复后 hook 测试 48 条全绿。
+`tests/hook.test.ts` 新增四条合成测试：会话行先到、hook 按 response id 认领后只剩一行，证据规则为 `response_id_norm.v1`；无 response id 时按完成时间对齐认领，规则为 `conv_end.v1`；会话完成时刻相差 8.8 秒时不合并，也不退回 60 秒开始窗；`observed_finish_ms` 为 NaN 且会话行落在弱窗内时同样不合并。修复前前两条各得到两行，补弱窗守卫前第四条会并成一行；修复后 hook 测试 49 条全绿。
 
 ## Consequences
 
