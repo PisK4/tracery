@@ -43,6 +43,7 @@ function reading(overrides: Partial<WeeklyReading> = {}): WeeklyReading {
     llmMatched: 149_000,
     nonLlmSpans: 30_000,
     unknownShapeSpans: 0,
+    replayableSpans: 0,
     bodyRefs: 5,
     issueReasons: [],
     convs: 1_600,
