@@ -423,17 +423,15 @@ if (typeof document !== 'undefined') {
   }
 
   function renderFilters() {
+    // 纯投影：只读 reader-store 的全库目录快照，不发网络、不做页内聚合。计数口径
+    // 统一为可见会话数（目录服务端按 sessions 降序排好），不再有 >=50 阈值与前 7 上限。
+    const dir = store.peekSessionAgents();
     const items = store.getSessions().items;
-    const counts = new Map();
-    for (const s of items) for (const a of s.agents) counts.set(a, (counts.get(a) ?? 0) + s.request_count);
-    const ranked = [...counts.entries()].sort((a,b)=>b[1]-a[1]).filter(([a,c])=>c>=50||a===state.agent).map(([a])=>a).slice(0,7);
     const liveAgents = new Set(items.filter(s=>s.inflight||(typeof s.live_until==='number'&&s.live_until>Date.now())).flatMap(s=>s.agents));
-    const total = items.length;
-    const allRow = `<button class="agent-row" data-agent="all" aria-pressed="${state.agent==='all'}" title="${esc('all')}"><span class="ic">✦</span><span class="lbl">${esc(t('全部 Agent'))}</span><span class="cnt">${total}</span></button>`;
-    el('agent-list').innerHTML = allRow + ranked.map(a=>{
-      const c = counts.get(a) ?? 0;
-      const dot = liveAgents.has(a) ? `<span class="live-dot" title="${esc(t('有活跃会话'))}"></span>` : '';
-      return `<button class="agent-row" data-agent="${esc(a)}" aria-pressed="${state.agent===a}" title="${esc(a)}"><span class="lead">${agentLogoHtml(a)}</span><span class="lbl">${esc(agentLabel(a))}</span><span class="cnt">${c}</span>${dot}</button>`;
+    const allRow = `<button class="agent-row" data-agent="all" aria-pressed="${state.agent==='all'}" title="${esc('all')}"><span class="ic">✦</span><span class="lbl">${esc(t('全部 Agent'))}</span><span class="cnt">${dir.total}</span></button>`;
+    el('agent-list').innerHTML = allRow + dir.agents.map(a=>{
+      const dot = liveAgents.has(a.agent) ? `<span class="live-dot" title="${esc(t('有活跃会话'))}"></span>` : '';
+      return `<button class="agent-row" data-agent="${esc(a.agent)}" aria-pressed="${state.agent===a.agent}" title="${esc(a.agent)}"><span class="lead">${agentLogoHtml(a.agent)}</span><span class="lbl">${esc(agentLabel(a.agent))}</span><span class="cnt">${a.sessions}</span>${dot}</button>`;
     }).join('');
   }
 
@@ -488,9 +486,9 @@ if (typeof document !== 'undefined') {
   function renderSessions() {
     const items = store.getSessions().items;
     const all = /** @type {SessionRow[]} */ (items.filter(sessionMatches));
-    // 探针记录、旁路会话与工具子事件默认折叠：渲染层过滤，分页仍按全量，折叠
-    // 计数只覆盖已加载页。选中的行临时留下，否则 URL 打开后既高亮不了也找不到它。
-    const folded = (/** @type {SessionRow} */ s) => s.flags.includes('probe') || s.flags.includes('bypass')
+    // 探针记录、后台会话与工具子事件默认折叠：渲染层过滤。旁路已在分页前下推 SQL
+    // 排除，不再到达客户端。折叠计数只覆盖已加载页；选中的行临时留下，否则 URL 打开后既高亮不了也找不到它。
+    const folded = (/** @type {SessionRow} */ s) => s.flags.includes('probe')
       || s.flags.includes('background') || s.flags.includes('tool_event');
     const list = state.showFolded ? all : all.filter(s => !folded(s) || s.conv_key === state.session);
     const foldable = all.filter(s => folded(s) && s.conv_key !== state.session);
@@ -2366,7 +2364,9 @@ if (typeof document !== 'undefined') {
     const agent = /** @type {HTMLElement | null} */ (target.closest('[data-agent]'));
     if (agent) {
       state.agent = agent.dataset.agent ?? 'all';
-      renderFilters(); renderSessions();
+      renderFilters();
+      // 筛选下推到服务端：重置列表并以新 Agent 重读第一页，落地经 onSessionsChanged 重绘。
+      void store.setSessionAgent(state.agent);
       // 选中段弹起 + 列表快速刷新渐显：只挂在用户点击上，搜索逐键不播。
       const pressed = /** @type {HTMLElement | null} */ (document.querySelector('#agent-list .agent-row[aria-pressed="true"]'));
       if (pressed !== null) { pressed.classList.remove('chip-fresh'); void pressed.offsetWidth; pressed.classList.add('chip-fresh'); }
@@ -2392,7 +2392,8 @@ if (typeof document !== 'undefined') {
       return;
     }
     if (target.closest('#refresh-sessions')) {
-      // 列表刷新只重读第一页并合并去重；已加载的后续页保留，滚动位置不重置。
+      // 显式刷新是目录聚合的两个触发点之一（另一个是启动）；列表重读第一页并合并去重。
+      void store.loadSessionAgents();
       void store.loadSessions().then(() => { renderSessions(); renderFilters(); });
       return;
     }
@@ -2668,6 +2669,8 @@ if (typeof document !== 'undefined') {
     }
     // 统计读取排在列表之后：不再与 /api/sessions 竞争首屏的服务端时间窗。
     void refreshBackendState();
+    // 目录聚合是启动触发点：全库 facets 低频且走覆盖索引，落地经 onSessionsChanged 重绘目录。
+    void store.loadSessionAgents();
     if (listError !== null) {
       el('sessions-list').innerHTML = `<p class="sess-empty">${t('会话列表加载失败:{error}', { error: esc(listError instanceof Error ? listError.message : 'unknown') })}</p>`;
       return;

@@ -160,7 +160,7 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .group-head .chev{width:14px;height:14px;display:grid;place-items:center;transition:transform var(--t-fold) var(--ease-out);color:var(--muted)}
 .group-head[aria-expanded="false"] .chev{transform:rotate(-90deg)}
 .group-head .grp-n{margin-left:auto;font:10.5px var(--mono);letter-spacing:0;text-transform:none;color:var(--muted)}
-.agent-list{display:grid;gap:1px;overflow:hidden;max-height:420px;opacity:1;transition:max-height var(--t-fold) var(--ease-out),opacity var(--t-fold) var(--ease-out)}
+.agent-list{display:grid;gap:1px;overflow:auto;max-height:420px;opacity:1;transition:max-height var(--t-fold) var(--ease-out),opacity var(--t-fold) var(--ease-out)}
 .agent-list[data-open="false"]{max-height:0;opacity:0}
 .agent-row{display:flex;align-items:center;gap:8px;height:32px;padding:0 8px;border-radius:6px;font-size:13px;color:var(--text);position:relative;width:100%;transition:background var(--t-micro) var(--ease-out)}
 .agent-row:hover{background:var(--inset)}
@@ -257,7 +257,10 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
    高度扣掉吸顶的会话头与轮次带，由 col-main 的盒高给出。 */
 .step-list.art-empty{display:flex;flex-direction:column;min-height:calc(100% - var(--head-h,120px) - var(--band-h,0px))}
 .step-list.art-empty > .sess-empty-art{margin:auto}
-.sess-fold{padding:8px 10px;border-top:1px dashed var(--line)}
+.sess-fold{padding:3px 10px;border-top:1px dashed var(--line)}
+/* 折叠入口收窄为低存在感文字链接：旁路下推后只剩探针/后台/工具子事件，不值得一个实心按钮。 */
+.sess-fold .chip-btn{border-color:transparent;background:transparent;color:var(--muted);padding:2px 4px;font-size:10.5px}
+.sess-fold .chip-btn:hover{background:var(--hover);color:var(--text-2)}
 .bg-note{font-size:10.5px;color:var(--muted);white-space:nowrap}
 
 /* ---------- 中栏：会话头 ---------- */

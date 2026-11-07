@@ -43,6 +43,19 @@ test('游标与会话键一起编码，null 参数不进 URL', async () => {
   expect(calls[2]!.url).toBe('/api/sessions/k/turns?from=7');
 });
 
+test('Agent 筛选与可见性编码进会话 URL，目录走独立路由', async () => {
+  const { fetcher, calls } = scriptedFetch([{}, {}, { body: { agents: [], total: 0 } }]);
+  const transport = createHttpReadTransport({ fetcher });
+  const signal = new AbortController().signal;
+  await transport.execute('sessions', { limit: 20, cursor: null, title: 'light', agent: 'hermes', visibleOnly: true }, { signal });
+  expect(calls[0]!.url).toBe('/api/sessions?limit=20&title=light&agent=hermes&visibleOnly=1');
+  // 无筛选不进 URL：接口默认仍报全量存储事实。
+  await transport.execute('sessions', { limit: 20, cursor: null, title: 'full' }, { signal });
+  expect(calls[1]!.url).toBe('/api/sessions?limit=20');
+  await transport.execute('sessionAgents', {}, { signal });
+  expect(calls[2]!.url).toBe('/api/agents');
+});
+
 test('批次输入编码为 JSON 查询参数', async () => {
   const token = 'r1-' + 'a'.repeat(64);
   const bundle = (id: number) => ({

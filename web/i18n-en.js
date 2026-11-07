@@ -354,7 +354,7 @@ export const dict = {
 
   /* session-view */
   '请求中': 'In flight',
-  '{n} 条旁路会话': ({ n }) => (n === 1 ? '1 bypass session' : `${n} bypass sessions`),
+  '{n} 条后台会话': ({ n }) => (n === 1 ? '1 background session' : `${n} background sessions`),
   '{n} 条工具子事件{tail}': ({ n, tail }) => `${n === 1 ? '1 tool subevent' : `${n} tool subevents`}${tail}`,
   '收起 {parts}': 'Collapse {parts}',
   '已折叠 {parts}（已加载页）': 'Folded {parts} (loaded pages)',
