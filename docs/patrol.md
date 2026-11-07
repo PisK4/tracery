@@ -53,7 +53,7 @@ bun run patrol weekly --if-due                          # 本期已有快照时�
 
 **B2 证据链**（核心 2）。`evidence_gap` 超比例、`pending_hook` 今日新增超过前 7 日均值的倍数、`hook_absent` 最近完整一天超过阈值且超过均值的倍数即越界。`hook_absent` 还要再看 agent 分布：claude 未装 hook 时持续增长是 F01 的已知行为，先排除它再定性；重启或升级窗口会临时抬高 gap；批量回填会让 `pairs` 一次跳增，不能直接做周环比。证据：第 1 轮 F09、F13、F16。
 
-**B3 摄入产出比**（核心 3）。`otlp_yield` 只以 raw 保留窗内、当前 mapping 应识别的 LLM span 为分母，以同一批 span 的 `(trace_id, span_id)` 匹配证据为分子；样本量与覆盖率阈值由脚本定义。已过 TTL 的长期证据不进分子。内部 span 不进分母，`body_ref=0` 不单独越界；未知服务和未知形状由 `otlp_issues` 按近 7 日理由计数检查。mapping 变更会改变重分类结果，跨版本比较需核对规则差异。
+**B3 摄入产出比**（核心 3）。`otlp_yield` 只以 raw 保留窗内、当前 mapping 应识别的 LLM span 为分母，以同一批 span 的 `(trace_id, span_id)` 匹配证据为分子；样本量与覆盖率阈值由脚本定义。已过 TTL 的长期证据不进分子。内部 span 不进分母，`body_ref=0` 不单独越界；未知服务和未知形状由 `otlp_issues` 按近 7 日理由计数检查。mapping 变更会改变重分类结果，跨版本比较需核对规则差异。detail 里的「可重放」是窗口内 mapping_version 落后当前规则的行数；恢复走 [otlp-replay](operations.md#otlp-replay)。
 
 **B4 会话扇出**。`conversation_size` 只在单个会话超过上限时报越界；`>200` 的会话数只在 `conversation_delta` 里与上一期比较。长跑采集与自动化任务天然产生大会话，真正要看的是翻页契约（F40）是否已修。证据：第 5 轮 F40；第 3 轮 F29。
 

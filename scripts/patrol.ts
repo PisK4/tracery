@@ -23,7 +23,7 @@ import {
 } from '../src/capacity-meter';
 import { RAW_TTL_MS } from '../src/retention';
 import type { OtlpAttrs, OtlpSpan } from '../src/sources/otlp/decode';
-import { SPAN_RULES, classifySpan, ruleOwnsService } from '../src/sources/otlp/mapping';
+import { OTLP_MAPPING_VERSION, SPAN_RULES, classifySpan, ruleOwnsService } from '../src/sources/otlp/mapping';
 import { readToken } from './service-support';
 
 const MB = 1024 * 1024;
@@ -99,6 +99,8 @@ export type WeeklyReading = {
   nonLlmSpans: number;
   /** 白名单服务、LLM 形状但选取规则没认的 span。 */
   unknownShapeSpans: number;
+  /** 窗口内 mapping_version 落后当前规则的 raw span；重放前不可产出证据。 */
+  replayableSpans: number;
   bodyRefs: number;
   issueReasons: { reason: string; n: number }[];
   convs: number;
@@ -189,7 +191,7 @@ export function evaluateWeekly(reading: WeeklyReading): Check[] {
     state: reading.llmSpans >= PATROL_THRESHOLDS.otlpMinLlmSpans
       && llmCoverage < PATROL_THRESHOLDS.otlpLlmCoverageMin
       ? 'over' : 'ok',
-    detail: `LLM span ${reading.llmSpans}，匹配证据 ${reading.llmMatched} = ${pct(llmCoverage)}，下限 ${pct(PATROL_THRESHOLDS.otlpLlmCoverageMin)}；窗口内全 span ${reading.spans}，匹配 ${reading.spanEvidence} = ${pct(otlpRatio)}，内部/非 LLM ${reading.nonLlmSpans}，未知形状 ${reading.unknownShapeSpans}，body_ref ${reading.bodyRefs}`,
+    detail: `LLM span ${reading.llmSpans}，匹配证据 ${reading.llmMatched} = ${pct(llmCoverage)}，下限 ${pct(PATROL_THRESHOLDS.otlpLlmCoverageMin)}；窗口内全 span ${reading.spans}，匹配 ${reading.spanEvidence} = ${pct(otlpRatio)}，内部/非 LLM ${reading.nonLlmSpans}，未知形状 ${reading.unknownShapeSpans}，可重放 ${reading.replayableSpans}，body_ref ${reading.bodyRefs}`,
   });
   checks.push({
     id: 'otlp_issues',
@@ -250,9 +252,9 @@ export function collectWeekly(dbPath: string, dataDir: string, nowMs = Date.now(
     // 产出核对只认同一窗口内的物理 span 身份；TTL 后的长期证据不计入分子。
     const windowStart = nowMs - RAW_TTL_MS;
     const rawSpans = db.query<
-      { service: string | null; name: string; attributes_json: string; matched: number },
+      { service: string | null; name: string; attributes_json: string; matched: number; mapping_version: number },
       [number]
-    >(`SELECT s.service,s.name,s.attributes_json,
+    >(`SELECT s.service,s.name,s.attributes_json,s.mapping_version,
          EXISTS(SELECT 1 FROM request_evidence e WHERE e.source_kind='otlp_span'
            AND e.ref_key=lower(hex(s.trace_id))||'/'||lower(hex(s.span_id))) AS matched
        FROM raw_otlp_span s WHERE s.received_at>=?`).all(windowStart);
@@ -262,8 +264,10 @@ export function collectWeekly(dbPath: string, dataDir: string, nowMs = Date.now(
     let llmMatched = 0;
     let nonLlmSpans = 0;
     let unknownShapeSpans = 0;
+    let replayableSpans = 0;
     for (const row of rawSpans) {
       spans += 1;
+      if (row.mapping_version < OTLP_MAPPING_VERSION) replayableSpans += 1;
       if (row.matched === 1) spanEvidence += 1;
       const shape = classifyRawSpan(row.service, row.name, row.attributes_json);
       if (shape === 'llm') {
@@ -328,6 +332,7 @@ export function collectWeekly(dbPath: string, dataDir: string, nowMs = Date.now(
       llmMatched,
       nonLlmSpans,
       unknownShapeSpans,
+      replayableSpans,
       bodyRefs,
       issueReasons,
       convs: convRow?.convs ?? 0,

@@ -171,6 +171,10 @@ bun run maintain normalize-response-ids --db '<dataDir>/trace.db' --apply --appr
 bun run maintain dedupe-sessions --db '<dataDir>/trace.db'
 bun run maintain dedupe-sessions --db '<dataDir>/trace.db' --apply --approval-id '<你的审批标识>'
 
+# 映射规则升级后重放旧版本 raw span，默认只预览
+bun run maintain otlp-replay --db '<dataDir>/trace.db'
+bun run maintain otlp-replay --db '<dataDir>/trace.db' --apply --approval-id '<你的审批标识>'
+
 # 重置一个本地会话来源并从头重摄入：删独占行、摘混合行证据、清游标与原始行，默认只预览
 bun run maintain reset-source --db '<dataDir>/trace.db' --source hermes_session
 bun run maintain reset-source --db '<dataDir>/trace.db' --source hermes_session --apply --approval-id '<你的审批标识>'
@@ -403,6 +407,14 @@ bun run maintain body-bytes-backfill --db '<dataDir>/trace.db' --apply --approva
 只处理当前只有一条会话证据的请求：已经并入 hook 或账本证据的行是正式 owner，不会再被并走。身份判断复用 `findRequestOwnerTx`，只认 response id、turn ref 与四段用量指纹；只能被 ±60 秒弱时间窗配上的行只增加 `weak_only`，不在事后改行。命中后把源行的证据、正文引用、工具链接、别名与身份字段迁到目标，删除源行，重算两边的派生组；目标已有的正文与事实不覆盖。
 
 重复执行时 `candidates` 与 `merged` 为 0。修复不重置采集游标，也不重新解析会话文件；后续轮转按修正后的规则直接合并。
+
+### otlp-replay
+
+映射规则升级（`OTLP_MAPPING_VERSION` 前进）后，旧版本落在 `raw_otlp_span` 的 span 按当前规则重新分类落位。分类只在摄入时发生，没有这条路径时，规则修复救不回已落库的 span——它们按 raw 保留期（7 天）过期删除。
+
+默认只预览，输出 `scanned`（待重放行数）、`evidence`（会认领既有请求行的）、`wouldCreate`（会新建请求行的）、`unknownShape`、`skipped`、`expired`（已过保留期、随时代走的）。加 `--apply` 必须同时给 `--approval-id`，否则退出码 1 且错误码 `approval_id_required`。
+
+应用只读 raw、不写 raw：`received_at` 与属性原样保留，保留期时钟不因重放改变。落库段与摄入共用 `persistMappedSpanTx`，分类共用 `classifySpan`；三种分类都回写 `mapping_version`，skipped 也回写，否则每次应用都重复扫同一批行。unknown 写 `span_shape_unknown` issue，幂等。写入按 100 行一批开事务，批间不切线程——维护命令独占进程。重复执行时 `scanned` 为 0。
 
 ### purge-metadata
 

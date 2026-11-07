@@ -26,9 +26,10 @@ import type { Database } from 'bun:sqlite';
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
 import type { Stats } from 'node:fs';
-import type { OtlpLogRecord, OtlpLogsPayload, OtlpTracesPayload } from './decode';
+import type { OtlpLogRecord, OtlpLogsPayload, OtlpSpan, OtlpTracesPayload } from './decode';
 import { idHex, nanoToMs } from './decode';
 import { OTLP_MAPPING_VERSION, SPAN_RULES, classifySpan, mapSpan, ruleOwnsService } from './mapping';
+import type { SpanMapping } from './mapping';
 import { persistBodyTx } from '../../body';
 
 export type AcceptOtlpTracesResult = {
@@ -61,9 +62,9 @@ const TURN_DEDUPE_WINDOW_MS = 60_000;
  *
  * 主键是 `turn_ref`（Codex 请求体 turn_id 与 OTLP turn.id 同值）；magpie 侧
  * 尚未结算指纹时退化为同会话 + turn 时间窗 + 模型。两者都拿不到才放弃，
- * 不按相邻 span 猜。
+ * 不按相邻 span 猜。重放的预览也用它，判断 span 会落到哪条既有行。
  */
-function magpieTurnRequestTx(
+export function magpieTurnRequestTx(
   db: Database,
   mapping: { agent: string; turnRef: string | null; modelRequested: string | null },
   convKey: string | null,
@@ -91,6 +92,68 @@ function magpieTurnRequestTx(
           AND (model_requested=? OR model_served=?)
         ORDER BY started_ms, req_id LIMIT 1`).get(convKey, mapping.agent, from, to, model, model);
   return row?.req_id ?? null;
+}
+
+/** 落库段结果：created=false 表示认领了既有 turn 行，没有新建请求。 */
+export type PersistMappedSpanResult = { created: boolean; bodiesWired: number };
+
+/**
+ * 映射后的 span 落库段：认领既有 magpie turn 行或新建请求行、登记证据、
+ * 回接 pending body_ref。摄入与重放共用这一段；raw 写入与分类判定
+ * （classifySpan）不在这里——重放只读 raw，不重写它。
+ */
+export function persistMappedSpanTx(
+  db: Database,
+  mapping: SpanMapping,
+  span: OtlpSpan,
+  refKey: string,
+  now: number,
+  salt: Uint8Array,
+  admission: HookAdmission,
+): PersistMappedSpanResult {
+  const conv = otlpConv(mapping.session);
+  const started = nanoToMs(span.startNano);
+  const endMs = span.endNano === null ? null : nanoToMs(span.endNano);
+  // 同一 thread+turn 已有 magpie 行：证据照写，但不另建行，避免重复计数。
+  const turnOwner = magpieTurnRequestTx(db, mapping, conv?.key ?? null, started, endMs);
+  if (turnOwner !== null) {
+    insertEvidenceTx(db, turnOwner, 'otlp_span', refKey, 'merged', MATCH_BY_SPAN_IDENTITY, now);
+    markRequestInputTx(db, turnOwner);
+    return { created: false, bodiesWired: 0 };
+  }
+  const insert = db.run(
+    `INSERT INTO request(
+       agent,session,conv_key,conv_source,actor,actor_state,
+       started_ms,day,via,stop,model_requested,model_served,
+       in_tok,out_tok,cache_read,cache_write,
+       body_state,derive_version,have,created_at,updated_at,title,title_source,
+       cost_state,attempt_state,sort_source,sort_key,turn_ref
+     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      mapping.agent, mapping.session, conv?.key ?? null, conv?.source ?? null,
+      mapping.session, conv === null ? 'unknown' : 'known',
+      started, localDay(started), 'otlp',
+      mapping.stop, mapping.modelRequested, mapping.modelServed,
+      mapping.inTok, mapping.outTok, mapping.cacheRead, mapping.cacheWrite,
+      'summary', 0, HAVE_OTLP, now, now,
+      modelTimeTitle(mapping.modelRequested, started), 'model_time',
+      'absent', 'known', 'otlp_span', refKey, mapping.turnRef,
+    ],
+  );
+  const reqId = Number(insert.lastInsertRowid);
+  insertEvidenceTx(db, reqId, 'otlp_span', refKey, 'merged', MATCH_BY_SPAN_IDENTITY, now);
+  // 有会话 id 才进派生组；没带的行不进 derive_queue，也不伪造归属。
+  if (conv !== null) markRequestInputTx(db, reqId);
+  // logs 可能先到：span 行一落，回头接等待中的 body_ref 指针。
+  let bodiesWired = 0;
+  for (const pending of db.query<{ request_body_id: string }, [Uint8Array]>(
+    "SELECT request_body_id FROM otlp_body_ref WHERE trace_id=? AND state='pending_span'",
+  ).all(span.traceId)) {
+    if (attemptBodyWireTx(db, pending.request_body_id, now, salt, admission)) {
+      bodiesWired += 1;
+    }
+  }
+  return { created: true, bodiesWired };
 }
 
 export function acceptOtlpTraces(
@@ -160,48 +223,9 @@ export function acceptOtlpTraces(
         }
 
         const mapping = mapSpan(verdict.rule, span);
-        const conv = otlpConv(mapping.session);
-        const started = nanoToMs(span.startNano);
-        const endMs = span.endNano === null ? null : nanoToMs(span.endNano);
-        // 同一 thread+turn 已有 magpie 行：证据照写，但不另建行，避免重复计数。
-        const turnOwner = magpieTurnRequestTx(db, mapping, conv?.key ?? null, started, endMs);
-        if (turnOwner !== null) {
-          insertEvidenceTx(db, turnOwner, 'otlp_span', refKey, 'merged', MATCH_BY_SPAN_IDENTITY, now);
-          markRequestInputTx(db, turnOwner);
-          continue;
-        }
-        const insert = db.run(
-          `INSERT INTO request(
-             agent,session,conv_key,conv_source,actor,actor_state,
-             started_ms,day,via,stop,model_requested,model_served,
-             in_tok,out_tok,cache_read,cache_write,
-             body_state,derive_version,have,created_at,updated_at,title,title_source,
-             cost_state,attempt_state,sort_source,sort_key,turn_ref
-           ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [
-            mapping.agent, mapping.session, conv?.key ?? null, conv?.source ?? null,
-            mapping.session, conv === null ? 'unknown' : 'known',
-            started, localDay(started), 'otlp',
-            mapping.stop, mapping.modelRequested, mapping.modelServed,
-            mapping.inTok, mapping.outTok, mapping.cacheRead, mapping.cacheWrite,
-            'summary', 0, HAVE_OTLP, now, now,
-            modelTimeTitle(mapping.modelRequested, started), 'model_time',
-            'absent', 'known', 'otlp_span', refKey, mapping.turnRef,
-          ],
-        );
-        const reqId = Number(insert.lastInsertRowid);
-        insertEvidenceTx(db, reqId, 'otlp_span', refKey, 'merged', MATCH_BY_SPAN_IDENTITY, now);
-        // 有会话 id 才进派生组；没带的行不进 derive_queue，也不伪造归属。
-        if (conv !== null) markRequestInputTx(db, reqId);
-        result.requestsCreated += 1;
-        // logs 可能先到：span 行一落，回头接等待中的 body_ref 指针。
-        for (const pending of db.query<{ request_body_id: string }, [Uint8Array]>(
-          "SELECT request_body_id FROM otlp_body_ref WHERE trace_id=? AND state='pending_span'",
-        ).all(span.traceId)) {
-          if (attemptBodyWireTx(db, pending.request_body_id, now, salt, admission)) {
-            result.bodiesWired += 1;
-          }
-        }
+        const persisted = persistMappedSpanTx(db, mapping, span, refKey, now, salt, admission);
+        result.requestsCreated += persisted.created ? 1 : 0;
+        result.bodiesWired += persisted.bodiesWired;
       }
     }
   }, 'otlp_traces');
