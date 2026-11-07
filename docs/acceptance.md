@@ -2496,3 +2496,37 @@ Grok 的 `session_usage` 有 4 行而游标有 6 个，不是漏刷：本机 6 �
 ### 门禁
 
 追加验收记录属纯文档改动，提交信息带 `Agent-Note: none` 豁免；合并批次已跑过 `bun run typecheck`、`tests/web.test.ts` 与 `tests/http.test.ts` 共 83 pass、全量 `verify:notes`，本轮不重复。
+
+## 会话栏全量 Agent 目录与旁路前置过滤生产部署与真实流量验收（2026-11-08）
+
+前提：master `8eab905`（合并 `feat/agent-directory`），含 `src/` 与 `web/` 改动及 schema v15。浏览器走查在 127.0.0.1:8320 的生产页面进行，读本机真实库 `trace.db`（10.7 GB）；页面与 curl 只记录计数、计算样式与 HTTP 往返耗时，不读取真实请求正文、账号与令牌。合成验收（1437 测试、EXPLAIN 钉子、8 万行 SQL 计时）见[特性 note](../.agents/notes/implemented/feature/2026-11-08-session-rail-full-agent-directory.md)，本节只记真实流量。
+
+### 部署
+
+`bun run service restart` 返回 0，pid 56887，端口 8320，用时 4 秒；`bun run service status` 报告作业 running、代码未落后、`/api/stats` 可读（12 毫秒），请求 146514 笔。启动迁移把 `trace.db` 从 v14 升到 v15：只读 `PRAGMA user_version` 得 15，`sqlite_master` 含 `i_req_session_visible`。curl 带同源 `Origin: http://127.0.0.1:8320` 头走页面同款 same-origin 放行，未读取读令牌密钥。
+
+### 真实目录与列表
+
+`/api/agents` 返回 total 2152、15 家 Agent：magpie 501、hermes 464、claude 334、omp 296、codex 175、droid 174、zcode 66、pi 46、Python-urllib 29、dsh 25、pydantic-ai 19、curl 15、AsyncOpenAI 8、grok 4、workbuddy 2。用户截图里漏掉的 Hermes 与 Codex 都在列。HTTP 往返三次 60.5 / 55.4 / 69.0 毫秒，这是全库聚合的成本，只在启动与显式刷新各付一次，不随渲染重复。
+
+`/api/sessions?limit=20&title=light&visibleOnly=1` 返回 20 条、带 `next_cursor`，页内 bypass 与 probe 标志各 0；HTTP 往返三次 35.8 / 32.9 / 49.7 毫秒。旁路在分页前排除，不再占客户端折叠。
+
+### 浏览器走查
+
+视口 1905×944。左栏目录渲染 16 行（「全部 Agent 2152」加 15 家），显示名 Hermes、Claude Code、Codex、Droid、ZCode、Pi、DeepSeek Harness 等；`.agent-list` 计算高度 420px 封顶、scrollHeight 527、overflow auto，长尾可滚。会话列表 `#sessions-list` 从 top 579px 延伸到视口底部 944px，含「活跃 3」与「全部会话 17」共 20 条真实会话，scrollHeight 1014px 可滚，铺满目录以下的剩余高度。
+
+加载到 60 条后出现折叠条「已折叠 6 条探针记录（已加载页）」：行高 31px，按钮高 24px、字号 10.5px、背景透明，只计探针、不含旁路；可见行 54（60 减 6 探针）。
+
+点 Hermes 行：会话列表重置为「已加载 20」，20 行全是 Hermes 会话（筛选下推到 SQL 重新起算，不是客户端过滤已加载的 60 条），目录 16 行保留不清。
+
+### 未覆盖与边界
+
+- HTTP 往返耗时含网络与 JSON 序列化，不是纯 SQL 计时；不能与 note 里 8 万行合成 SQL 毫秒数直接比较，也不外推到任意数据量。
+- 目录计数是读取时的快照，启动与显式刷新之间新摄入的会话不计入，允许滞后。
+- 浏览器只走了首页与 Hermes 筛选、加载到 60 条遇到探针折叠；未覆盖所有 Agent 筛选组合与正文状态，真实正文、账号与令牌没有读取、没有记录。
+- 折叠条的人眼观感（是否「够小」）仍需用户手动确认；机器判据只证明 24px 高、10.5px 字号、透明背景。
+- 同日既有 `body_ratio`、`hook_absent` 与 event_loop p99 越界基线不参与本轮判定；本轮未重跑 patrol weekly 与跨浏览器矩阵。
+
+### 门禁
+
+合并批次已跑 `bun run typecheck`、全量 `bun test`（1437 pass）、`verify:notes` 与 `verify-change-notes --range master..HEAD`；追加本验收记录属纯文档改动，提交信息带 `Agent-Note: none` 豁免，本轮不重复。
