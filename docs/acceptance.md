@@ -6,6 +6,23 @@
 
 记录里的数字、端口、pid 与耗时都来自作者机器，用于说明当时怎么判断，不是可复现的基准。
 
+## Magpie operation 会话准入（真实生产，2026-11-07）
+
+前提：首版 `feat/operation-admission` 合并为 master `e98ac72`（`PURPOSE_VERSION` 12）；生产验收暴露 retained 边界后 `fix/operation-retained-boundary` 合并为 `dd298ae`（`PURPOSE_VERSION` 13）。schema 仍 v14，无迁移。验收期间 PowerContext 持续产生 embedding 流量，计数是验收时点读数，不是冻结总量。
+
+部署按备份 → 重启 → 显式 rebuild → 验证执行。`service stop`（旧 pid 72646）后首次 bundle 报 `directory_permissions`：备份父目录不存在，建 0700 目录后重试成功，快照在 `~/Library/Application Support/tracery-backups/bundle-2026-11-07-operation-v13`。precheck `in_place`、db/code 14。启动新 pid 10693，用时 979 ms；`service status` 确认代码 `6151701` 未落后。
+
+历史回填 `operation-backfill` 应用重写 1370 行、0 失败，事实补齐后按输入标脏随 tick 重判。生产只读核对发现 16 笔 `execute_tool` 行正文已回收、retained 在 `source:mcp`/participate（version 11）：首版编排把 operation 放在 retained 早退之后，这些行永远到不了新规则。修正把 operation 前移到 Harness 强指纹之后、retained 之前，升 `PURPOSE_VERSION` 13，对 16 个回退组键逐会话 `maintain rebuild`，每个报告 `purpose_upgraded=1`、`purpose_processed=1`、`purpose_remaining=0`。
+
+修正部署后的只读验收（SQL 直读 + Bearer 调 `/api/sessions`）：
+
+- 带 operation 事实的请求 1690 行，`purpose_chain='participate'` 为 0：embeddings 与 `generate_content` 全部 exclude，其中 6 行正文回收后 retained 保持 `operation.v1` 的 exclude 结论。
+- `execute_tool` 16 行全部 `unrecognized`/`operation.unknown.v1`/exclude/version 13；`ingest_issue` 的 `operation_unregistered` 恰为 16 条（按请求 upsert），`service status` 问题行可见该计数。
+- 失败 embedding（status≥400）121 行原样保留，状态、用量与原始证据不丢。
+- 首屏 `limit=50`：47 个 `AsyncOpenAI` 单请求组全部带 `bypass` flag（首版前这组 flags 只有 `unknown`+`missing_body`，不进折叠），其余 3 个是真实会话（2 claude、1 omp）。渲染层默认折叠 bypass 组、计数只覆盖已加载页，展开走既有 `showFolded` 开关；折叠行为经 API flags 与渲染代码路径核对，未做浏览器点击验收。
+
+边界：`execute_tool` 上游赋值锚点未核对，仍在未知桶按请求记 issue；raw 已过期的历史行不在回填候选，保持原判定。
+
 ## Magpie operation 会话准入（合成，2026-11-07）
 
 前提：分支 `feat/operation-admission`，`PURPOSE_VERSION` 11→12、`SOURCE_PROJECTION_VERSION` 1→2，schema 不变。全部使用合成数据，未写生产库。

@@ -317,7 +317,7 @@ v14 的 `capacity_meter` 由四张来源表的触发器在写事务内维护。�
 
 ### rebuild
 
-整链重排一个会话的派生结果，只重算正文仍可读（`available` / `partial`）的请求。它先把目标会话里 `purpose_target<2` 的行置为待判，再排空用途、重排组；普通 tick 不升级 clean 的历史行，历史用途只在显式重建时换代。只排空目标会话的任务；其它会话的积压留给它自己的维护窗口。输出包含：
+整链重排一个会话的派生结果，只重算正文仍可读（`available` / `partial`）的请求。它先把目标会话里用途目标旧于当前 `PURPOSE_VERSION` 的行置为待判，再排空用途、重排组；普通 tick 不升级 clean 的历史行，历史用途只在显式重建时换代。只排空目标会话的任务；其它会话的积压留给它自己的维护窗口。输出包含：
 
 - `queued`：处理的分组数（按 `conv_key` + `actor` 拆）。
 - `unavailable`：正文不可用的请求数；它们保持原样。
@@ -422,7 +422,7 @@ bun run maintain body-bytes-backfill --db '<dataDir>/trace.db' --apply --approva
 
 ### operation-backfill
 
-Magpie operation 准入（`PURPOSE_VERSION` 12）上线后，历史行的 `source_facts_json` 缺 `operation` 键，用途层读不到这个事实。本命令给原始账本仍带显式 operation 的行重投影补齐长期事实，并按输入变化标脏：`purpose_pending=1`、输入修订加一、所属组标脏，用途随正常 tick 重判升级，不需要逐会话 rebuild。整链重建仍可选走 [rebuild](#rebuild)。
+Magpie operation 准入上线后，历史行的 `source_facts_json` 缺 `operation` 键，用途层读不到这个事实。本命令给原始账本仍带显式 operation 的行重投影补齐长期事实，并按输入变化标脏：`purpose_pending=1`、输入修订加一、所属组标脏，用途随正常 tick 重判升级，不需要逐会话 rebuild。整链重建仍可选走 [rebuild](#rebuild)。
 
 默认只预览，输出 `candidates`（事实缺键且 raw 带显式文本 operation 的行数）、`operations`（按 operation 值的分布，只取元数据）、`conv_keys`（受影响会话键）。加 `--apply` 必须同时给 `--approval-id`，否则退出码 1 且错误码 `approval_id_required`。
 
