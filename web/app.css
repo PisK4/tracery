@@ -1027,7 +1027,9 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
   .col-main[data-switch-state="switching"] .session-head::after{animation:none;transform:none;opacity:1}
   .col-main[data-switch-state="switching"] .session-head::after{left:0}
 }
-/* 切主题两帧抑制：主题当帧完成（既有决策），交互过渡在其余时刻照常。 */
+/* 切主题两帧抑制：主题当帧完成（既有决策），交互过渡在其余时刻照常。
+   只关过渡，不写 animation:none —— 那会把正在跑的无限动画取消后从零重播，
+   整页的 pulse、live-dot、骨架呼吸会集体对回同一相位。 */
 body.theme-switching *,body.theme-switching *::before,body.theme-switching *::after{
-  animation:none!important;transition:none!important;
+  transition:none!important;
 }

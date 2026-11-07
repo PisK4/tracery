@@ -2530,3 +2530,36 @@ Grok 的 `session_usage` 有 4 行而游标有 6 个，不是漏刷：本机 6 �
 ### 门禁
 
 合并批次已跑 `bun run typecheck`、全量 `bun test`（1437 pass）、`verify:notes` 与 `verify-change-notes --range master..HEAD`；追加本验收记录属纯文档改动，提交信息带 `Agent-Note: none` 豁免，本轮不重复。
+
+## 动效缺陷治理与转场推广（合成页面，2026-11-08）
+
+前提：worktree 分支 `feat/motion-defect-governance`，基线 `3a62960`，改动只在 `web/` 与 `tests/web.test.ts`。合成 server 临时用 8771 端口（8770 归另一会话），加载同一份生产 `web/`；浏览器只记录计算样式、动画时钟、DOM 类与资源状态，不读真实库。决策与边界见[动效缺陷治理与转场推广](../.agents/notes/implemented/feature/2026-11-08-motion-defect-governance-and-reuse.md)。
+
+### 治理前复现
+
+- 切主题：给页面注入三个无限动画（`.pulse`、`.live-dot`、`.sess-skel-title`），切换前三者 `currentTime` 都是 738ms；点主题后两帧抑制期间全部归零并同步重跑。根因是 `body.theme-switching *` 同时写了 `animation:none!important` 与 `transition:none!important`。
+- vendor 末帧：入场动画播完 `style` 留下 `opacity:1; transform:translateY(0px)`；离场动画播完留下 `opacity:0`。`motion.vendor.js` 的 `Z()` 用 `fill:"both"`，`onfinish` 经 `H(o,r,a)` 把末帧写成 inline 再 `cancel()`。
+- 瞬态类：点右栏页签 400ms 后 `tab-fresh` 仍在，`animation-name` 仍是 `underline-grow`。
+- 整块重绘：在 `rail-body` 注入三个无限动画，触发 `rail.innerHTML` 重绘后节点被换掉，相位从 623ms 全部归零。这轮只记录现象，没有改重绘方式。
+
+### 治理后逐项复验
+
+- 入场动画播完 inline `opacity` 与 `transform` 都为 null、计算透明度 1、在飞动画 0；离场动画仍保留 `opacity:0`，计算透明度 0。`context-map.js` 的 FLIP morph 没有传 `clean`，`left/top/width/height` 保持 tile 定位。
+- 切主题：注入的三个无限动画 `currentTime` 从 707ms 继续到 767ms，三个相位都保留，两帧后 `body.theme-switching` 类清空；按钮 `transition` 仍是 0.12s。
+- 瞬态类：点击后 30ms `tab-fresh` 在、`animation-name` 为 `underline-grow`；330ms 类已清除；再点能重播，之后再次清除；收尾时 `tab-fresh`、`chip-fresh`、`landed` 残留 0。
+- 汇总列表打开：右栏计算透明度 0.673306 正在淡入，`data-summary-back` 存在。`styleMutations` 为 0 是 WAAPI 只在末帧写 inline 的正常表现。
+- 左栏刷新会话列表：40ms 计算透明度 0.438761、80ms 0.752802、120ms 0.978343、160ms 1，inline 全程为 null，同时在飞动画最多 1 个。
+- 明细弹窗二次打开：首次计算透明度 0.699322、inline 为空；关闭后 inline `opacity:0`、计算透明度 0；再次打开计算透明度 0.688092、inline 为空。
+- 浏览器累计 71 个资源请求，无 400 及以上响应。
+
+### 未覆盖与边界
+
+- 折叠与加载更多两处淡入在当前合成会话没有对应按钮，只有源码级守门测试覆盖，未做浏览器验收。
+- `innerHTML` 整块重绘导致的无限动画相位重置只复现，没有治理；本轮修的是切主题抑制规则造成的集体归零。
+- 中栏显式刷新、跳锚点、切窗仍只复用 `entering` 淡回，没有升成切会话那种两段换场。
+- 只修改了既有 `web/` 模块，没有新增或搬移模块，`STATIC_FILES` 不变；未跑全量套件与跨浏览器矩阵。
+- 本轮没有部署生产，也没有在生产库上做真实流量验收；合成页通过不等于用户手动观感通过。
+
+### 门禁
+
+`bun run typecheck` 退出 0；`tests/web.test.ts` 单跑 58 pass / 0 fail / 432 expect；五个窄测试文件共 123 pass / 0 fail / 5966 expect；`git diff --check` 通过。改动尚未提交时全量 `verify:notes` 退出 0（检查 257 篇 Agent Note、8 个冻结产物），批次门禁另按 `verify:notes:staged` 与合并后的 `verify:notes` 执行，本节不代替这两次结果。

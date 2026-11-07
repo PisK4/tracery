@@ -1145,3 +1145,53 @@ test('明细弹窗重开清掉离场固化的 inline opacity', () => {
   const source = readFileSync('web/context-detail.js', 'utf8');
   expect(source).toContain("container.style.removeProperty('opacity')");
 });
+
+test('入场动画播完清 inline，离场动画保留末帧', () => {
+  const motionJs = readFileSync('web/motion.js', 'utf8');
+  const app = readFileSync('web/app.js', 'utf8');
+  const ctx = readFileSync('web/context-detail.js', 'utf8');
+  const map = readFileSync('web/context-map.js', 'utf8');
+  // 清理只在显式 clean 时做，且清的是关键帧里的属性。
+  expect(motionJs).toContain('if (options.clean === true)');
+  expect(motionJs).toContain('style.removeProperty(prop)');
+  // 所有入场调用都带 clean；toast 与弹窗的离场不带，末帧要留到元素隐藏。
+  expect(app).toContain("motion(el('rail-head'), { opacity: [0, 1] }, 0.12, { clean: true })");
+  expect(app).toContain('dir !== 0 ? 0.16 : 0.15, { clean: true })');
+  expect(app).toContain("motion(rail, { opacity: [0.35, 1] }, 0.14, { clean: true })");
+  expect(ctx).toContain("motion(slot, { opacity: [0, 1] }, 0.14, { clean: true })");
+  expect(map).toContain("motion(el, { opacity: [0, 1] }, 0.18, { clean: true })");
+  // morph 的 left/top/width/height 是 tile 定位本身，清掉会错位。
+  expect(map).toContain('这里不传 clean');
+  expect(map).not.toMatch(/height: \[`\$\{cached\.h\}px`, `\$\{s\.h\}px`\],\s*\}, 0\.22, \{ clean: true \}/);
+  expect(app).toContain("const out = motion(chip, { opacity: [1, 0]");
+  expect(ctx).toContain('motion(container, { opacity: [1, 0] }, 0.14)');
+});
+
+test('切主题只关过渡，不取消正在跑的无限动画', () => {
+  const css = readFileSync('web/app.css', 'utf8');
+  const block = css.slice(css.indexOf('body.theme-switching *'));
+  expect(block).toContain('transition:none!important');
+  expect(block.slice(0, block.indexOf('}'))).not.toContain('animation:none');
+});
+
+test('瞬态类统一重播并定时清除，不留常驻动画声明', () => {
+  const app = readFileSync('web/app.js', 'utf8');
+  expect(app).toContain('function markFresh(target, className, ms)');
+  expect(app).toContain('setTimeout(() => target.classList.remove(className), ms)');
+  expect(app).toContain("markFresh(group, 'landed', 760)");
+  expect(app).toContain("markFresh(pressed, 'chip-fresh', 220)");
+  expect(app).toContain("markFresh(document.querySelector('.tool-page-tabs button[aria-pressed=\"true\"]'), 'chip-fresh', 220)");
+  expect(app).toContain("markFresh(document.querySelector('.rail-tabs button[aria-pressed=\"true\"]'), 'tab-fresh', 220)");
+  expect(app).not.toContain("classList.add('tab-fresh')");
+  expect(app).not.toContain("classList.add('chip-fresh')");
+  expect(app).not.toContain("classList.add('landed')");
+});
+
+test('汇总列表打开与左栏列表换内容都补一次淡入', () => {
+  const app = readFileSync('web/app.js', 'utf8');
+  expect(app).toContain('railViewNudge = true;\n    openRail();\n    renderRail();');
+  const fade = "motion(el('sessions-list'), { opacity: [0.35, 1] }, 0.14, { clean: true })";
+  expect(app.split(fade).length - 1).toBe(4);
+  // 中栏切会话的两段换场不因推广被改动。
+  expect(app).toContain('const SWITCH_MIN_HOLD_MS = 200');
+});

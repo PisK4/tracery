@@ -331,7 +331,7 @@ export function createContextMenu({ readDirectory, readEntry }) {
     const ready = s.contents.get(key);
     if (ready?.phase === 'ready') {
       slot.innerHTML = entryContentHtml(entry, ready.data);
-      motion(slot, { opacity: [0, 1] }, 0.14);
+      motion(slot, { opacity: [0, 1] }, 0.14, { clean: true });
       return;
     }
     slot.innerHTML = `<p class="ctx-d-note pulse">${t('读取正文…')}</p>`;
@@ -344,7 +344,7 @@ export function createContextMenu({ readDirectory, readEntry }) {
       return;
     }
     slot.innerHTML = entryContentHtml(entry, result.data);
-    motion(slot, { opacity: [0, 1] }, 0.14);
+    motion(slot, { opacity: [0, 1] }, 0.14, { clean: true });
   }
 
   /** 离场动画在飞时的 controls：重开即取消，播完才真正 hidden。 */
