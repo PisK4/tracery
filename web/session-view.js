@@ -482,6 +482,7 @@ function sessionBoard(s, status, rows, hidden, sessionKey, hiddenFoldOpen) {
 
 /** 会话头：标题行、身份行、双列分组板与定位提示。
  *  @param {{sessionKey: string | null, row: SessionRow | null, rows: RequestRow[], refreshedAt: number | null,
+ *    titleLoading?: boolean,
  *    missingReqId: number | null, offPageReqId: number | null, windowError: string | null,
  *    summary: SessionSummary | null, summaryStatus?: 'idle' | 'loading' | 'ready' | 'absent',
  *    hiddenRows?: RequestRow[], hiddenFoldOpen?: boolean,
@@ -497,7 +498,11 @@ export function sessionHead(input) {
   const latest = rows[rows.length - 1] ?? null;
   return `<header class="session-head">
     <div class="head-top">
-      <h1>${esc(row ? row.title || t('（无标题）') : unknown ? t('这个会话不在已加载列表里') : t('未选择会话'))}</h1>
+      <h1>${row
+        ? (row.title
+            ? esc(row.title)
+            : input.titleLoading ? `<span class="head-title is-loading" aria-label="${t('读取标题中')}">${t('读取标题中…')}</span>` : esc(t('（无标题）')))
+        : unknown ? t('这个会话不在已加载列表里') : t('未选择会话')}</h1>
       <div class="head-actions">
         ${refreshedAt !== null ? `<span class="muted">${t('刷新于 {time}', { time: esc(clock(refreshedAt)) })}</span>` : ''}
         <button class="chip-btn ghost ico" id="refresh-window" aria-label="${t('刷新')}" title="${t('重新读取当前窗口；输入变化会换发阅读版本')}">${icon('refresh', 20)}</button>

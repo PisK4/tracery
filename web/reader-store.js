@@ -34,7 +34,7 @@ import { createReadScheduler } from './read-scheduler.js';
 /**
  * @typedef {Object} ReaderStore
  * @property {() => {sessionKey: string | null, requests: import('../src/queries/projection').RequestRow[], newerCursor: string | null, loading: boolean, error: string | null}} getWindow
- * @property {() => {items: import('../src/queries/sessions').SessionRow[], cursor: string | null, error: string | null}} getSessions
+ * @property {() => {items: import('../src/queries/sessions').SessionRow[], cursor: string | null, error: string | null, titleLoading: boolean}} getSessions
  * @property {(cursor?: string) => Promise<void>} loadSessions
  * @property {(key: string, limit?: number, anchor?: 'start' | 'latest') => Promise<void>} selectSession
  * @property {() => Promise<void>} loadLater
@@ -120,8 +120,8 @@ export function createReaderStore(transport, onReadChanged, options) {
     return scope;
   }
 
-  /** @type {{items: import('../src/queries/sessions').SessionRow[], cursor: string | null, error: string | null}} */
-  const sessions = { items: [], cursor: null, error: null };
+  /** @type {{items: import('../src/queries/sessions').SessionRow[], cursor: string | null, error: string | null, titleLoading: boolean}} */
+  const sessions = { items: [], cursor: null, error: null, titleLoading: false };
   /** @type {Promise<void> | null} 在途的会话列表请求；并发调用共享它而不是被丢弃。 */
   let sessionsInflight = null;
   /** @type {string | null} */
@@ -289,7 +289,8 @@ export function createReaderStore(transport, onReadChanged, options) {
     if (sessionsInflight !== null) return sessionsInflight;
     sessionsInflight = (async () => {
       try {
-        // 首屏先轻量：标题子查询改为异步回填，列表先出。
+        // 首屏先轻量：标题子查询改为异步回填，列表先出。行在 light 阶段走 loading 态，
+        // 回填收尾后再转正式「（无标题）」，不再用同一占位冒充已确认无标题。
         const light = await execute(pageScope, 'sessions', { limit: 20, cursor: cursor ?? null, title: 'light' });
         // 并发调用已共享同一个在途请求；分页边界仍可能把同一会话返回两次
         // （末条时间相同），按 conv_key 去重，保留先出现的一条。
@@ -301,8 +302,9 @@ export function createReaderStore(transport, onReadChanged, options) {
         sessions.items = [...seen.values()];
         sessions.cursor = light.next_cursor;
         sessions.error = null;
+        sessions.titleLoading = true;
         onSessionsChanged?.();
-        // 标题回填：首屏先渲染带空标题的行，随后按 keys 拉回标题，逐项覆盖。
+        // 标题回填：首屏先渲染空标题的行，随后按 keys 拉回标题，逐项覆盖。
         const keys = light.items.map((/** @type {{conv_key: string}} */ item) => item.conv_key);
         if (keys.length > 0) {
           try {
@@ -312,13 +314,15 @@ export function createReaderStore(transport, onReadChanged, options) {
               const title = byKey.get(item.conv_key);
               if (title !== undefined) item.title = title;
             }
-            onSessionsChanged?.();
           } catch {
             // 标题失败不阻断列表：失败保留空标题，用户仍可点进会话。
           }
         }
+        sessions.titleLoading = false;
+        onSessionsChanged?.();
       } catch (error) {
         sessions.error = error instanceof Error ? error.message : 'load_failed';
+        sessions.titleLoading = false;
       } finally {
         sessionsInflight = null;
       }

@@ -189,6 +189,10 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .sess:hover{background:var(--inset)}
 .sess[aria-current="true"]{background:var(--hover)}
 .sess-title{font-size:12.5px;font-weight:550;line-height:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 标题读取中：异步回填未完成时的占位，与正式无标题区分。 */
+.sess-title.is-loading{color:var(--muted);font-weight:450;animation:sess-title-pulse 1s ease-in-out infinite alternate}
+.head-title.is-loading{color:var(--muted);font-weight:500;animation:sess-title-pulse 1s ease-in-out infinite alternate}
+@keyframes sess-title-pulse{from{opacity:.55}to{opacity:1}}
 .sess-meta{display:flex;align-items:center;gap:6px;font-size:10.5px;line-height:14px;color:var(--muted);min-width:0}
 .sess-meta .dot{width:5px;height:5px;border-radius:50%;flex:none}
 /* 失败与缺正文的形状标记：8px 是形状可辨的下限，正常行不再画点。 */

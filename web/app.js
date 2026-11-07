@@ -248,7 +248,7 @@ if (typeof document !== 'undefined') {
     { onTurnsChanged: () => { consumePendingTurn(); renderMain(); renderRail(); },
       onSummaryChanged: () => { consumePendingSummary(); renderMain(); renderRail(); },
       onTodoChanged: () => { renderRail(); },
-      onSessionsChanged: () => { renderSessions(); renderFilters(); } });
+      onSessionsChanged: () => { renderSessions(); renderFilters(); renderMain(); } });
   /** @type {Map<string, boolean>} 折叠开合按稳定键保存（键含 req id），重绘后恢复。 */
   const folds = new Map();
   /** @type {Map<number, number>} 结构折叠内选中的消息 ord 按 req id 保存：UI 选择留在页面，不进 store。 */
@@ -678,8 +678,13 @@ if (typeof document !== 'undefined') {
         ? `${agentLabel(s.agents[0])}${s.agents.length > 1 ? ` +${s.agents.length - 1}` : ''}`
         : t('归属未知');
       const time = liveTimeCell(s, clock);
+      // 标题：light 阶段空标题是异步回填中，走 loading 语义；回填失败或正式无标题才「（无标题）」。
+      const titleLoading = store.getSessions().titleLoading && !s.title;
+      const titleHtml = titleLoading
+        ? `<span class="sess-title is-loading" aria-label="${t('读取标题中')}" aria-hidden="false">${t('读取标题中…')}</span>`
+        : `<span class="sess-title">${esc(s.title || t('（无标题）'))}</span>`;
       return `<button class="sess" data-session="${esc(s.conv_key)}" aria-current="${s.conv_key === state.session}">
-        <span class="sess-title">${esc(s.title || t('（无标题）'))}</span>
+        ${titleHtml}
         <span class="sess-meta">
           ${agentLogoHtml(firstAgent)}
           <span class="who">${esc(who)}</span>
@@ -777,6 +782,7 @@ if (typeof document !== 'undefined') {
     return sessionHeadView({
       sessionKey: state.session,
       row: state.session === null ? null : sessionRow(state.session),
+      titleLoading: store.getSessions().titleLoading,
       rows: currentRows(),
       refreshedAt: state.refreshedAt,
       missingReqId: state.missingReqId,
