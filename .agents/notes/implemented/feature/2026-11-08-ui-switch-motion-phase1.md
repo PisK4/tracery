@@ -2,6 +2,8 @@
 
 Status: implemented
 
+本篇只记录去掉满屏刷新文案与两条既有缺陷的修复。换场动画的持续时间与可感知判据由[切会话换场钉住最短驻留](2026-11-08-visible-session-switch-transition.md)接手，本篇的 `session-swap-in` 时长与时序已被后者取代。
+
 ## Problem
 
 [页面交互动效层](2026-11-04-web-interaction-motion.md)与[会话切换的保留画面](2026-11-04-session-switch-hold-and-enter.md)交付后，用户仍把切换手感形容为傻快：点左侧会话后中栏硬切，切换瞬间整列 trace 显示正在刷新。
