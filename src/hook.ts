@@ -244,8 +244,9 @@ export function acceptHook(
       }
     }
     // 会话适配器先写、hook 后到：会话行没有 route_id，上面的候选查找看不到它。
-    // route 与 turn 都没认领时回落到统一 owner 查找；hook 给出了完成时间，
-    // 弱开始窗在 owner 里自然关闭，只按 response id、turn 与完成时间对齐。
+    // route 与 turn 都没认领时回落到统一 owner 查找，只按 response id、turn 与
+    // 完成时间对齐；envelope 的完成时间没有运行时校验，显式关闭弱开始窗，
+    // 缺字段或 NaN 也不能退回 ±60 秒猜测。
     let joinedRule: string | null = null;
     if (joined.target === null) {
       const owner = findRequestOwnerTx(db, {
@@ -258,6 +259,7 @@ export function acceptHook(
         model: envelope.model,
         usage: null,
         excludeSourceKind: 'hook',
+        disallowWeakWindow: true,
       });
       if (owner.reqId !== null) {
         joined.target = owner.reqId;

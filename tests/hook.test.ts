@@ -147,18 +147,20 @@ test('有账本时hook并入账本请求并迁移正文', () => {
 
 /** 会话适配器先落库：via='session'、没有 route_id，route 候选查找看不到它。 */
 function seedSessionRow(store: Parameters<typeof acceptHook>[0], overrides: {
-  responseId?: string | null; ms?: number | null;
+  responseId?: string | null; ms?: number | null; startedMs?: number; model?: string | null;
 } = {}): number {
   return store.write(db => {
     const reqId = Number(db.run(
       `INSERT INTO request(response_id_norm,agent,session,conv_key,conv_source,actor,actor_state,
-         started_ms,ms,day,via,body_state,derive_version,have,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,'2026-10-20','session','pending',0,0,1,1)`,
+         started_ms,ms,day,via,body_state,derive_version,have,created_at,updated_at,model_requested)
+       VALUES (?,?,?,?,?,?,?,?,?,'2026-10-20','session','pending',0,0,1,1,?)`,
       [
         overrides.responseId === undefined ? 'synthetic_1' : overrides.responseId,
         'alpha', 'synthetic-session', JSON.stringify(['session', 'synthetic-session']),
-        'alpha-session', 'synthetic-session', 'known', 1_700_000_000_000,
+        'alpha-session', 'synthetic-session', 'known',
+        overrides.startedMs === undefined ? 1_700_000_000_000 : overrides.startedMs,
         overrides.ms === undefined ? 1_200 : overrides.ms,
+        overrides.model === undefined ? null : overrides.model,
       ],
     ).lastInsertRowid);
     db.run(`INSERT INTO request_evidence(req_id,source_kind,ref_key,merge_state,added_at)
@@ -213,6 +215,25 @@ test('完成时间不在窗口内：不合并，也不退回弱开始窗', () =>
     expect(f.store.read.query('SELECT count(*) AS n FROM request').get()).toEqual({ n: 2 });
     expect(f.store.read.query('SELECT count(*) AS n FROM pending_hook').get()).toEqual({ n: 1 });
     expect(result.duplicate).toBe(false);
+  } finally {
+    f.close();
+  }
+});
+
+test('完成时间不是有限数时也不退回弱开始窗', () => {
+  const f = fixture();
+  try {
+    // envelope 的完成时间没有运行时校验：NaN 与缺失一样不能把 ±60 秒弱窗打开。
+    // 会话行只差 3 秒且在弱窗内，若回退走到 conv_time_model 就会被并成一行。
+    seedSessionRow(f.store, {
+      responseId: null, startedMs: 1_700_000_003_000, model: 'claude-sonnet-5-5',
+    });
+    const result = acceptHook(f.store, envelope({
+      observed_finish_ms: Number.NaN, reply: { content: [] },
+    }), 2, salt);
+    expect(result.duplicate).toBe(false);
+    expect(f.store.read.query('SELECT count(*) AS n FROM request').get()).toEqual({ n: 2 });
+    expect(f.store.read.query('SELECT count(*) AS n FROM pending_hook').get()).toEqual({ n: 1 });
   } finally {
     f.close();
   }
