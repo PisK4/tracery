@@ -165,6 +165,20 @@ if (typeof document !== 'undefined') {
   /* ---------------- 选择状态：唯一写者与效果执行器 ---------------- */
   const SELECTION_KEYS = ['session', 'reqId', 'selectedStep', 'toolOrd', 'toolOwner', 'toolPage', 'railTab', 'missingReqId', 'offPageReqId', 'turn'];
   /**
+   * 瞬态类只负责播一次动画：重播要强制回流，播完要从 DOM 清掉。
+   * 留着类名不会重播，但会让重绘后的元素一直带着已结束的动画声明。
+   * @param {Element | null} target
+   * @param {string} className
+   * @param {number} ms CSS 动画时长加一档余量
+   */
+  function markFresh(target, className, ms) {
+    if (target === null) return;
+    target.classList.remove(className);
+    void /** @type {HTMLElement} */ (target).offsetWidth;
+    target.classList.add(className);
+    setTimeout(() => target.classList.remove(className), ms);
+  }
+  /**
    * 发意图经纯转换改写选择元组并执行效果：所有选择写入都走这里，
    * 渲染函数不再改 state；规则与效果清单在 selection.js。
    * @param {import('./selection.js').Intent} intent
@@ -211,7 +225,7 @@ if (typeof document !== 'undefined') {
             // 同号可能相邻出现末尾回复组，按组键定位承载组。
             const group = /** @type {HTMLElement | null} */ (document.querySelector(`.trace-group[data-group-key="req:${CSS.escape(String(fx.reqId))}"]`));
             // 落点确认：目标组呼吸一次淡出，让定位滚动有「到了」的反馈。
-            if (group !== null) { group.classList.remove('landed'); void group.offsetWidth; group.classList.add('landed'); }
+            if (group !== null) markFresh(group, 'landed', 760);
             group?.scrollIntoView({ block: 'center', behavior: state.revealed && !matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'instant' });
           });
           break;
@@ -1555,16 +1569,16 @@ if (typeof document !== 'undefined') {
     const phase = railPhase();
     if (!sameRail) {
       if (state.reqId !== lastRailReq || state.turn !== lastRailTurn) {
-        motion(el('rail-head'), { opacity: [0, 1] }, 0.12);
+        motion(el('rail-head'), { opacity: [0, 1] }, 0.12, { clean: true });
       }
       const dir = state.turn !== lastRailTurn && state.turn !== null && lastRailTurn !== null
         ? Math.sign(state.turn - lastRailTurn)
         : Math.sign(TAB_ORDER.indexOf(state.railTab) - TAB_ORDER.indexOf(lastRailTab));
       motion(rail, dir !== 0
         ? { opacity: [0, 1], transform: [`translateX(${dir * 12}px)`, 'translateX(0px)'] }
-        : { opacity: [0, 1] }, dir !== 0 ? 0.16 : 0.15);
+        : { opacity: [0, 1] }, dir !== 0 ? 0.16 : 0.15, { clean: true });
     } else if (railViewNudge || phase !== lastRailPhase) {
-      motion(rail, { opacity: [0.35, 1] }, 0.14);
+      motion(rail, { opacity: [0.35, 1] }, 0.14, { clean: true });
     }
     railViewNudge = false;
     lastRailKey = key;
@@ -1940,6 +1954,9 @@ if (typeof document !== 'undefined') {
       param: 'name' in query ? query.name : 'path' in query ? query.path : '',
       label, loading: true, error: null, data: null,
     };
+    // 整个右栏换成条目列表，但 railKey 与读取相位都没变：置一次 nudge，
+    // 与返回列表的淡入口径对称，读得快也不会硬切。
+    railViewNudge = true;
     openRail();
     renderRail();
     try {
@@ -2269,8 +2286,7 @@ if (typeof document !== 'undefined') {
     if (toolPageBtn !== null) {
       dispatch({ kind: 'select-tool-page', page: toolPageBtn.dataset.toolPage ?? 'pair' });
       // 选中段弹起：只挂用户点击，store 重绘重建的按钮不带瞬态类。
-      const active = document.querySelector('.tool-page-tabs button[aria-pressed="true"]');
-      if (active !== null) active.classList.add('chip-fresh');
+      markFresh(document.querySelector('.tool-page-tabs button[aria-pressed="true"]'), 'chip-fresh', 220);
       return;
     }
     // 工具往返行的配对入口：在右栏打开配对页就地阅读，不跳转中栏选择。
@@ -2359,6 +2375,7 @@ if (typeof document !== 'undefined') {
     if (target.closest('[data-fold-toggle]')) {
       state.showFolded = !state.showFolded;
       renderSessions();
+      motion(el('sessions-list'), { opacity: [0.35, 1] }, 0.14, { clean: true });
       return;
     }
     const agent = /** @type {HTMLElement | null} */ (target.closest('[data-agent]'));
@@ -2369,8 +2386,8 @@ if (typeof document !== 'undefined') {
       void store.setSessionAgent(state.agent);
       // 选中段弹起 + 列表快速刷新渐显：只挂在用户点击上，搜索逐键不播。
       const pressed = /** @type {HTMLElement | null} */ (document.querySelector('#agent-list .agent-row[aria-pressed="true"]'));
-      if (pressed !== null) { pressed.classList.remove('chip-fresh'); void pressed.offsetWidth; pressed.classList.add('chip-fresh'); }
-      motion(el('sessions-list'), { opacity: [0.35, 1] }, 0.14);
+      markFresh(pressed, 'chip-fresh', 220);
+      motion(el('sessions-list'), { opacity: [0.35, 1] }, 0.14, { clean: true });
       return;
     }
     const select = /** @type {HTMLElement | null} */ (target.closest('[data-step-key]'));
@@ -2387,18 +2404,23 @@ if (typeof document !== 'undefined') {
       // 页签点击是明确的阅读动作：路由读取经转换统一发出，失败保留未读可重试。
       dispatch({ kind: 'select-tab', tab: String(rail.dataset.rail ?? '') });
       // 下划线从左生长一次：瞬态类只挂用户点击，重绘重建的按钮不重播。
-      const active = document.querySelector('.rail-tabs button[aria-pressed="true"]');
-      if (active !== null) active.classList.add('tab-fresh');
+      markFresh(document.querySelector('.rail-tabs button[aria-pressed="true"]'), 'tab-fresh', 220);
       return;
     }
     if (target.closest('#refresh-sessions')) {
       // 显式刷新是目录聚合的两个触发点之一（另一个是启动）；列表重读第一页并合并去重。
       void store.loadSessionAgents();
-      void store.loadSessions().then(() => { renderSessions(); renderFilters(); });
+      void store.loadSessions().then(() => {
+        renderSessions(); renderFilters();
+        motion(el('sessions-list'), { opacity: [0.35, 1] }, 0.14, { clean: true });
+      });
       return;
     }
     if (target.closest('#load-more-sessions')) {
-      void store.loadSessions(store.getSessions().cursor ?? undefined).then(() => { renderSessions(); renderFilters(); });
+      void store.loadSessions(store.getSessions().cursor ?? undefined).then(() => {
+        renderSessions(); renderFilters();
+        motion(el('sessions-list'), { opacity: [0.35, 1] }, 0.14, { clean: true });
+      });
     }
   });
 

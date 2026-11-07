@@ -284,8 +284,9 @@ export function fillContextMap(container, p, reqId) {
       (showValue ? `<span class="ctx-tval">${kk(t.tokens)} · ${Math.round(t.tokens / sum * 100)}%</span>` : '');
     container.append(el);
     if (cached === undefined) {
-      motion(el, { opacity: [0, 1] }, 0.18);
+      motion(el, { opacity: [0, 1] }, 0.18, { clean: true });
     } else if (morph && (cached.x !== s.x || cached.y !== s.y || cached.w !== s.w || cached.h !== s.h)) {
+      // 这里不传 clean：left/top/width/height 是 tile 的定位本身，清掉会错位。
       motion(el, {
         left: [`${cached.x}px`, `${s.x}px`], top: [`${cached.y}px`, `${s.y}px`],
         width: [`${cached.w}px`, `${s.w}px`], height: [`${cached.h}px`, `${s.h}px`],

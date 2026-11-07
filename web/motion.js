@@ -15,13 +15,25 @@ const EASE = [0, 0, 0.2, 1];
  * @param {Element} el
  * @param {Record<string, (string | number)[]>} keyframes 属性 → 关键帧数组（Motion 原生形状）
  * @param {number} [duration] 秒，默认 0.15
+ * @param {{ clean?: boolean }} [options] clean 为真时播完清掉末帧固化的 inline 属性
  * @returns {{ finished: Promise<unknown>, cancel: () => void } | null}
  */
-export function motion(el, keyframes, duration = 0.15) {
+export function motion(el, keyframes, duration = 0.15, options = {}) {
   if (REDUCE !== null && REDUCE.matches) return null;
   if (typeof el.animate !== 'function') return null;
   const run = /** @type {(target: Element, frames: Record<string, (string | number)[]>, options: {duration: number, easing: number[]}) => {finished: Promise<unknown>, cancel: () => void}} */ (animate);
-  return run(el, keyframes, { duration, easing: EASE });
+  const controls = run(el, keyframes, { duration, easing: EASE });
+  // vendor 的 onfinish 用 fill:"both" 把末帧写成 inline style 再 cancel。入场动画
+  // 的末帧通常等于 CSS 正常值，留着会压住后续样式变化；离场动画仍需保留末帧
+  // 到元素隐藏或移除，所以只在调用方要清理时清。
+  if (options.clean === true) {
+    const props = Object.keys(keyframes);
+    const style = /** @type {HTMLElement} */ (el).style;
+    void settled(controls, duration * 1000 + 120).then(() => {
+      for (const prop of props) style.removeProperty(prop);
+    });
+  }
+  return controls;
 }
 
 /**

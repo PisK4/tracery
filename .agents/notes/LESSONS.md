@@ -102,6 +102,11 @@
 - 防护：动效改动先给状态定最短驻留，验收逐帧读 `getComputedStyle` 的 opacity 与 transform 中间值、状态实际持续的毫秒数、动画时长是否小于驻留；合成页通过之后还要人手动在生产页面上确认一次，不把机器判据当成观感结论。
 - Seen 1× (2026-11-08).
 
+**全局动效抑制只关过渡，入场动画播完单独清末帧 inline。**
+- 证据：2026-11-08 动效缺陷治理，切主题的 `body.theme-switching *` 写了 `animation:none!important`，两帧抑制把三个正在跑的无限动画从 738ms 取消后归零重播；同一个页面里 `motion.vendor.js` 的 `fill:"both"` 让入场动画播完留下 `opacity:1; transform:translateY(0px)`，离场动画的 `opacity:0` 却必须保留到元素隐藏。直接全局清理会把两种末帧一起弄坏。见[动效缺陷治理与转场推广](implemented/feature/2026-11-08-motion-defect-governance-and-reuse.md)。
+- 防护：切主题只写 `transition:none!important`；复验时给三个无限动画注入探针，读切换前后的 `currentTime` 是否继续前进。入场动画通过 `motion()` 的 `clean` 按关键帧属性名清 inline，离场与 `context-map.js` 的定位 morph 不传；验收分别读入场后的 inline 是否为空、离场后 `opacity:0` 是否还在。
+- Seen 1× (2026-11-08).
+
 **新判定规则的编排位置，要对照生产存量的状态组合核对，不能只按设计意图写合成测试。**
 - 证据：2026-11-07 operation 准入首版把 `operationDecision` 放在 retained 早退之后，合成套件全绿；生产 16 笔 `execute_tool` 行正文已回收、retained 在 `source:mcp` 仍参与链，新规则永远不到达。合成视图只覆盖了设计时想到的组合，漏掉「旧版本 × 正文回收 × 新事实」这个真实存量状态，靠生产只读分布核对才抓到。
 - 防护：规则落地后先在生产只读快照列出目标群体的状态组合（版本 × 正文状态 × 新事实），逐组确认编排能到达；规则行为变化升 `PURPOSE_VERSION`，旧目标行走显式 rebuild 重判。
