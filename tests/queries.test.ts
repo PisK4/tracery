@@ -7,7 +7,7 @@ import { derivationOf, projectionMetaReading, promptReadingOf, sourceFactsReadin
 import type { ProjectionMetaReading } from '../src/queries/readings';
 import { getRequest, listRequests } from '../src/queries/requests';
 import { getStats } from '../src/queries/stats';
-import { listSessions, titleBindingOf } from '../src/queries/sessions';
+import { listSessions, titleBindingOf, getSessionTitles } from '../src/queries/sessions';
 import { persistBody } from '../src/body';
 import { drainDerive, enqueueDerive } from '../src/derive/sync';
 import { markGroupDirtyTx } from '../src/derive/state';
@@ -1539,6 +1539,28 @@ test('跨组标题短路：有指纹时绑定语义不变，闸门先于相关�
     const qtLine = /.*SEARCH qt.*/.exec(plan)?.[0];
     expect(qtLine).toBeDefined();
     expect(qtLine).toContain('PRIMARY KEY');
+  } finally { f.close(); }
+});
+
+test('getSessionTitles 计划走会话覆盖索引，不退化成 SCAN request', () => {
+  const f = fixture();
+  try {
+    seedPurposeRequest(f.store, {
+      convKey: 'oracle-titles', bodyState: 'evicted', startedMs: 1_700_000_000_000,
+    });
+    const hook = captureReadQueries(f.store);
+    try {
+      getSessionTitles(f.store, ['oracle-titles']);
+    } finally {
+      hook.restore();
+    }
+    const detail = hook.captured.find(c => c.sql.includes('GROUP BY conv_key'));
+    if (detail === undefined) throw new Error('title_query_not_captured');
+    const plan = explainPlan(f.store.read, detail.sql, detail.params);
+    // 外层与四个标题子查询都按 conv_key 走同一覆盖索引。生产库实测 100 键 27ms；
+    // 退化成 SCAN request 时每次标题回填都整表扫，会拖回 sessionsTitle 超时。
+    expect(plan).toContain('SEARCH request USING COVERING INDEX i_req_session_time');
+    expect(plan).not.toContain('SCAN request');
   } finally { f.close(); }
 });
 

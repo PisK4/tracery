@@ -16,7 +16,7 @@ Status: implemented
 
 **2026-11-05 部分修订：** “模型名不同不是拒绝理由”只在无法比较时成立。双方都给出模型、归一后仍不相等时，唯一候选也不认领，独立成行；别名前缀与标点差异仍视为同一模型，缺模型仍走唯一候选兜底。来由见[正文与弱合并的数据一致性修复](./2026-11-05-confirmed-body-identity-consistency.md)。
 
-**已落库的重复行由显式命令修复。** 新增 `bun run maintain dedupe-sessions --db <path>`：默认只预览，`--apply --approval-id <id>` 才写库。它只处理“只有一条会话证据”的行，按同一套 `findRequestOwnerTx` 再找一次 owner；只认精确身份（response id、turn ref、四段用量指纹），弱时间窗能配上的行只计数（`weak_only`），不在事后改行。命中后走新的共享 `mergeRequestTx`：迁移证据、正文引用、工具链接、别名与整组身份字段，删除源行，重算目标与两边的派生组。
+**已落库的重复行由显式命令修复。** 新增 `bun run maintain dedupe-sessions --db <path>`：默认只预览，`--apply --approval-id <id>` 才写库。它只处理“只有一条会话证据”的行，按同一套 `findRequestOwnerTx` 再找一次 owner；只认精确身份（response id、turn ref、四段用量指纹），弱时间窗能配上的行只计数（`weak_only`），不在事后改行。命中后走新的共享 `mergeRequestTx`：迁移证据、正文引用、工具链接、别名与整组身份字段，删除源行，重算目标与两边的派生组。（2026-11-07 起该命令跳过 response id 线索：源行自身带着同一个键，这条线索只能报歧义并挡住用量指纹，见 [dedupe 的 response id 线索被源行自身污染](./2026-11-07-dedupe-response-id-blind-spot.md)。）
 
 **行合并逻辑从 hook 挪到共享层。** `src/merge.ts` 承接原 `mergeHookInto` 的行级迁移；hook 只剩 pending 队列与 hook 证据状态。`mergeRequestTx` 的 `fillIdentity` 选项区分两种合并：hook 只补账本缺失的 response/conv 身份，会话修复补全会话、actor、模型、用量、标题与来源事实。合并本身仍按“目标已有的事实不覆盖、空字段才补”的规则。
 

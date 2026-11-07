@@ -15,17 +15,18 @@ function seedRequest(store: Store, input: {
   usage?: typeof USAGE;
   model: string;
   agent?: string;
+  responseId?: string;
 }): number {
   return store.write(db => {
     const reqId = Number(db.run(`
       INSERT INTO request(agent,session,conv_key,conv_source,actor,actor_state,started_ms,day,via,
-        body_state,derive_version,have,created_at,updated_at,model_requested,
+        body_state,derive_version,have,created_at,updated_at,model_requested,response_id_norm,
         in_tok,out_tok,cache_read,cache_write)
       VALUES (?,?,'["session","synthetic-session"]','claude-session',?,'known',?,'2026-11-04',?,
-        'pending',0,16,1,1,?,?,?,?,?)`,
+        'pending',0,16,1,1,?,?,?,?,?,?)`,
     [
       input.agent ?? 'zcode', 'synthetic-session', 'synthetic-session', input.startedMs,
-      input.via, input.model,
+      input.via, input.model, input.responseId ?? null,
       input.usage?.input ?? null, input.usage?.output ?? null,
       input.usage?.cacheRead ?? null, input.usage?.cacheWrite ?? null,
     ]).lastInsertRowid);
@@ -99,6 +100,55 @@ test('只有弱时间窗能配上的行不修', () => {
       scanned: 1, candidates: 0, weak_only: 1, merged: 0,
     });
     expect(dedupeSessionDuplicates(f.store, 2_000).merged).toBe(0);
+  } finally {
+    f.close();
+  }
+});
+
+test('response_id 同键双行：歧义不再挡住强指纹，pair 按用量指纹并回', () => {
+  const f = fixture();
+  try {
+    const target = seedRequest(f.store, {
+      via: 'through', evidence: 'ledger', ref: 'ledger-1', startedMs: 10_000,
+      usage: USAGE, model: 'group/auto-deepseek-v4-1-flash', responseId: 'msg_resp_synth1',
+    });
+    const source = seedRequest(f.store, {
+      via: 'session', evidence: 'zcode_session_call', ref: 'session-1', startedMs: 10_050,
+      usage: USAGE, model: 'auto/deepseek-v4.1-flash', responseId: 'msg_resp_synth1',
+    });
+    // 修复前：两行同键，response_id 线索报歧义直接短路，candidates 恒为 0。
+    expect(previewSessionDedupe(f.store)).toMatchObject({
+      scanned: 1, candidates: 1, ambiguous: 0, merged: 0,
+    });
+    const report = dedupeSessionDuplicates(f.store, 2_000);
+    expect(report).toMatchObject({ candidates: 1, merged: 1, ambiguous: 0, weak_only: 0 });
+    expect(f.store.read.query<{ old_id: number; new_id: number }, []>(
+      'SELECT old_id,new_id FROM request_alias').all()).toEqual([{ old_id: source, new_id: target }]);
+    expect(f.store.read.query<{ n: number }, []>(
+      'SELECT COUNT(*) AS n FROM request').get()?.n).toBe(1);
+  } finally {
+    f.close();
+  }
+});
+
+test('response_id 同键双行但用量不一致：只落在弱线索，继续拒绝', () => {
+  const f = fixture();
+  try {
+    seedRequest(f.store, {
+      via: 'through', evidence: 'ledger', ref: 'ledger-1', startedMs: 10_000,
+      usage: { ...USAGE, input: 101 }, model: 'group/auto-deepseek-v4-1-flash', responseId: 'msg_resp_synth2',
+    });
+    seedRequest(f.store, {
+      via: 'session', evidence: 'zcode_session_call', ref: 'session-1', startedMs: 10_000,
+      usage: USAGE, model: 'auto/deepseek-v4.1-flash', responseId: 'msg_resp_synth2',
+    });
+    // 强指纹差一段就不猜；±60 秒弱窗即使唯一命中也不用于事后改行。
+    expect(previewSessionDedupe(f.store)).toMatchObject({
+      scanned: 1, candidates: 0, weak_only: 1, merged: 0,
+    });
+    expect(dedupeSessionDuplicates(f.store, 2_000).merged).toBe(0);
+    expect(f.store.read.query<{ n: number }, []>(
+      'SELECT COUNT(*) AS n FROM request').get()?.n).toBe(2);
   } finally {
     f.close();
   }

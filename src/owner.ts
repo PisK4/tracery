@@ -2,7 +2,7 @@
  * 统一 owner 查找：新来源写入前先找它认领的既有请求。
  *
  * 依次尝试五条身份线索，只有唯一命中才算认领：
- * 1. `response_id_norm` 精确命中；
+ * 1. `response_id_norm` 精确命中（`skipResponseId` 时整条跳过）；
  * 2. `turn_ref` 命中（Codex 的 thread turn 身份）；
  * 3. 同 conv_key、同 agent、±2 秒、四段用量逐段相等（本地会话与网关指纹）；
  * 4. 同 conv_key、同 agent、±2 秒的完成时间对齐（本地只读得到消息落库时刻）；
@@ -55,6 +55,12 @@ export type OwnerQuery = {
    * 同来源的相邻调用是两笔调用，不是同一笔的重复记录。
    */
   excludeSourceKind: string;
+  /**
+   * 跳过 response id 线索。dedupe 的源行自己也带同一个键：这条线索对它
+   * 只能返回「命中的是源行自己」（无用）或「同键多行」（歧义，还会挡住
+   * 后面的强指纹）。存量修复传 true；摄入路径不带，线索次序不变。
+   */
+  skipResponseId?: true;
 };
 
 const TURN_DEDUPE_WINDOW_MS = 60_000;
@@ -238,7 +244,7 @@ function byConvTimeModel(
 }
 
 export function findRequestOwnerTx(db: Database, query: OwnerQuery): RequestOwner {
-  if (query.responseIdNorm !== null) {
+  if (query.responseIdNorm !== null && query.skipResponseId !== true) {
     const found = byResponseId(db, query.responseIdNorm);
     if (found.outcome !== 'absent') return found;
   }
