@@ -2563,3 +2563,33 @@ Grok 的 `session_usage` 有 4 行而游标有 6 个，不是漏刷：本机 6 �
 ### 门禁
 
 `bun run typecheck` 退出 0；`tests/web.test.ts` 单跑 58 pass / 0 fail / 432 expect；五个窄测试文件共 123 pass / 0 fail / 5966 expect；`git diff --check` 通过。改动尚未提交时全量 `verify:notes` 退出 0（检查 257 篇 Agent Note、8 个冻结产物），批次门禁另按 `verify:notes:staged` 与合并后的 `verify:notes` 执行，本节不代替这两次结果。
+
+## 动效缺陷治理生产部署与真实流量验收（2026-11-08）
+
+前提：master `278df67`（合并 `feat/motion-defect-governance`），只改 `web/`、测试与文档，没有 `src/` 改动。`web/` 每请求现读且响应 `cache-control: no-store`，合并到 master 时静态资源已经切换；`bun run service restart` 用于落一个确定的重启后状态并复核 launchd 路径。浏览器走查在 127.0.0.1:8320 的生产页面进行，读本机真实库；页面只记录计算样式、动画时钟、DOM 类与资源状态，不读取真实请求正文、账号与令牌。合成验收见上一节，本节只记真实流量。
+
+### 部署
+
+`bun run service restart` 返回 0，pid 20140，端口 8320，用时 487 毫秒；`bun run service status` 报告作业 running、代码未落后、`/api/stats` 可读（3 毫秒），请求 146839 笔。重启后带同源 `Origin` 抓取 `/motion.js`、`/app.css`、`/app.js`、`/context-detail.js`、`/context-map.js` 五个改动资源，全部 200；`/motion.js` 含 `options.clean === true`，`/app.js` 含 `markFresh` 与四处 `railViewNudge`，无裸 `classList.add('tab-fresh'|'chip-fresh'|'landed')`，`/app.css` 的 `body.theme-switching` 段只含 `transition:none!important`，`/context-map.js` 含 morph 不 clean 的注释。错误日志尾部无 error、exception、failed 与 crash。验收收尾时服务仍为 pid 20140，运行 3 分钟、`/api/stats` 可读（12 毫秒），请求 146862 笔。
+
+### 真实流量复验
+
+- `motion()` 的 clean 边界：合成探针入场动画播完 inline `opacity` 与 `transform` 都为 null、计算透明度 1、在飞动画 0；离场保留 `opacity:0`、计算透明度 0。
+- 切主题：注入的三个无限动画 `currentTime` 从 651ms 继续到 757ms，相位都保留；两帧后 `body.theme-switching` 类清空，主题按钮 `transition` 仍是 0.12s。探针点击后 `data-theme` 为空值，由 media 决定浅深色；本轮验的是相位与过渡恢复，没有核对主题配色。
+- 瞬态类：点未选中的右栏页签后 30ms `tab-fresh` 在、`::after` 动画名为 `underline-grow`；330ms 类已清；再点同一个页签能重播，300ms 后再次清除。
+- 汇总列表打开：点工具汇总 chip 后 60ms 右栏计算透明度 0.686655，`data-summary-back` 存在；280ms 回 1，inline 全程为空。
+- 左栏刷新：点击后前 120ms 计算透明度仍为 1（生产列表重绘先落定），160ms 起播 0.35、200ms 0.661843、240ms 0.91131，之后收敛到 1、在飞动画 0、inline 为空；同时在飞动画最多 1 个。Agent 筛选从 0.35 起播，40ms 0.563785、80ms 0.811222、120ms 0.97843、160ms 回 1，inline 全程为空。
+- 收尾检查：71 个资源请求，无 400 及以上响应；`data-switch-state` 为 null，`tab-fresh`/`chip-fresh`/`landed` 残留 0，中栏直属子节点与右栏无 inline opacity 残留，会话列表 20 行，页面仍可用。
+
+### 未覆盖与边界
+
+- 当前生产会话没有明细弹窗触发器 `[data-ctx-kind]`，弹窗二次打开只在合成页验过；折叠与加载更多两处淡入也只在源码级守门与合成页覆盖，生产页当前没有可触发的折叠按钮，加载更多未点。
+- `innerHTML` 整块重绘导致的无限动画相位重置只复现，没有治理；本轮修的是切主题抑制规则造成的集体归零。
+- 中栏显式刷新、跳锚点、切窗仍只复用 `entering` 淡回，没有升成切会话那种两段换场。
+- 浏览器只走了当前 URL 落点会话、工具汇总列表、刷新与一次 Agent 筛选，未覆盖所有来源与正文状态组合；真实正文、账号与令牌没有读取、没有记录。
+- 机器判据能证明淡入持续 140ms、中间值连续变化且状态清干净，不能代替用户手动验收；落地后需要人在 8320 上再点一次确认观感。
+- 本轮没有改后端与 `src/`，未重跑全量测试套件、`patrol weekly` 与跨浏览器矩阵；同日既有 `body_ratio`、`hook_absent` 与 event_loop p99 越界基线不参与本轮判定。
+
+### 门禁
+
+合并批次已跑 `verify:notes:staged`（258 篇 Agent Note、8 个冻结产物）、全量 `verify:notes`、`bun run typecheck`、五个窄测试共 123 pass / 0 fail / 5966 expect 与 `git diff --cached --check`；追加本验收记录属纯文档改动，提交信息带 `Agent-Note: none` 豁免，本轮不重复。
