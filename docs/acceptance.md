@@ -2264,3 +2264,25 @@ Grok 的 `session_usage` 有 4 行而游标有 6 个，不是漏刷：本机 6 �
 ### 未执行与边界
 
 - 93 条网关侧 Hermes 行缺 `ms`，完成窗不参与；这些调用若只有本地一侧，本地行独立展示，不做弱窗推断。
+
+## 架构评审落地与增量去重（合成 + 生产只读，2026-11-07）
+
+### 合成数据
+
+- 最窄回归：`tests/hook.test.ts` 49 项、`tests/owner-fingerprint.test.ts` 18 项、`tests/session-dedupe.test.ts` 5 项、`tests/http.test.ts` 29 项、`tests/read-boundaries.test.ts` 2 项，全部通过。
+- 全量套件本轮实测 1,408 项通过、1 项失败：`tests/i18n-coverage.test.ts` 缺 4 个 en 字典键（`读取标题中` / `读取标题中…`），归因 93bc2a6 引入 `t()` 时未同步 `i18n-en.js`，在本轮基线之前；`bun run typecheck` 的 4 个错误同为既有 `web/reader-store.js` 问题。两项均未在本轮修复，避免混入范围。
+- EXPLAIN 断言退化验证：删掉 `i_req_session_time` 后计划仍不含 `SCAN request`，实际变红的是 `COVERING INDEX` 那条断言；「手动去索引确认会红」的交接要求仍满足。
+- hook 弱窗守卫：`observed_finish_ms` 为 NaN 且会话行落在 ±60 秒内时不合并（新增反例）；修复前会并成一行，修复后 hook 测试 49 项全绿。
+
+### 生产只读与部署
+
+- OTLP 重放已 apply：全库 289,524 行 `mapping_version` 为 4；15 条 `session_task.turn` 全部认领既有行（through 13 / hook 2 / otlp 1），新建行 0；重跑预览 scanned=0；`otlp_yield` 100%（可重放 0）。
+- 去重存量与增量：`response_id_norm` 重复组 0；hook 回退部署后 `via='session'` 且带 hook 证据的行为 0，会话扫描滞后，样本尚少，不作为通过依据。
+- 前端静态白名单回归：`empty-state.js`、`scroll.js` 补登记后重启，生产页面静态资源全部 200，页面恢复三栏渲染。
+- 浏览器核对：空态蜘蛛 `idle→running`（5 个 SMIL 启动）；`restoreScroll` 真实布局 240→120、超限夹 900；`createMoreTargets` 生命周期正常；`+N` 弹层因当前窗口无多目标工具行，只做模块级验证。
+
+### 与定稿的偏差
+
+- 定稿 #3「回落到 `findRequestOwnerTx`（含指纹）」收窄为 `usage: null`：hook envelope 不带 usage，跨协议归一有差异，且重复组会话行 99% 以上带 response id；理由见 [hook 回退 note](../.agents/notes/implemented/bug-fix/2026-11-07-hook-owner-fallback.md)。
+- 定稿 §6 运维命令登记表的触发条件已满足（`otlp-replay` 成为第 19 条命令），本轮不试点：登记表重构要改 `cli.ts` 与 source-health 只读入口，属独立变更，不与修复混批；待下次维护命令窗口单独做。
+- `handle_responses` 的形状核对已完成（64 条仍在库，2026-11-10 17:04:45 过期；有用量、无模型、无调用身份），见 [提案](../.agents/notes/proposed/feature/2026-11-07-otlp-handle-responses-rule.md)。
