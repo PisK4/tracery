@@ -157,9 +157,9 @@ if (typeof document !== 'undefined') {
     for (const id of ids) {
       if (state.selectedStep === `${id}:preparing`) dispatch({ kind: 'clear-step' });
     }
-    // 一准备块一次重绘：批量落地的组在下一个微任务合并提交。
+    // 一准备块一次重绘：批量落地的组在下一个微任务合并提交，右栏同批跟进。
     scheduleRenderMain();
-    if (dependencies.some(affectsRail) || ids.some(affectsRail)) renderRail();
+    if (dependencies.some(affectsRail) || ids.some(affectsRail)) scheduleRenderRail();
   });
 
   /* ---------------- 选择状态：唯一写者与效果执行器 ---------------- */
@@ -373,13 +373,22 @@ if (typeof document !== 'undefined') {
   /** 读落地的刷新合并：同一 tick 内多笔读取只排一次微任务重绘；锚点捕获
    *  与补偿仍在一次同步 commit 内完成，不跨帧。选择走 dispatch 的同步路径。 */
   let renderQueued = false;
+  /** 排队中的提交之后是否还要重绘右栏。右栏读显示模型的最近显示版本，必须排在
+   *  提交之后：早一步画会拿到上一版的保留态，而该组之后未必再有重绘。 */
+  let railQueued = false;
   function scheduleRenderMain() {
     if (renderQueued) return;
     renderQueued = true;
     queueMicrotask(() => {
       renderQueued = false;
       renderMain();
+      if (railQueued) { railQueued = false; renderRail(); }
     });
+  }
+  /** 读落地后的右栏重绘：并入主栏提交的微任务，等显示模型吃到新快照再画。 */
+  function scheduleRenderRail() {
+    railQueued = true;
+    scheduleRenderMain();
   }
 
   /** @param {number} id */
@@ -392,7 +401,7 @@ if (typeof document !== 'undefined') {
       preparation.forget(id);
     }
     scheduleRenderMain();
-    if (affectsRail(id)) renderRail();
+    if (affectsRail(id)) scheduleRenderRail();
   }
 
   /* ---------------- 顶栏与左栏 ---------------- */
