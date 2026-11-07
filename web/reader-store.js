@@ -36,6 +36,9 @@ import { createReadScheduler } from './read-scheduler.js';
  * @property {() => {sessionKey: string | null, requests: import('../src/queries/projection').RequestRow[], newerCursor: string | null, loading: boolean, error: string | null}} getWindow
  * @property {() => {items: import('../src/queries/sessions').SessionRow[], cursor: string | null, error: string | null, titleLoading: boolean, retrying: boolean}} getSessions
  * @property {(cursor?: string) => Promise<void>} loadSessions
+ * @property {(agent: string) => Promise<void>} setSessionAgent 切换 Agent 筛选（'all'  clears）：重置列表并以新筛选重读第一页；旧筛选的在途响应不写回。旁路恒在分页前排除。
+ * @property {() => {status: 'idle' | 'loading' | 'ready' | 'absent', agents: import('../src/queries/sessions').SessionAgentFacet[], total: number}} peekSessionAgents 同步读取全库 Agent 目录快照；renderFilters 纯投影用它，不发网络。
+ * @property {() => Promise<void>} loadSessionAgents 全库 Agent 目录聚合；page owner、单飞，只在启动与显式刷新调用，切会话不误清。
  * @property {(key: string, limit?: number, anchor?: 'start' | 'latest') => Promise<void>} selectSession
  * @property {() => Promise<void>} loadLater
  * @property {() => void} leaveSession 离开当前会话：取消该会话的全部在途与待发读取，清窗口与请求级缓存；迟到的会话读取不能复活任何窗口内容。
@@ -123,8 +126,16 @@ export function createReaderStore(transport, onReadChanged, options) {
 
   /** @type {{items: import('../src/queries/sessions').SessionRow[], cursor: string | null, error: string | null, titleLoading: boolean, retrying: boolean}} */
   const sessions = { items: [], cursor: null, error: null, titleLoading: false, retrying: false };
+  /** @type {string | null} 会话列表的 Agent 筛选；null 表示全部。旁路恒以 visibleOnly 在分页前排除。 */
+  let sessionsAgent = null;
+  /** 筛选代次：切 Agent 自增，旧筛选的在途列表响应凭它不得写回新列表。 */
+  let sessionsGen = 0;
   /** @type {Promise<void> | null} 在途的会话列表请求；并发调用共享它而不是被丢弃。 */
   let sessionsInflight = null;
+  /** @type {{status: 'idle' | 'loading' | 'ready' | 'absent', agents: import('../src/queries/sessions').SessionAgentFacet[], total: number}} 全库 Agent 目录快照，page owner，切会话不清。 */
+  let sessionAgents = { status: 'idle', agents: [], total: 0 };
+  /** @type {Promise<void> | null} 目录聚合单飞：启动与显式刷新共享，渲染路径不发。 */
+  let sessionAgentsInflight = null;
   /** @type {ReturnType<typeof setTimeout> | null} 标题重试定时器：dirty 组的空标题到点再拉一次。 */
   let titleRetryTimer = null;
   /** @type {string[]} 最近一次标题回填返回了空标题的 keys，timer 触发时再拉一次。 */
@@ -340,14 +351,19 @@ export function createReaderStore(transport, onReadChanged, options) {
     }
   }
 
-  /** @param {string | undefined} cursor */
+  /** @param {string} [cursor] */
   function loadSessions(cursor) {
     if (sessionsInflight !== null) return sessionsInflight;
-    sessionsInflight = (async () => {
+    const myGen = sessionsGen;
+    const task = (async () => {
       try {
         // 首屏先轻量：标题子查询改为异步回填，列表先出。行在 light 阶段走 loading 态，
         // 回填收尾后再转正式「（无标题）」，不再用同一占位冒充已确认无标题。
-        const light = await execute(pageScope, 'sessions', { limit: 20, cursor: cursor ?? null, title: 'light' });
+        // 旁路在分页前排除（visibleOnly），Agent 筛选同走 HAVING；游标是可见集上的 keyset。
+        const light = await execute(pageScope, 'sessions',
+          { limit: 20, cursor: cursor ?? null, title: 'light', agent: sessionsAgent, visibleOnly: true });
+        // 筛选已换：旧筛选的迟到响应不写回新列表。
+        if (myGen !== sessionsGen) return;
         // 并发调用已共享同一个在途请求；分页边界仍可能把同一会话返回两次
         // （末条时间相同），按 conv_key 去重，保留先出现的一条。
         /** @type {Map<string, import('../src/queries/sessions').SessionRow>} */
@@ -369,16 +385,70 @@ export function createReaderStore(transport, onReadChanged, options) {
           // 和已确认无标题（等了也不变）。重试只赌前者，失败与排队态不阻断列表。
           if (!cursor && empty.length > 0) scheduleTitleRetry(empty);
         }
+        if (myGen !== sessionsGen) return;
         sessions.titleLoading = false;
         onSessionsChanged?.();
       } catch (error) {
+        if (myGen !== sessionsGen) return;
         sessions.error = error instanceof Error ? error.message : 'load_failed';
         sessions.titleLoading = false;
-      } finally {
-        sessionsInflight = null;
       }
     })();
-    return sessionsInflight;
+    sessionsInflight = task;
+    const clear = () => { if (sessionsInflight === task) sessionsInflight = null; };
+    void task.then(clear, clear);
+    return task;
+  }
+
+  /**
+   * 切换 Agent 筛选：重置列表与游标，推进筛选代次让旧在途响应作废，再以新筛选
+   * 重读第一页。'all' 清筛选。单飞 key 含筛选语义——旧筛选的在途不被新筛选复用。
+   * @param {string} agent
+   * @returns {Promise<void>}
+   */
+  function setSessionAgent(agent) {
+    const next = agent === 'all' ? null : agent;
+    if (next === sessionsAgent) return Promise.resolve();
+    sessionsAgent = next;
+    sessionsGen += 1;
+    sessionsInflight = null;
+    sessions.items = [];
+    sessions.cursor = null;
+    sessions.error = null;
+    clearTitleRetry();
+    onSessionsChanged?.();
+    return loadSessions();
+  }
+
+  /**
+   * 全库 Agent 目录聚合：page owner、单飞，只在启动与显式刷新调用。用 pageScope，
+   * 切会话（只换 sessionScope）不误清；dispose 取消 pageScope 后以 cancelled 退出，
+   * 不写回、不通知。渲染路径只读 peekSessionAgents，不发网络。
+   * @returns {Promise<void>}
+   */
+  function loadSessionAgents() {
+    if (sessionAgentsInflight !== null) return sessionAgentsInflight;
+    const task = (async () => {
+      try {
+        const dir = await execute(pageScope, 'sessionAgents', {});
+        sessionAgents = { status: 'ready', agents: dir.agents, total: dir.total };
+        onSessionsChanged?.();
+      } catch (error) {
+        if (/** @type {Error & {code?: string}} */ (error).code !== 'cancelled') {
+          sessionAgents = { status: 'absent', agents: [], total: 0 };
+          onSessionsChanged?.();
+        }
+      }
+    })();
+    sessionAgentsInflight = task;
+    const clear = () => { if (sessionAgentsInflight === task) sessionAgentsInflight = null; };
+    void task.then(clear, clear);
+    return task;
+  }
+
+  /** @returns {{status: 'idle' | 'loading' | 'ready' | 'absent', agents: import('../src/queries/sessions').SessionAgentFacet[], total: number}} */
+  function peekSessionAgents() {
+    return sessionAgents;
   }
 
   /** 后端状态与统计：顶栏降级标签与调试图共用一次读取，不做轮询。 */
@@ -1355,6 +1425,9 @@ export function createReaderStore(transport, onReadChanged, options) {
     getWindow: () => ({ sessionKey, requests: windowRows, newerCursor, loading: windowLoading, error: windowError }),
     getSessions: () => sessions,
     loadSessions,
+    setSessionAgent,
+    peekSessionAgents,
+    loadSessionAgents,
     selectSession,
     loadLater,
     leaveSession,

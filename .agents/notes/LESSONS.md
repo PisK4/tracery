@@ -20,6 +20,11 @@
 - 防护：升号后 grep `algo ===`，再 grep 测试里的 `GROUP_ALGORITHM).toBe`；位置包括 `src/semantics.ts`、`src/derive/state.ts`、`src/queries/session-summary.ts` 的两处窗口、`tests/session-summary.test.ts` 与 `tests/derive-slice.test.ts`；合并前跑全量 `bun test`。
 - Seen 1× (2026-11-01).
 
+**升 schema 版本时，三处版本事实与测试断言一起动。**
+- 证据：2026-11-08 v14→v15 加覆盖索引，需同步 `src/store.ts` `SCHEMA_VERSION`、`src/maintenance/verify.ts` `CODE_SCHEMA_VERSION`、`src/maintenance/backup.ts` `RESTORABLE_SCHEMA_VERSIONS`（漏最后一处，当前 v15 库备份会被 `backup_schema_unsupported` 拒）；测试里硬编码 `user_version: 14`、错误正则 `code v14`、precheck「比代码新」反例 `setVersion(15)` 都要同步。
+- 防护：升版 grep `SCHEMA_VERSION`/`CODE_SCHEMA_VERSION`/`RESTORABLE_SCHEMA_VERSIONS` 与测试里的 `user_version:`/`code v`；「迁移后当前版本」断言改用 `CODE_SCHEMA_VERSION` 常量，「比代码新」反例用 `CODE_SCHEMA_VERSION + 1`，下次升版不再红。
+- Seen 1× (2026-11-08).
+
 ## Worktree 与提交
 
 **合并被并行会话的在途文件挡住时，定向 stash 该文件、合并、再 pop，不整库 stash、不代提交。**
@@ -159,6 +164,11 @@
 - 证据：2026-11-04 F27-A 单飞测试里 5 个 `handler()` 同 tick 发出，`listSessions` 调用数等于 1 次；生产上各请求是独立宏任务，同步查询执行期间事件循环被占住，后续请求进不来，等它完成时 map 已清理——热查询（40 ms）下 5 并发各跑各的（墙钟 188 ms），合并只对冷页慢查询这种「查询在途跨宏任务」的形态有意义，而全同步查询根本不会跨宏任务。
 - 防护：给同步查询做请求合并时，先确认查询会不会让出事件循环；不会让出的，合并的收益上限就是「同 tick 重复」，跨请求合并要靠缓存或 Worker 化，报告里如实分开写。
 - Seen 1× (2026-11-04).
+
+**测试收尾要 close 的库，别在读连接上留普通 SELECT/PRAGMA 快照：WAL 非空时 close 的 checkpoint(TRUNCATE) 会被它阻塞满 busy_timeout。**
+- 证据：2026-11-08 v15 覆盖索引钉子测试，种子 240 行后在 `store.read` 上跑 `SELECT sql FROM sqlite_master`/`PRAGMA index_info`，`f.close()` 的 `wal_checkpoint(TRUNCATE)` 被读连接快照阻塞约 5000ms（writer `busy_timeout`），测试超时；同一测试只跑 EXPLAIN（只编译、不开 WAL 快照）或把 SELECT 挪进 `store.write` 的 writer 连接即 36ms 通过。包进 deferred 只读事务也救不了——`read.close()` 排在 checkpoint 之后，快照来不及释放。
+- 防护：读取断言优先用 EXPLAIN，或在 writer 连接的写事务内顺带读出所需事实；不在读连接上留普通 SELECT/PRAGMA 快照再 close。独立脚本因进程强制退出掩盖此坑，bun test 等句柄 drain 才暴露，不能靠脚本跑通推断测试也跑通。
+- Seen 1× (2026-11-08).
 
 **新增后台数据来源时，验证最慢同步单元和真实载荷量；async 与外层墙钟预算都不能中断一条同步 SQL。**
 - 证据：2026-11-05 F12（`88022f0`）在 `measureBodyBytesChunked` 为 WITHOUT ROWID 表加入整表求和，2 KiB 用例通过，生产同项只读实测 8.06 s；既有性能测试的 block/骨架仅 64 B/32 B，未覆盖 GiB 级载荷。`pruneRawBounded` 的 200 ms 判断也在单批返回后，生产单批 raw_prune 写事务曾到 29.4 s。评估与防护见[容量计数与主线程阻塞回归](implemented/bug-fix/2026-11-05-capacity-meter-main-thread-regression.md)。

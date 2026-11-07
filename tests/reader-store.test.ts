@@ -1214,6 +1214,83 @@ test('会话列表并发加载只发一次请求', async () => {
   await first;
 });
 
+test('会话列表恒以 visibleOnly 读取，Agent 筛选下推且切换重置列表', async () => {
+  const fx = createFixtureReadTransport();
+  const inputs: Array<{ agent?: string | null, visibleOnly?: boolean }> = [];
+  fx.respond('sessions', input => {
+    inputs.push(input);
+    const agent = input.agent ?? 'all';
+    return { items: [session(`${agent}-1`)], next_cursor: null };
+  });
+  fx.respond('sessionsTitle', (input: { keys: string[] }) => ({ titles: input.keys.map((key: string) => ({ conv_key: key, title: key })) }));
+  const store = createReaderStore(fx.transport);
+  await store.loadSessions();
+  // 旁路恒在分页前排除；默认无 Agent 筛选。
+  expect(inputs.at(-1)).toMatchObject({ visibleOnly: true, agent: null });
+  expect(store.getSessions().items.map(i => i.conv_key)).toEqual(['all-1']);
+  await store.setSessionAgent('hermes');
+  expect(inputs.at(-1)).toMatchObject({ visibleOnly: true, agent: 'hermes' });
+  expect(store.getSessions().items.map(i => i.conv_key)).toEqual(['hermes-1']);
+  await store.setSessionAgent('all');
+  expect(inputs.at(-1)).toMatchObject({ agent: null });
+  expect(store.getSessions().items.map(i => i.conv_key)).toEqual(['all-1']);
+  // 同筛选重复设置不发请求。
+  const before = fx.count('sessions');
+  await store.setSessionAgent('all');
+  expect(fx.count('sessions')).toBe(before);
+});
+
+test('切 Agent 后旧筛选的迟到列表响应不写回新列表', async () => {
+  const fx = createFixtureReadTransport();
+  let releaseOld = () => {};
+  const oldGate = new Promise<void>(resolve => { releaseOld = resolve; });
+  fx.respond('sessions', input => input.agent === null
+    ? oldGate.then(() => ({ items: [session('old-all')], next_cursor: null }))
+    : { items: [session('hermes-1')], next_cursor: null });
+  fx.respond('sessionsTitle', (input: { keys: string[] }) => ({ titles: input.keys.map((key: string) => ({ conv_key: key, title: key })) }));
+  const store = createReaderStore(fx.transport);
+  const oldLoad = store.loadSessions();
+  await delay(5);
+  // 旧筛选仍在途时切 Agent：重置列表并以新筛选重读，单飞不复用旧在途。
+  await store.setSessionAgent('hermes');
+  expect(store.getSessions().items.map(i => i.conv_key)).toEqual(['hermes-1']);
+  releaseOld();
+  await oldLoad;
+  await delay(5);
+  // 旧筛选的迟到响应被筛选代次拦住，不覆盖新列表。
+  expect(store.getSessions().items.map(i => i.conv_key)).toEqual(['hermes-1']);
+});
+
+test('Agent 目录单飞、投影不取数、切会话不误清', async () => {
+  const fx = createFixtureReadTransport();
+  let release = () => {};
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  fx.respond('sessionAgents', () => gate.then(() => ({
+    agents: [{ agent: 'claude', sessions: 3, last_ms: 9 }, { agent: 'hermes', sessions: 1, last_ms: 5 }], total: 4,
+  })));
+  fx.respond('sessions', () => ({ items: [session('a')], next_cursor: null }));
+  fx.respond('sessionsTitle', (input: { keys: string[] }) => ({ titles: input.keys.map((key: string) => ({ conv_key: key, title: key })) }));
+  fx.respond('requests', () => ({ items: [], next_cursor: null }));
+  const store = createReaderStore(fx.transport);
+  const first = store.loadSessionAgents();
+  const second = store.loadSessionAgents();
+  release();
+  await Promise.all([first, second]);
+  expect(fx.count('sessionAgents')).toBe(1);
+  const snap = store.peekSessionAgents();
+  expect(snap.status).toBe('ready');
+  expect(snap.total).toBe(4);
+  expect(snap.agents.map(a => a.agent)).toEqual(['claude', 'hermes']);
+  // 投影与列表加载都不触发目录聚合：渲染路径只读快照。
+  store.peekSessionAgents();
+  await store.loadSessions();
+  expect(fx.count('sessionAgents')).toBe(1);
+  // 切会话只换 sessionScope，page owner 的目录不被误清也不重取。
+  await store.selectSession('a');
+  expect(store.peekSessionAgents().status).toBe('ready');
+  expect(fx.count('sessionAgents')).toBe(1);
+});
+
 test('标题首次回填为空时 30s 后重试一次，仍空则正式无标题', async () => {
   const fx = createFixtureReadTransport();
   fx.respond('sessions', () => ({ items: [{ ...session('a'), title: '' }], next_cursor: null }));

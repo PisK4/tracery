@@ -172,7 +172,7 @@ PRIMARY KEY (conv_key, job_id)
 
 **把 `context_event` 判据写成「输入里含归档消息」。** 归档消息在会话每笔请求都重发，这条判据会给整场会话每一行挂压缩标记，降噪变成加噪。改用 delta 判据。
 
-**旁路折叠走 SQL 层过滤。** `GROUP BY conv_key` 后 `HAVING MAX(purpose_chain='participate')=1`，游标与 `next_cursor` 语义跟着改，折叠计数需另开全量聚合查询。否决理由：改动大、动游标；渲染层过滤改动小，代价是计数随翻页增长，界面措辞如实写「已加载页」即可。
+**旁路折叠走 SQL 层过滤。** `GROUP BY conv_key` 后 `HAVING MAX(purpose_chain='participate')=1`，游标与 `next_cursor` 语义跟着改，折叠计数需另开全量聚合查询。否决理由：改动大、动游标；渲染层过滤改动小，代价是计数随翻页增长，界面措辞如实写「已加载页」即可。这条否决后被[会话栏全量 Agent 目录与旁路前置过滤](2026-11-08-session-rail-full-agent-directory.md)反转：目标改为「旁路直接忽略 + 首屏铺满」后，HAVING 不改游标元组、bypass 不再到达客户端，两条顾虑重新核过都不成立；bypass 判定与存储证据不变。
 
 ## Consequences
 

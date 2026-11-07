@@ -10,7 +10,7 @@ import { acquireMaintenanceLock, lockPath, maintenanceLockPresent } from '../src
 import { backupBundle, backupDatabase, restoreBundle } from '../src/maintenance/backup';
 import { previewAgentPurge, previewMetadataPurge, purgeAgent, purgeMetadata } from '../src/maintenance/purge';
 import { runMaintenance } from '../src/maintenance/cli';
-import { verifyDatabase } from '../src/maintenance/verify';
+import { verifyDatabase, CODE_SCHEMA_VERSION } from '../src/maintenance/verify';
 import { localDay } from '../src/format';
 import { loadBoundSaltTx, loadConfig } from '../src/config';
 import { redact } from '../src/privacy';
@@ -596,7 +596,7 @@ test('precheck按schema版本三态放行或拒绝，且不做迁移写入', asy
     const io = { out: (line: string) => lines.push(line), err: (line: string) => errs.push(line) };
     // 新装库是当前版本：直接可启动。store.ts 升版而 CODE_SCHEMA_VERSION 没跟时，这条先报红。
     expect(await runMaintenance(['precheck', '--db', path], io)).toBe(0);
-    expect(JSON.parse(lines.at(-1)!)).toEqual({ ok: true, state: 'in_place', db_version: 14, code_version: 14 });
+    expect(JSON.parse(lines.at(-1)!)).toEqual({ ok: true, state: 'in_place', db_version: CODE_SCHEMA_VERSION, code_version: CODE_SCHEMA_VERSION });
     // 有原地升级路径的旧版本放行，且预检不写库：user_version 原样保留。
     setVersion(11);
     expect(await runMaintenance(['precheck', '--db', path], io)).toBe(0);
@@ -609,9 +609,9 @@ test('precheck按schema版本三态放行或拒绝，且不做迁移写入', asy
     expect(await runMaintenance(['precheck', '--db', path], io)).toBe(1);
     expect(JSON.parse(lines.at(-1)!)).toMatchObject({ ok: false, state: 'rebuild_required', db_version: 5 });
     // 比代码新与带表的空版本：不支持。
-    setVersion(15);
+    setVersion(CODE_SCHEMA_VERSION + 1);
     expect(await runMaintenance(['precheck', '--db', path], io)).toBe(1);
-    expect(JSON.parse(lines.at(-1)!)).toMatchObject({ ok: false, state: 'unsupported', db_version: 15 });
+    expect(JSON.parse(lines.at(-1)!)).toMatchObject({ ok: false, state: 'unsupported', db_version: CODE_SCHEMA_VERSION + 1 });
     setVersion(0);
     expect(await runMaintenance(['precheck', '--db', path], io)).toBe(1);
     expect(JSON.parse(lines.at(-1)!)).toMatchObject({ ok: false, state: 'unsupported', db_version: 0 });
@@ -868,15 +868,15 @@ test('当前库备份写实际版本；v8/v7/v6包恢复后原地升级，白名
     backupBundle(f.dir, bundle);
     const manifestPath = join(bundle, 'manifest.json');
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
-    expect(manifest.schema).toBe(14);
+    expect(manifest.schema).toBe(CODE_SCHEMA_VERSION);
     const restored = join(f.dir, 'restored-v9');
     restoreBundle(bundle, restored);
     const store = openStore(join(restored, 'trace.db'));
     try {
-      expect(store.read.query('PRAGMA user_version').get()).toEqual({ user_version: 14 });
+      expect(store.read.query('PRAGMA user_version').get()).toEqual({ user_version: CODE_SCHEMA_VERSION });
     } finally { store.close(); }
 
-    // v8、v7 与 v6 包仍在白名单：恢复后首次打开原地升到 v14（纯新增表与索引）。
+    // v8、v7 与 v6 包仍在白名单：恢复后首次打开原地升到当前版本（纯新增表与索引）。
     const db7 = new Database(join(f.dir, 'trace.db'));
     db7.run('PRAGMA user_version=7');
     db7.close();
@@ -888,7 +888,7 @@ test('当前库备份写实际版本；v8/v7/v6包恢复后原地升级，白名
     restoreBundle(bundle7, restored7);
     const store7 = openStore(join(restored7, 'trace.db'));
     try {
-      expect(store7.read.query('PRAGMA user_version').get()).toEqual({ user_version: 14 });
+      expect(store7.read.query('PRAGMA user_version').get()).toEqual({ user_version: CODE_SCHEMA_VERSION });
     } finally { store7.close(); }
 
     const db6 = new Database(join(f.dir, 'trace.db'));
@@ -902,7 +902,7 @@ test('当前库备份写实际版本；v8/v7/v6包恢复后原地升级，白名
     restoreBundle(bundle6, restored6);
     const store6 = openStore(join(restored6, 'trace.db'));
     try {
-      expect(store6.read.query('PRAGMA user_version').get()).toEqual({ user_version: 14 });
+      expect(store6.read.query('PRAGMA user_version').get()).toEqual({ user_version: CODE_SCHEMA_VERSION });
     } finally { store6.close(); }
 
     // 白名单外的版本两侧都拒：低版本没有升级路径，搬回来也打不开。

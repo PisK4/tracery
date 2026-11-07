@@ -6,7 +6,7 @@
  * 只消费这里的操作名、ReadInput/ReadOutput 与 ReadErrorCode。批次端点的服务端
  * 实现归 reading 批读取（Task 4），本契约先固定它的对外形状。
  */
-import type { SessionRow } from './queries/sessions';
+import type { SessionRow, SessionAgentDirectory } from './queries/sessions';
 import type { RequestRow } from './queries/projection';
 import type { Page } from './queries/cursor';
 import type {
@@ -52,7 +52,9 @@ export type BatchPage<T> = { items: BatchItem<T>[]; next_index: number | null };
  * 服务端路由，HTTP 层继续显式解析与校验。
  */
 export type ReadOperations = {
-  sessions: { input: { limit: number; cursor: string | null; title: 'full' | 'light' }; output: Page<SessionRow> };
+  sessions: { input: { limit: number; cursor: string | null; title: 'full' | 'light';
+    agent?: string | null; visibleOnly?: boolean }; output: Page<SessionRow> };
+  sessionAgents: { input: Record<string, never>; output: SessionAgentDirectory };
   sessionsTitle: { input: { keys: string[] }; output: { titles: { conv_key: string; title: string }[] } };
   requests: { input: { key: string; limit: number; cursor: string | null;
     direction: 'forward' | 'older' }; output: Page<RequestRow> };

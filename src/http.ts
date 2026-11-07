@@ -10,7 +10,7 @@ import type { SummaryEntriesQuery } from './queries/session-summary';
 import { getRequest, listRequests } from './queries/requests';
 import { getRoute } from './queries/routes';
 import { getStats } from './queries/stats';
-import { listSessions, getSessionTitles } from './queries/sessions';
+import { listSessions, getSessionTitles, listSessionAgents } from './queries/sessions';
 import type { LiveActivity } from './activity';
 import { listTurns } from './queries/turns';
 import { listBgJobs } from './queries/bg-jobs';
@@ -42,7 +42,7 @@ export function routeTemplate(pathname: string): string {
   if (pathname === '/v1/traces') return 'otlp.traces';
   if (pathname === '/v1/logs') return 'otlp.logs';
   if (pathname === '/api/ingest-metrics' || pathname === '/api/metrics'
-    || pathname === '/api/stats' || pathname === '/api/sessions') return pathname;
+    || pathname === '/api/stats' || pathname === '/api/sessions' || pathname === '/api/agents') return pathname;
   if (pathname.startsWith('/api/sessions/')) {
     for (const suffix of ['requests', 'turns', 'bg-jobs', 'todo', 'summary/entries', 'summary',
       'readings', 'reading-ranges']) {
@@ -561,6 +561,8 @@ export function createHandler(
 
       if (path === '/api/stats') return json(getStats(store));
 
+      if (path === '/api/agents') return json(listSessionAgents(store));
+
       if (path === '/api/sessions') {
         const key = url.search;
         const inflight = sessionsInflight.get(key);
@@ -572,7 +574,11 @@ export function createHandler(
             : { now: Date.now(), inflight: (key: string) => live.inflight(key) };
           const titleParam = url.searchParams.get('title');
           const title = titleParam === 'light' ? 'light' : 'full';
-          return json(listSessions(store, limit, url.searchParams.get('cursor'), active, title));
+          const agentParam = url.searchParams.get('agent');
+          const agent = agentParam === null || agentParam.trim() === '' ? null : agentParam.trim();
+          const visibleOnly = url.searchParams.get('visibleOnly') === '1';
+          const filter = agent === null && !visibleOnly ? null : { agent, visibleOnly };
+          return json(listSessions(store, limit, url.searchParams.get('cursor'), active, title, filter));
         })();
         sessionsInflight.set(key, promise);
         try {
