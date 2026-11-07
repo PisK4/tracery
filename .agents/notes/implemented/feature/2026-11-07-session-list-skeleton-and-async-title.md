@@ -14,7 +14,8 @@ Status: implemented
 - 新增 `getSessionTitles(keys)` 单取各会话标题，`sessionsTitle` 具名操作供 `/api/sessions/titles` 直接取一批。
 - 前端 `loadSessions` 默认走 `title: 'light'`，列表先落地，`onSessionsChanged` 立即渲染；标题在列表后单独请求，成功逐项覆盖并二次渲染，失败不阻断列表。
 - 左栏首屏接入骨架条占位（`.sess-skeleton`），数据到达前是占位条而不是空白；主栏等待仍按原文字显示。
-- 标题失败静默保留空标题；用户仍可点进会话，不阻断主流程。
+- 标题在途时列表行与中栏会话头标题区显示「读取标题中…」脉动（`.is-loading` + `sess-title-pulse` 动画），这是"light 阶段在飞行中"的临时态，不是"确认无标题"。快照上 `titleLoading` public 标志区分两态：为真时空标题行走 loading 样式，归零后空标题才转入正式「（无标题）」。`onSessionsChanged` 每次触发时同时重渲左栏列表与中栏主区，所以回填到达后左右标题一同切到真实标题。回填失败静默保留空标题并关闭 `titleLoading`，同样落到正式「（无标题）」；用户仍可点进会话，不阻断主流程。
+- 标题失败不阻断列表：失败保留空标题，用户仍可点进会话。
 
 ## Alternatives considered
 
