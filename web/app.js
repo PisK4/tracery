@@ -680,7 +680,9 @@ if (typeof document !== 'undefined') {
         : t('归属未知');
       const time = liveTimeCell(s, clock);
       // 标题：light 阶段空标题是异步回填中，走 loading 语义；回填失败或正式无标题才「（无标题）」。
-      const titleLoading = store.getSessions().titleLoading && !s.title;
+      // retrying 态是回填后对 dirty 未settled 组的 30s 重试：重试喊「读取标题中…」不标无标题。
+      const snap = store.getSessions();
+      const titleLoading = (snap.titleLoading || snap.retrying) && !s.title;
       const titleHtml = titleLoading
         ? `<span class="sess-title is-loading" aria-label="${t('读取标题中')}" aria-hidden="false">${t('读取标题中…')}</span>`
         : `<span class="sess-title">${esc(s.title || t('（无标题）'))}</span>`;
@@ -779,11 +781,12 @@ if (typeof document !== 'undefined') {
    *  @param {import('../src/queries/projection').RequestRow[]} hiddenRows 默认时间线省略的空组 */
   function sessionHead(hiddenRows) {
     const summary = store.peekSummary();
+    const snap = store.getSessions();
     lazyHiddenItems = () => sessionHiddenItems(currentRows(), hiddenRows);
     return sessionHeadView({
       sessionKey: state.session,
       row: state.session === null ? null : sessionRow(state.session),
-      titleLoading: store.getSessions().titleLoading,
+      titleLoading: snap.titleLoading || snap.retrying,
       rows: currentRows(),
       refreshedAt: state.refreshedAt,
       missingReqId: state.missingReqId,

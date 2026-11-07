@@ -1214,6 +1214,53 @@ test('会话列表并发加载只发一次请求', async () => {
   await first;
 });
 
+test('标题首次回填为空时 30s 后重试一次，仍空则正式无标题', async () => {
+  const fx = createFixtureReadTransport();
+  fx.respond('sessions', () => ({ items: [{ ...session('a'), title: '' }], next_cursor: null }));
+  let titles = 0;
+  fx.respond('sessionsTitle', (input: { keys: string[] }) => {
+    titles += 1;
+    // 第一次模拟 dirty 未结算：返回空标题；重试后给出标题。
+    const empty = titles === 1;
+    return { titles: input.keys.map((key: string) => ({ conv_key: key, title: empty ? '' : 'done' })) };
+  });
+  const store = createReaderStore(fx.transport, () => {}, { titleRetryMs: 50 });
+  await store.loadSessions();
+  expect(store.getSessions().items[0]?.title).toBe('');
+  expect(store.getSessions().retrying).toBe(true);
+  expect(titles).toBe(1);
+  await delay(120);
+  expect(titles).toBe(2);
+  expect(store.getSessions().items[0]?.title).toBe('done');
+  expect(store.getSessions().retrying).toBe(false);
+});
+
+test('标题重试仍为空时正式落无标题', async () => {
+  const fx = createFixtureReadTransport();
+  fx.respond('sessions', () => ({ items: [{ ...session('a'), title: '' }], next_cursor: null }));
+  fx.respond('sessionsTitle', (input: { keys: string[] }) => ({ titles: input.keys.map((key: string) => ({ conv_key: key, title: '' })) }));
+  const store = createReaderStore(fx.transport, () => {}, { titleRetryMs: 50 });
+  await store.loadSessions();
+  expect(store.getSessions().retrying).toBe(true);
+  await delay(120);
+  expect(store.getSessions().items[0]?.title).toBe('');
+  expect(store.getSessions().retrying).toBe(false);
+  expect(fx.count('sessionsTitle')).toBe(2);
+});
+
+test('dispose 后标题重试不写入', async () => {
+  const fx = createFixtureReadTransport();
+  fx.respond('sessions', () => ({ items: [{ ...session('a'), title: '' }], next_cursor: null }));
+  fx.respond('sessionsTitle', (input: { keys: string[] }) => ({ titles: input.keys.map((key: string) => ({ conv_key: key, title: '' })) }));
+  const store = createReaderStore(fx.transport, () => {}, { titleRetryMs: 50 });
+  await store.loadSessions();
+  expect(store.getSessions().retrying).toBe(true);
+  store.dispose();
+  await delay(120);
+  expect(store.getSessions().retrying).toBe(false);
+  expect(fx.count('sessionsTitle')).toBe(1);
+});
+
 test('退出会话清窗口与缓存，迟到的会话读取不能复活内容', async () => {
   const fx = createFixtureReadTransport();
   fx.respond('requests', () => ({ items: [{ req_id: 1, started_ms: 1 }], next_cursor: null }));
