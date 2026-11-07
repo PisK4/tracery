@@ -65,6 +65,9 @@ test('HTTP adapter 与进程内 adapter 给出相同公开结果', async () => {
       run(transport: typeof http): Promise<unknown>;
     }> = [
       { name: 'sessions', run: t => t.execute('sessions', { limit: 50, cursor: null, title: 'full' }, { signal }) },
+      { name: 'sessionsVisible', run: t => t.execute('sessions',
+        { limit: 50, cursor: null, title: 'full', agent: null, visibleOnly: true }, { signal }) },
+      { name: 'sessionAgents', run: t => t.execute('sessionAgents', {}, { signal }) },
       { name: 'sessionsTitle', run: t => t.execute('sessionsTitle', { keys: [CONV_KEY] }, { signal }) },
       { name: 'requests', run: t => t.execute('requests',
         { key: CONV_KEY, limit: 100, cursor: null, direction: 'forward' }, { signal }) },

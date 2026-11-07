@@ -39,8 +39,12 @@ export function createHttpReadTransport({ fetcher, baseUrl = '', headers }) {
         const params = new URLSearchParams({ limit: String(input.limit) });
         if (input.cursor !== null) params.set('cursor', input.cursor);
         if (input.title !== 'full') params.set('title', input.title);
+        if (input.agent != null) params.set('agent', input.agent);
+        if (input.visibleOnly === true) params.set('visibleOnly', '1');
         return `/api/sessions?${params}`;
       }
+      case 'sessionAgents':
+        return '/api/agents';
       case 'sessionsTitle': {
         const params = new URLSearchParams({ keys: JSON.stringify(input.keys) });
         return `/api/sessions/titles?${params}`;
@@ -143,6 +147,13 @@ export function createHttpReadTransport({ fetcher, baseUrl = '', headers }) {
         if (!isObj(parsed) || !Array.isArray(parsed.items)
           || !(parsed.next_cursor === null || parsed.next_cursor === undefined
             || typeof parsed.next_cursor === 'string')) reject();
+        return;
+      case 'sessionAgents':
+        if (!isObj(parsed) || !Array.isArray(parsed.agents) || !Number.isSafeInteger(parsed.total)) reject();
+        for (const facet of parsed.agents) {
+          if (!isObj(facet) || typeof facet.agent !== 'string'
+            || !Number.isSafeInteger(facet.sessions) || typeof facet.last_ms !== 'number') reject();
+        }
         return;
       case 'sessionsTitle':
         if (!isObj(parsed) || !Array.isArray(parsed.titles)) reject();

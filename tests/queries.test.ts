@@ -7,7 +7,7 @@ import { derivationOf, projectionMetaReading, promptReadingOf, sourceFactsReadin
 import type { ProjectionMetaReading } from '../src/queries/readings';
 import { getRequest, listRequests } from '../src/queries/requests';
 import { getStats } from '../src/queries/stats';
-import { listSessions, titleBindingOf, getSessionTitles } from '../src/queries/sessions';
+import { listSessions, titleBindingOf, getSessionTitles, listSessionAgents } from '../src/queries/sessions';
 import { persistBody } from '../src/body';
 import { drainDerive, enqueueDerive } from '../src/derive/sync';
 import { markGroupDirtyTx } from '../src/derive/state';
@@ -815,6 +815,64 @@ test('全员 exclude 的会话标 bypass，混入一笔参与链就不标', () =
     const items = listSessions(f.store, 10, null).items;
     expect(items.find(row => row.conv_key === bypassKey)?.flags).toEqual(['bypass']);
     expect(items.find(row => row.conv_key === mixedKey)?.flags).toEqual([]);
+  } finally {
+    f.close();
+  }
+});
+
+test('visibleOnly 在分页前排除旁路，游标在可见集上推进', () => {
+  const f = fixture();
+  try {
+    const key = (name: string) => JSON.stringify(['session', name]);
+    f.store.write(db => {
+      const insert = db.prepare(`INSERT INTO request(req_id,conv_key,conv_source,actor,agent,actor_state,started_ms,day,via,body_state,derive_version,have,created_at,updated_at,purpose_chain)
+        VALUES (?,?,'session','actor-a',?,'known',?,'2026-11-08','through','available',1,7,1,1,?)`);
+      insert.run(201, key('by1'), 'omp', 9000, 'exclude');
+      insert.run(202, key('by2'), 'omp', 8000, 'exclude');
+      insert.run(203, key('by3'), 'omp', 7000, 'exclude');
+      insert.run(204, key('vis1'), 'claude', 6000, 'participate');
+      insert.run(205, key('vis2'), 'hermes', 5000, 'participate');
+      insert.run(206, key('vis3'), 'claude', 4000, 'participate');
+    });
+    expect(listSessions(f.store, 10, null).items.length).toBe(6);
+    const vis = listSessions(f.store, 10, null, null, 'full', { visibleOnly: true }).items;
+    expect(vis.map(row => row.conv_key)).toEqual([key('vis1'), key('vis2'), key('vis3')]);
+    expect(vis.every(row => !row.flags.includes('bypass'))).toBe(true);
+    const p1 = listSessions(f.store, 2, null, null, 'full', { visibleOnly: true });
+    expect(p1.items.map(row => row.conv_key)).toEqual([key('vis1'), key('vis2')]);
+    expect(p1.next_cursor).not.toBeNull();
+    const p2 = listSessions(f.store, 2, p1.next_cursor, null, 'full', { visibleOnly: true });
+    expect(p2.items.map(row => row.conv_key)).toEqual([key('vis3')]);
+    expect(p2.next_cursor).toBeNull();
+  } finally {
+    f.close();
+  }
+});
+
+test('agent 过滤保留整组最近时间，facets 只枚举有可见会话的 agent', () => {
+  const f = fixture();
+  try {
+    const key = (name: string) => JSON.stringify(['session', name]);
+    f.store.write(db => {
+      const insert = db.prepare(`INSERT INTO request(req_id,conv_key,conv_source,actor,agent,actor_state,started_ms,day,via,body_state,derive_version,have,created_at,updated_at,purpose_chain)
+        VALUES (?,?,'session','actor-a',?,'known',?,'2026-11-08','through','available',1,7,1,1,?)`);
+      // orderKey：claude 早、omp 晚，整组最近时间是 9500 而非 claude 的 100。
+      insert.run(301, key('orderKey'), 'claude', 100, 'participate');
+      insert.run(302, key('orderKey'), 'omp', 9500, 'participate');
+      insert.run(303, key('hermesKey'), 'hermes', 5000, 'participate');
+      insert.run(304, key('byKey'), 'magpie', 8000, 'exclude');
+      insert.run(305, key('claudeBypass'), 'claude', 7000, 'exclude');
+    });
+    const claudeVisible = listSessions(f.store, 10, null, null, 'full', { agent: 'claude', visibleOnly: true }).items;
+    expect(claudeVisible.map(row => row.conv_key)).toEqual([key('orderKey')]);
+    expect(claudeVisible[0].last_ms).toBe(9500);
+    // 只按 agent 过滤不过滤旁路：claudeBypass 仍返回；叠加 visibleOnly 才排除。
+    const claudeAll = listSessions(f.store, 10, null, null, 'full', { agent: 'claude' }).items;
+    expect(claudeAll.map(row => row.conv_key).sort()).toEqual([key('claudeBypass'), key('orderKey')].sort());
+    const dir = listSessionAgents(f.store);
+    expect(dir.total).toBe(2);
+    expect(Object.fromEntries(dir.agents.map(a => [a.agent, a.sessions]))).toEqual({ claude: 1, omp: 1, hermes: 1 });
+    expect(dir.agents.some(a => a.agent === 'magpie')).toBe(false);
   } finally {
     f.close();
   }

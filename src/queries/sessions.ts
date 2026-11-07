@@ -244,12 +244,25 @@ export function getSessionTitles(store: Store, keys: string[]): SessionTitleMap 
   return rows.map(row => ({ conv_key: row.conv_key, title: row.title ?? '' }));
 }
 
+/**
+ * 会话列表的可选过滤：两个都是组级谓词，应用在 GROUP BY 之后，不改整组
+ * `MAX(started_ms)` 与游标元组。缺省（null）返回全量存储事实，与冻结 oracle
+ * 保持等价；阅读侧显式传 visibleOnly 投影可见集，接口默认口径不变。
+ */
+export type SessionFilter = {
+  /** 只返回有参与链的会话，排除全员 exclude 的旁路组。 */
+  visibleOnly?: boolean;
+  /** 只返回含该 agent 请求的会话；成员口径与 agents[] 包含关系一致。 */
+  agent?: string | null;
+};
+
 export function listSessions(
   store: Store,
   limit = 50,
   cursor: string | null = null,
   live: SessionLive | null = null,
   title: 'full' | 'light' = 'full',
+  filter: SessionFilter | null = null,
 ): Page<SessionRow> {
   const size = checkLimit(limit, 100);
   const bound = cursor === null
@@ -260,29 +273,36 @@ export function listSessions(
       if (typeof lastMs !== 'number' || !Number.isFinite(lastMs) || typeof convKey !== 'string') return null;
       return { lastMs, convKey };
     });
-  // 两个阶段在同一个只读事务里完成：阶段一沿 `i_req_session_time` 覆盖索引只取
-  // 会话键与真实最近请求时间，排序取 `limit + 1` 个候选，多取的一条只用于判断
-  // next_cursor；游标条件应用在分组之后，首页因此不带 HAVING。阶段二只对页内
-  // 会话做标题、计数与标志的宽聚合，页外会话不参与任何宽字段计算，列表读取
-  // 不触碰正文。WAL 快照由阶段一首读固定：采集在两阶段之间提交，本页的排序
-  // 依据与内容仍来自同一旧快照，下一次调用才可见新会话。
+  // 两个阶段在同一个只读事务里完成：阶段一只取会话键与真实最近请求时间，排序
+  // 取 `limit + 1` 个候选，多取的一条只用于判断 next_cursor；游标与可选过滤
+  // （参与链存在性、agent 成员）都应用在分组之后，不改整组最近时间与游标元组，
+  // 无过滤且无游标时不带 HAVING。过滤谓词读 purpose_chain/agent，配套覆盖索引
+  // 在 schema v15。阶段二只对页内会话做标题、计数与标志的宽聚合，页外会话不
+  // 参与任何宽字段计算，列表读取不触碰正文。WAL 快照由阶段一首读固定：采集在
+  // 两阶段之间提交，本页的排序依据与内容仍来自同一旧快照，下一次调用才可见新会话。
   const { candidates, detail } = store.read.transaction(() => {
-    const rows = (bound === null
-      ? store.read.query<SessionCandidateRow, [number]>(`
-          SELECT conv_key, MAX(started_ms) AS last_ms
-          FROM request
-          WHERE conv_key IS NOT NULL
-          GROUP BY conv_key
-          ORDER BY last_ms DESC, conv_key DESC
-          LIMIT ?`).all(size + 1)
-      : store.read.query<SessionCandidateRow, [number, string, number]>(`
-          SELECT conv_key, MAX(started_ms) AS last_ms
-          FROM request
-          WHERE conv_key IS NOT NULL
-          GROUP BY conv_key
-          HAVING (MAX(started_ms), conv_key) < (?, ?)
-          ORDER BY last_ms DESC, conv_key DESC
-          LIMIT ?`).all(bound.lastMs, bound.convKey, size + 1)) as SessionCandidateRow[];
+    const having: string[] = [];
+    const havingParams: (number | string)[] = [];
+    if (bound !== null) {
+      having.push('(MAX(started_ms), conv_key) < (?, ?)');
+      havingParams.push(bound.lastMs, bound.convKey);
+    }
+    if (filter?.visibleOnly === true) {
+      having.push(`MAX(CASE WHEN purpose_chain = 'participate' THEN 1 ELSE 0 END) = 1`);
+    }
+    if (filter?.agent !== null && filter?.agent !== undefined) {
+      having.push('MAX(CASE WHEN agent = ? THEN 1 ELSE 0 END) = 1');
+      havingParams.push(filter.agent);
+    }
+    const havingSql = having.length === 0 ? '' : `HAVING ${having.join(' AND ')}`;
+    const rows = store.read.query<SessionCandidateRow, (number | string)[]>(`
+        SELECT conv_key, MAX(started_ms) AS last_ms
+        FROM request
+        WHERE conv_key IS NOT NULL
+        GROUP BY conv_key
+        ${havingSql}
+        ORDER BY last_ms DESC, conv_key DESC
+        LIMIT ?`).all(...havingParams, size + 1) as SessionCandidateRow[];
     if (rows.length === 0) return { candidates: rows, detail: [] as SessionDbRow[] };
     const pageKeys = rows.slice(0, size).map(row => row.conv_key);
     // title === 'light' 时标题子查询不出列，行里标题保持空；回填由 getSessionTitles 单取。
@@ -312,6 +332,40 @@ export function listSessions(
     ? encodeCursor([last.last_ms, last.conv_key])
     : null;
   return { items, next_cursor: nextCursor };
+}
+
+/** Agent 目录条目：计数口径是含该 agent 的可见会话数，多 agent 会话会在多个条目里重复计入。 */
+export type SessionAgentFacet = { agent: string; sessions: number; last_ms: number };
+
+/** 全库 Agent 目录：total 是可见会话总数，不是各 agent 求和，避免多 agent 会话重复计数。 */
+export type SessionAgentDirectory = { agents: SessionAgentFacet[]; total: number };
+
+/**
+ * 全库可见 Agent 目录：先聚合出有参与链的会话，再按 agent 成员枚举。只列有
+ * 可见会话的 agent，纯旁路 agent 不出现。这是全库聚合，调用方必须缓存、不得
+ * 在渲染路径里调用，刷新时机见提案 note。agents 与 total 在同一只读快照里读取，
+ * 避免并发采集让两者漂移。
+ */
+export function listSessionAgents(store: Store): SessionAgentDirectory {
+  const visibleSql = `
+    SELECT conv_key, MAX(started_ms) AS last_ms
+    FROM request
+    WHERE conv_key IS NOT NULL
+    GROUP BY conv_key
+    HAVING MAX(CASE WHEN purpose_chain = 'participate' THEN 1 ELSE 0 END) = 1`;
+  return store.read.transaction(() => {
+    const agents = store.read.query<SessionAgentFacet, []>(`
+      WITH visible AS (${visibleSql})
+      SELECT r.agent AS agent, COUNT(DISTINCT r.conv_key) AS sessions, MAX(r.started_ms) AS last_ms
+      FROM request r
+      JOIN visible v ON v.conv_key = r.conv_key
+      WHERE r.agent IS NOT NULL AND r.agent <> ''
+      GROUP BY r.agent
+      ORDER BY sessions DESC, last_ms DESC, agent ASC`).all() as SessionAgentFacet[];
+    const total = store.read.query<{ total: number }, []>(`
+      SELECT COUNT(*) AS total FROM (${visibleSql})`).get()?.total ?? 0;
+    return { agents, total };
+  }).deferred();
 }
 
 export type TitleBindingStatus = 'bound' | 'ambiguous' | 'unbound';
