@@ -1,3 +1,8 @@
+/**
+ * 派生的唯一生产入口：在线调度（createDeriveUnit.run）与维护排空
+ * （drainDeriveEntry）都收敛到本文件的 drain，同步与切片路径由它按
+ * store.deriveRuntime 分派。不建第二个执行入口。
+ */
 import type { Store } from '../store';
 import { addBodyReadStats, emptyBodyReadStats } from '../body-cache';
 import type { BodyReadStats } from '../body-cache';

@@ -1359,7 +1359,7 @@ v14 的 `capacity_meter` 给四个来源各存一行 `bytes` 与 `row_count`。�
 
 `CAST AS BLOB` 把 TEXT 按 UTF-8 字节计，不能直接 `length()` 取字符数；可空列分别 `IFNULL`，一侧 NULL 不影响另一侧。12 个触发器覆盖四表的 INSERT、影响载荷列的 UPDATE 与 DELETE，计数与来源行在同一事务提交、回滚。打开写连接时设 `PRAGMA recursive_triggers=ON`，未来若出现 `INSERT OR REPLACE`，隐式删除也会走 DELETE 分支；当前写路径没有使用 REPLACE。
 
-在线路径只读这四行：准入初始值、TTL 刷新、`invalidate()`、回收判断与批间复测共用。全表求和只出现在迁移初始化与显式 `capacity-check` / `capacity-recount`；正常重启只校验四行与 12 个触发器，不重扫历史。存量库迁移、失败回滚与维护命令见[运维手册](operations.md#容量计数与对账)。
+在线路径只读这四行：准入初始值、TTL 刷新、`invalidate()`、回收判断与批间复测共用。这四行是正文字节与来源行数的唯一事实源，读取方不再各自扫表；口径有疑问时用 `capacity-check` 对账、`capacity-recount` 纠偏。全表求和只出现在迁移初始化与显式 `capacity-check` / `capacity-recount`；正常重启只校验四行与 12 个触发器，不重扫历史。存量库迁移、失败回滚与维护命令见[运维手册](operations.md#容量计数与对账)。
 
 计数只代表逻辑载荷，不代表页分配、索引、WAL 或文件回收。物理磁盘保护仍由上面的两个预算与准入梯度承担。
 

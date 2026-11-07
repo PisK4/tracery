@@ -49,7 +49,7 @@ bun run patrol weekly --if-due                          # 本期已有快照时�
 
 输出逐行给出读数、当前阈值与 `ok / over / info`；有越界项时退出码 1。`weekly` 会把本期快照写进状态目录，并自动与上一期比较，周环比不再需要人算，见下面的「历史与周环比」。整段输出仍然建议贴进周报，方便人看趋势。
 
-**B1 容量与增长**（核心 1）。`body_ratio` 只表示 block、骨架与 raw_hook 三源正文占文件的比例，低于下限即越界；四源逻辑载荷总量由 `body_budget` 单列，不并入这个比例。`capacity_meter` 检查计数结构：可用为 `ok`，v13 旧库回退全表求和记 `info`，缺表、坏值或触发器缺失记 `over`。`freelist` 与 `wal` 超上限、可用空间低于下限即越界；日增与周增由 `growth_delta` 与上一期快照比较，越过阈值才算越界。证据：第 5 轮 F38、F39；第 1 轮 F11（raw 层 7 天 TTL 未生效）、F12（`raw_droid_event` 不在预算内）。
+**B1 容量与增长**（核心 1）。`body_ratio` 只表示 block、骨架与 raw_hook 三源正文占文件的比例，低于下限即越界；四源逻辑载荷总量由 `body_budget` 单列，不并入这个比例。`capacity_meter` 检查计数结构：可用为 `ok`，v13 旧库回退全表求和记 `info`，缺表、坏值或触发器缺失记 `over`。周期对账与巡查解耦：怀疑计数漂移时跑 `maintain capacity-check`（服务运行中可用），有 delta 再停服 `capacity-recount`。`freelist` 与 `wal` 超上限、可用空间低于下限即越界；日增与周增由 `growth_delta` 与上一期快照比较，越过阈值才算越界。证据：第 5 轮 F38、F39；第 1 轮 F11（raw 层 7 天 TTL 未生效）、F12（`raw_droid_event` 不在预算内）。
 
 **B2 证据链**（核心 2）。`evidence_gap` 超比例、`pending_hook` 今日新增超过前 7 日均值的倍数、`hook_absent` 最近完整一天超过阈值且超过均值的倍数即越界。`hook_absent` 还要再看 agent 分布：claude 未装 hook 时持续增长是 F01 的已知行为，先排除它再定性；重启或升级窗口会临时抬高 gap；批量回填会让 `pairs` 一次跳增，不能直接做周环比。证据：第 1 轮 F09、F13、F16。
 

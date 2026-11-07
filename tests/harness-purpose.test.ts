@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   PURPOSE_RULES, classifyPurpose, classifyPurposeWithRules, type HarnessPurposeRule,
 } from '../src/harness/purpose';
+import { SPAN_RULES } from '../src/sources/otlp/mapping';
 import { PURPOSE_VERSION, type PurposeView } from '../src/semantics';
 
 function view(over: Partial<PurposeView> = {}): PurposeView {
@@ -202,4 +203,16 @@ test('无版本化元数据时，来源 kind=thread_title 仍能退出主链', (
     replyText: JSON.stringify({ title: '来源标题', description: '来自来源 kind' }),
   }));
   expect(decision).toMatchObject({ chain: 'exclude', kind: 'title', modelTitle: '来源标题' });
+});
+
+test('登记表完整性：span 规则的 agent 都有用途规则，purpose-only 在白名单内', () => {
+  const spanAgents = new Set(SPAN_RULES.map(rule => rule.agent));
+  const purposeAgents = new Set(PURPOSE_RULES.map(rule => rule.agent));
+  // OTLP span 建的行也要过用途判定：span 侧登记的 agent 必须在用途登记里。
+  const missing = [...spanAgents].filter(agent => !purposeAgents.has(agent));
+  expect(missing).toEqual([]);
+  // 反向不要求相等：只做用途判定、不走 OTLP 的 harness 是常态。
+  // 新增 purpose-only agent 时在此列名；两边都登记的 harness 无需出现。
+  const purposeOnly = [...purposeAgents].filter(agent => !spanAgents.has(agent));
+  expect(purposeOnly).toEqual(['hermes']);
 });
