@@ -959,7 +959,10 @@ if (typeof document !== 'undefined') {
 
   /** 中栏实际画着的会话键：保留旧画面与一次换场的判定用它，不用语义上的 state.session。 */
   let lastRenderedSession = /** @type {string | null} */ (null);
-  /** 切换会话时最多保留旧画面的时长；窗口页先到就提前换场。 */
+  /** 换会话时旧画面至少停留的时长：压暗、扫描线与离场动画在这个窗口里播完。
+   *  本地窗口页常 20ms 就到，不钉住下限时整段过渡会被下一次 renderAll 抹掉。 */
+  const SWITCH_MIN_HOLD_MS = 200;
+  /** 切换会话时最多保留旧画面的时长；窗口页先到就等满下限时再换场。 */
   const SWITCH_HOLD_MS = 300;
   /** 换场后的连点窗口：这段时间内的下一次切换先等点击停稳，避免中间目标各换一次。 */
   const SWITCH_BURST_MS = 400;
@@ -992,7 +995,7 @@ if (typeof document !== 'undefined') {
     switchEnterTimer = setTimeout(() => {
       switchEnterTimer = null;
       if (main.dataset.switchState === 'entering') delete main.dataset.switchState;
-    }, 220);
+    }, 260);
   }
 
   /** 不保留旧画面的窗口重建（显式刷新、跳锚点、切窗）：只播一次换场淡回，
@@ -1004,14 +1007,22 @@ if (typeof document !== 'undefined') {
     switchEnterTimer = setTimeout(() => {
       switchEnterTimer = null;
       if (main.dataset.switchState === 'entering') delete main.dataset.switchState;
-    }, 220);
+    }, 260);
   }
 
-  /** @param {Promise<void>} loading @param {number} deadline @returns {Promise<boolean>} 窗口页先到返回 true；到保留上限返回 false。 */
-  function switchReady(loading, deadline) {
+  /** @param {Promise<void>} loading @param {number} minDeadline 最短驻留到点的绝对时刻
+   *  @param {number} deadline 保留上限的绝对时刻 @param {boolean} reduce
+   *  @returns {Promise<boolean>} 窗口页先到返回 true；到保留上限返回 false。 */
+  function switchReady(loading, minDeadline, deadline, reduce) {
     return new Promise(resolve => {
       const timer = setTimeout(() => resolve(false), Math.max(0, deadline - performance.now()));
-      void loading.then(() => { clearTimeout(timer); resolve(true); });
+      void loading.then(async () => {
+        clearTimeout(timer);
+        // 窗口页常 20ms 就到：等满最短驻留，压暗与扫描线才来得及被看见。
+        // 减少动态时不等，切会话与原来一样即时。
+        if (!reduce) await sleep(Math.max(0, minDeadline - performance.now()));
+        resolve(true);
+      });
     });
   }
 
@@ -2057,12 +2068,14 @@ if (typeof document !== 'undefined') {
     if (hold) {
       const now = performance.now();
       const deadline = now + SWITCH_HOLD_MS;
+      const minDeadline = now + SWITCH_MIN_HOLD_MS;
+      const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
       // 刚换过场又点下一个：先等点击停稳，被下一次点击取代就整次放弃。
-      if (now - lastSwapAt < SWITCH_BURST_MS) {
+      if (!reduce && now - lastSwapAt < SWITCH_BURST_MS) {
         await sleep(Math.min(SWITCH_SETTLE_MS, SWITCH_HOLD_MS));
         if (myNav !== navEpoch) return;
       }
-      const ready = await switchReady(loading, deadline);
+      const ready = await switchReady(loading, minDeadline, deadline, reduce);
       if (myNav !== navEpoch) return;
       if (ready) {
         // 窗口页已到：新会话的头部与读取中的组一次提交，旧画面不再参与后续重绘。

@@ -2426,3 +2426,39 @@ Grok 的 `session_usage` 有 4 行而游标有 6 个，不是漏刷：本机 6 �
 ### 门禁
 
 追加验收记录与工作教训属纯文档改动，提交信息带 `Agent-Note: none` 豁免；本轮不改代码，不重复上一轮通过的 typecheck 与 126 项窄测试。
+
+## 可感知换场（合成页面，2026-11-08）
+
+前提：worktree `atc-visible-switch`，分支 `feat/visible-session-switch`，基线 `a7066c5`。用户手动验收上一批改动后反馈感觉不到明显修改，本轮把切会话的过渡做成有持续时间与位移的两段换场。合成 server 起在 8771 端口（8770 被另一会话占用），验收后已停掉并还原端口常量。合成数据，不读生产库，没有部署生产。
+
+### 逐帧观测
+
+不注入延迟的单次切换（t 为点击后的毫秒，`getComputedStyle` 读数）：
+
+| 时刻 | 状态 | 头部与列表 | 扫描线 | 标题 |
+| --- | --- | --- | --- | --- |
+| 0 | null | 透明度 1、`transform:none` | 无 | 给 CLI 工具加 --json |
+| 1 | switching | `switch-leave` 起播 | `switch-sweep` 从 -383.4 px 起 | 旧标题 |
+| 233 | entering | 透明度 0.25、下方 12px、`session-swap-in` | 无 | 窗口分页样本（合成） |
+| 290 | entering | 透明度 0.52、下方 7.69px | 无 | 新标题 |
+| 318 | entering | 透明度 0.65、下方 5.56px | 无 | 新标题 |
+| 472 | null | 透明度 1、`transform:none`、动画名 `none` | 无 | 新标题 |
+
+点击同 tick 左栏 `aria-current` 已指向目标会话；`switching` 持续到 233ms，压暗、旧画面上移 6px 与扫描线一轮都在这个窗口里播完。全程 `#main .pulse` 为 0，30 组轨迹无硬切文字。
+
+### 交互与回归
+
+- 60ms 内连点两个不同会话：两次点击各自同 tick 高亮到位，第二笔的节点仍在文档内；最终落在 `conv-synthetic-hook`，状态 `switching → entering → null`，无 pulse、无残留。
+- 显式刷新：28ms 进 `entering`，头部 `session-swap-in`、位移 12px；868ms 后状态、动画名与 transform 全清，`inert=false`、`aria-busy` 为空。
+- `prefers-reduced-motion: reduce`：21ms 就落定，头部与列表动画名 `none`、透明度 1、`transform:none`，扫描线不残留；703ms 后状态全清。
+- 800ms 延迟 + 400 kB/s 慢网：316ms 出 8 行骨架（计算宽 551.578 px、背景 `rgb(35,35,35)`），891ms 窗口页到达播 `session-swap-in` 并出 30 条占位灰条；状态 `switching → null → entering → null`，全程无 pulse。
+
+### 未覆盖与边界
+
+- 逐组填充的节奏仍在，新画面淡入之后灰条仍分批换成正文；本轮只改换场时序，没有动读取契约与缓存。
+- 本轮没有部署生产，也没有在生产库上做真实流量验收；合成页通过不等于用户手动验收通过，落地后需要人在 8320 上再点一次确认。
+- 只改 `web/` 与 `tests/web.test.ts`，没有新增或搬移 `web/` 模块，`STATIC_FILES` 不变；未跑全量套件与跨浏览器矩阵。
+
+### 门禁
+
+`bun run typecheck` 通过；`tests/web.test.ts` 54 pass / 0 fail / 406 expect（新增一条换场守门）。`verify-agent-note-format` 与 `verify-archived-agent-notes` 在全量 `verify:notes` 中通过。

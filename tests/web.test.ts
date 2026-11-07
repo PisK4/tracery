@@ -1113,6 +1113,24 @@ test('准备中的组不铺满屏读取文案，骨架样式与占位键对齐',
   expect(css).toContain('.col-main[data-switch-state="entering"] .session-head');
 });
 
+test('换会话的换场钉住最短驻留，减少动态时不等', () => {
+  const app = readFileSync('web/app.js', 'utf8');
+  const css = readFileSync('web/app.css', 'utf8');
+  // 本地窗口页常 20ms 就到：不等满驻留，压暗与扫描线会被下一次 renderAll 抹掉。
+  expect(app).toMatch(/const SWITCH_MIN_HOLD_MS = 200;/);
+  expect(app).toMatch(/function switchReady\(loading, minDeadline, deadline, reduce\)/);
+  expect(app).toMatch(/if \(!reduce\) await sleep\(Math\.max\(0, minDeadline - performance\.now\(\)\)\);/);
+  expect(app).toMatch(/const reduce = matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches;/);
+  // 两段动画时长与 JS 的驻留/清理定时器对齐；扫描线不再用 1s 无限循环。
+  expect(css).toContain('animation:switch-leave 200ms var(--ease-out) both');
+  expect(css).toContain('animation:switch-sweep 200ms var(--ease-out) both');
+  expect(css).toContain('animation:session-swap-in 240ms var(--ease-out) both');
+  expect(css).not.toContain('switch-sweep 1s linear infinite');
+  expect(app).toContain('}, 260);');
+  // 减少动态时清掉关键帧末帧的位移，旧画面不留在偏移位。
+  expect(css).toContain('.col-main[data-switch-state] .session-head,');
+});
+
 test('分段控件弹起匹配真实类名，不留死选择器', () => {
   const css = readFileSync('web/app.css', 'utf8');
   const html = readFileSync('web/index.html', 'utf8');

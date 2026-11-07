@@ -965,21 +965,28 @@ button.ctx-row{width:100%;font:inherit;border:0;background:none;text-align:left;
 /* 定位滚动的落点确认：目标组呼吸一次淡出（locate 意图触发）。 */
 .trace-group.landed{animation:land-flash 700ms var(--ease-out)}
 @keyframes land-flash{from{background-color:var(--accent-soft)}}
-/* 换会话的保留态与一次换场：保留期间中栏压暗、会话头下沿走一条细线，
-   换场时新头部与新列表一起淡回。状态只由 app.js 写入 data-switch-state。 */
-.col-main[data-switch-state="switching"] .step-list,
-.col-main[data-switch-state="switching"] .session-head{opacity:.55;transition:opacity 120ms linear}
+/* 换会话的两段换场：旧画面在 switching 的 200ms 里压暗并轻微让位，
+   新画面在 entering 里从下方淡入。状态只由 app.js 写入 data-switch-state；
+   动画时长与 JS 的 SWITCH_MIN_HOLD_MS / switchEnterTimer 对齐。 */
+.col-main[data-switch-state="switching"] .session-head,
+.col-main[data-switch-state="switching"] .step-list{
+  animation:switch-leave 200ms var(--ease-out) both;
+}
 .col-main[data-switch-state="switching"] .step-list{pointer-events:none}
-/* 扫描线挂在粘性头部下沿：画在 col-main 顶部会被不透明头部盖住。 */
+/* 扫描线挂在粘性头部下沿：画在 col-main 顶部会被不透明头部盖住。
+   一轮刚好走完整个换场，200ms 内高亮段能横过视野，不留屏外空转。 */
 .col-main[data-switch-state="switching"] .session-head::after{
   content:"";position:absolute;left:0;bottom:-1px;width:38%;height:2px;
   background:linear-gradient(90deg,transparent,var(--accent),transparent);
-  animation:switch-sweep 1s linear infinite;
+  animation:switch-sweep 200ms var(--ease-out) both;
 }
-.col-main[data-switch-state="entering"] .step-list,
-.col-main[data-switch-state="entering"] .session-head{animation:session-swap-in 180ms var(--ease-out)}
+.col-main[data-switch-state="entering"] .session-head,
+.col-main[data-switch-state="entering"] .step-list{
+  animation:session-swap-in 240ms var(--ease-out) both;
+}
+@keyframes switch-leave{to{opacity:.4;transform:translateY(-6px)}}
 @keyframes switch-sweep{from{left:-38%}to{left:100%}}
-@keyframes session-swap-in{from{opacity:.55}}
+@keyframes session-swap-in{from{opacity:.25;transform:translateY(12px)}}
 /* toast：入场走 CSS（插入即播），离场由 motion() 驱动后移除。 */
 .toast{animation:toast-in 180ms var(--ease-out)}
 @keyframes toast-in{from{opacity:0;transform:translate(-50%,8px)}}
@@ -1011,8 +1018,11 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
     animation-duration:.01ms!important;animation-iteration-count:1!important;
     transition-duration:0s!important;transition-delay:0s!important;
   }
-  /* 扫描线是无限动画：关停后停在头部左端的静态短线，而不是停在画面外。 */
-  .col-main[data-switch-state="switching"] .session-head::after{left:0;animation:none}
+  /* 换场两个关键帧都写了 transform：缩短动画后要清掉末帧，免得旧画面停在偏移位。 */
+  .col-main[data-switch-state] .session-head,
+  .col-main[data-switch-state] .step-list,
+  .col-main[data-switch-state="switching"] .session-head::after{animation:none;transform:none;opacity:1}
+  .col-main[data-switch-state="switching"] .session-head::after{left:0}
 }
 /* 切主题两帧抑制：主题当帧完成（既有决策），交互过渡在其余时刻照常。 */
 body.theme-switching *,body.theme-switching *::before,body.theme-switching *::after{
