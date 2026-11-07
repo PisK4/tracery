@@ -19,6 +19,7 @@ function view(over: Partial<PurposeView> = {}): PurposeView {
     tailUserBlockHeads: [],
     userImageBlocks: 0,
     source: { state: 'missing', value: null },
+    operation: { state: 'missing', value: null },
     upstreamTurn: null,
     stored: {
       version: null, status: 'missing', rule: null, signals: [],
@@ -215,4 +216,17 @@ test('登记表完整性：span 规则的 agent 都有用途规则，purpose-onl
   // 新增 purpose-only agent 时在此列名；两边都登记的 harness 无需出现。
   const purposeOnly = [...purposeAgents].filter(agent => !spanAgents.has(agent));
   expect(purposeOnly).toEqual(['hermes']);
+});
+
+test('operation 判定在 Harness 规则之后、来源 kind 之前', () => {
+  // 合成规则命中时优先于 operation。
+  expect(classifyPurposeWithRules([syntheticRule('claude', 'synthetic-main')], view({
+    operation: { state: 'single', value: 'embeddings' },
+  })).kind).toBe('synthetic-main');
+  // 规则弃权时 operation 先于来源 kind 出结论。
+  const abstain: HarnessPurposeRule = { agent: 'claude', decide: () => null };
+  expect(classifyPurposeWithRules([abstain], view({
+    operation: { state: 'single', value: 'embeddings' },
+    source: { state: 'single', value: 'mcp' },
+  }))).toMatchObject({ kind: 'embeddings', chain: 'exclude' });
 });

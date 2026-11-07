@@ -515,3 +515,53 @@ test('Claude 标题指纹：会话壳内文本与主会话首条用户文本一�
     expect(titleRow?.user_fingerprint).toBe(mainRow?.user_fingerprint);
   } finally { f.close(); }
 });
+
+test('embedding operation 无正文也结算为 exclude，客户端标签不影响', () => {
+  const f = fixture();
+  try {
+    for (const agent of ['AsyncOpenAI', 'curl']) {
+      const id = seedPurposeRequest(f.store, {
+        convKey: `embedding-${agent}`, actor: null, actorState: 'unknown',
+        bodyState: 'evicted', operation: 'embeddings', agent, purposeTarget: 1,
+      });
+      const result = drainPurposes(f.store);
+      expect(result).toMatchObject({ applied: 1, remaining: 0 });
+      expect(purposeRow(f.store, id)).toMatchObject({
+        purpose_status: 'recognized', purpose_version: PURPOSE_VERSION,
+        purpose_chain: 'exclude', req_kind: 'embeddings', purpose_pending: 0,
+        purpose_target: PURPOSE_VERSION,
+      });
+    }
+  } finally { f.close(); }
+});
+
+test('未登记 operation 隔离并写契约漂移 issue，重判不重复计数', () => {
+  const f = fixture();
+  try {
+    const id = seedPurposeRequest(f.store, {
+      convKey: 'unknown-op', bodyState: 'evicted', operation: 'execute_tool',
+    });
+    drainPurposes(f.store);
+    expect(purposeRow(f.store, id)).toMatchObject({
+      purpose_status: 'unrecognized', purpose_chain: 'exclude', req_kind: 'operation:execute_tool',
+    });
+    const count = () => f.store.read.query<{ n: number }, []>(
+      `SELECT COUNT(*) AS n FROM ingest_issue
+       WHERE source_kind='ledger' AND reason='operation_unregistered'`).get()!.n;
+    expect(count()).toBe(1);
+    f.store.write(db => markRequestInputTx(db, id));
+    drainPurposes(f.store);
+    expect(count()).toBe(1);
+  } finally { f.close(); }
+});
+
+test('operation 缺失的聊天请求仍参与主链', () => {
+  const f = fixture();
+  try {
+    const id = seedPurposeRequest(f.store, { convKey: 'plain-chat', agent: 'AsyncOpenAI' });
+    drainPurposes(f.store);
+    expect(purposeRow(f.store, id)).toMatchObject({
+      purpose_status: 'unrecognized', purpose_chain: 'participate', req_kind: 'chat',
+    });
+  } finally { f.close(); }
+});

@@ -18,6 +18,7 @@ import { rebuildSession } from './rebuild';
 import { reparseProtocol } from './reparse';
 import { normalizeStoredResponseIds, previewResponseIdNormalization } from './response-ids';
 import { previewOtlpReplay, replayOtlpBound } from './otlp-replay';
+import { previewOperationBackfill, backfillOperations } from './operation-backfill';
 import { verifyDatabase, precheckDatabase } from './verify';
 
 function parseArgs(argv: string[]): Map<string, string | true> {
@@ -84,6 +85,7 @@ const USAGE = `usage:
   maintain normalize-response-ids --db <path> [--apply --approval-id <id>]
   maintain dedupe-sessions --db <path> [--apply --approval-id <id>]
   maintain otlp-replay --db <path> [--apply --approval-id <id>]
+  maintain operation-backfill --db <path> [--apply --approval-id <id>]
   maintain reset-source --db <path> --source <source_kind> [--apply --approval-id <id>]
   maintain purge-metadata --db <path> --before <YYYY-MM-DD> [--apply --allow-all --approval-id <id>]
   maintain purge-agent --db <path> --agent <name> [--apply --approval-id <id>]
@@ -267,6 +269,7 @@ export async function runMaintenance(argv: string[], io: {
     || command === 'rebuild' || command === 'reparse' || command === 'migrate-hook-identity'
     || command === 'normalize-response-ids' || command === 'dedupe-sessions'
     || command === 'otlp-replay'
+    || command === 'operation-backfill'
     || command === 'reset-source') {
     // verify 只读，不需要锁；其余命令写库，必须有。
     let store: Store | null = null;
@@ -383,6 +386,27 @@ export async function runMaintenance(argv: string[], io: {
           return 1;
         }
         const report = dedupeSessionDuplicates(store, Date.now());
+        out(JSON.stringify({ ok: true, applied: true, approval_id: approvalId, ...report }));
+        return 0;
+      }
+      if (command === 'operation-backfill') {
+        lock = acquireMaintenanceLock(dirname(dbPath), `operation-backfill:${process.pid}`);
+        if (lock === null) {
+          err('maintenance_lock_held');
+          return 1;
+        }
+        store = openStore(dbPath);
+        const preview = previewOperationBackfill(store);
+        if (flags.get('apply') !== true) {
+          out(JSON.stringify({ ok: true, applied: false, ...preview }));
+          return 0;
+        }
+        const approvalId = stringFlag(flags, 'approval-id');
+        if (approvalId === null) {
+          out(JSON.stringify({ ok: false, error: 'approval_id_required', ...preview }));
+          return 1;
+        }
+        const report = backfillOperations(store, Date.now());
         out(JSON.stringify({ ok: true, applied: true, approval_id: approvalId, ...report }));
         return 0;
       }

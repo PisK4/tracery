@@ -74,6 +74,7 @@
 - 证据：2026-11-03 全量 `verify:notes` 在 `.agents/notes/implemented/feature/2026-11-03-live-session-activity-and-navigation.md` 报 implemented 格式错，该文件是并发会话尚未跟踪的迁移中途产物；本批改动在 `--staged` 与 `--range` 两处均通过。同一轮还有 7 个历史批次真的缺 note，不能因为存在并发文件就全部当成误报。
 - 防护：报红文件先跑 `git ls-files <path>`，输出为空说明未跟踪、归并发会话；本批范围单独跑 `node scripts/verify-change-notes.mjs --range origin/master..HEAD`；历史缺口逐批看提交信息里有没有 `Agent-Note: none`。
 - 同日补充：主检出（干净 master）同样红不等于「与本次无关」。2026-11-07 静态白名单断言在主检出也红，被当成既有基线放过；实际是 76c23b5 合并的前端外移把两个新模块带进 `web/` 却没登记，生产页面 404。
+- 同日二次确认：operation 准入批次的全量 i18n 失败与 reader-store 四处 typecheck 报错在主检出同批复现，按本条定位为标题重试合并（6adf07c、93bc2a6）引入的回归，本批补 en 条目与类型注解修复，不背「基线既有」的锅也不放走真回归。
 - Seen 2× (2026-11-03, 2026-11-07).
 
 **新增或搬移 `web/` 模块后，必须跑 `tests/http.test.ts` 的静态白名单断言，并重启生产服务再验页面。**

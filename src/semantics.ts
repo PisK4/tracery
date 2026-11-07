@@ -3,7 +3,7 @@
  * 形状解析，以及跨 Harness 复用的来源 kind、标题兼容与正文不可读保留。Harness
  * 专属强指纹及其编排归 [harness/purpose](./harness/purpose.ts)。
  */
-export const PURPOSE_VERSION = 11;
+export const PURPOSE_VERSION = 12;
 
 export type PurposeStatus =
   | 'recognized' | 'unrecognized' | 'missing' | 'retained' | 'unsupported' | 'error';
@@ -38,6 +38,8 @@ export type PurposeView = {
   /** 上游 turn 自报的来源、触发方式与 turn 身份；不认识的 Harness 为 null。 */
   upstreamTurn: { source: string | null; trigger: string | null; turnRef: string | null } | null;
   source: PurposeSource;
+  /** Magpie 账本 operation 的长期事实；缺失/冲突/非法都不出结论，交回协议判定。 */
+  operation: PurposeSource;
   stored: PurposeStored;
 };
 export type PurposeDecision = {
@@ -169,6 +171,49 @@ export function parseTitleReply(
 
 export function titleFromReply(text: string | null): string | null {
   return parseTitleReply(text)?.title ?? null;
+}
+
+/**
+ * 已核对上游赋值锚点的非对话 operation（magpie 3173440ca：embeddings.go 的
+ * retrieve 参数、gateway.go 路由表、draw.go/video.go 的 generate_content）。
+ * execute_tool 生产已见但该检出无赋值点，不列入永久契约，走未知桶。
+ */
+const NON_CHAT_OPERATIONS = new Set([
+  'embeddings', 'rerank', 'transcriptions', 'translations', 'generate_content',
+]);
+
+/**
+ * Magpie operation 准入：显式非对话操作排除链，未登记显式值隔离而不兜底 chat。
+ *
+ * operation 空或缺失不出结论——普通 LM turn 大多省略它，仍走协议、来源 kind
+ * 与正文判定。判定不依赖正文可读性：embedding 请求没有 hook 正文，operation
+ * 是它们唯一的正向用途事实。未知值的 issue 由结算层写 ingest_issue。
+ */
+export function operationDecision(view: PurposeView): PurposeDecision | null {
+  const { state, value } = view.operation;
+  if (state !== 'single' && state !== 'agree') return null;
+  if (value === null || value.trim().length === 0) return null;
+  const operation = value.trim();
+  if (NON_CHAT_OPERATIONS.has(operation)) {
+    return {
+      status: 'recognized',
+      version: PURPOSE_VERSION,
+      rule: 'operation.v1',
+      signals: [`operation.${operation}`],
+      chain: 'exclude',
+      kind: operation,
+      modelTitle: null,
+    };
+  }
+  return {
+    status: 'unrecognized',
+    version: PURPOSE_VERSION,
+    rule: 'operation.unknown.v1',
+    signals: ['operation.unknown', `operation.${operation}`],
+    chain: 'exclude',
+    kind: `operation:${operation}`,
+    modelTitle: null,
+  };
 }
 
 /**

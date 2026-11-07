@@ -175,6 +175,10 @@ bun run maintain dedupe-sessions --db '<dataDir>/trace.db' --apply --approval-id
 bun run maintain otlp-replay --db '<dataDir>/trace.db'
 bun run maintain otlp-replay --db '<dataDir>/trace.db' --apply --approval-id '<你的审批标识>'
 
+# 历史账本行补齐 operation 长期事实并重判，默认只预览
+bun run maintain operation-backfill --db '<dataDir>/trace.db'
+bun run maintain operation-backfill --db '<dataDir>/trace.db' --apply --approval-id '<你的审批标识>'
+
 # 重置一个本地会话来源并从头重摄入：删独占行、摘混合行证据、清游标与原始行，默认只预览
 bun run maintain reset-source --db '<dataDir>/trace.db' --source hermes_session
 bun run maintain reset-source --db '<dataDir>/trace.db' --source hermes_session --apply --approval-id '<你的审批标识>'
@@ -415,6 +419,14 @@ bun run maintain body-bytes-backfill --db '<dataDir>/trace.db' --apply --approva
 默认只预览，输出 `scanned`（待重放行数）、`evidence`（会认领既有请求行的）、`wouldCreate`（会新建请求行的）、`unknownShape`、`skipped`、`expired`（已过保留期、随时代走的）。加 `--apply` 必须同时给 `--approval-id`，否则退出码 1 且错误码 `approval_id_required`。
 
 应用只读 raw、不写 raw：`received_at` 与属性原样保留，保留期时钟不因重放改变。落库段与摄入共用 `persistMappedSpanTx`，分类共用 `classifySpan`；三种分类都回写 `mapping_version`，skipped 也回写，否则每次应用都重复扫同一批行。unknown 写 `span_shape_unknown` issue，幂等。写入按 100 行一批开事务，批间不切线程——维护命令独占进程。重复执行时 `scanned` 为 0。
+
+### operation-backfill
+
+Magpie operation 准入（`PURPOSE_VERSION` 12）上线后，历史行的 `source_facts_json` 缺 `operation` 键，用途层读不到这个事实。本命令给原始账本仍带显式 operation 的行重投影补齐长期事实，并按输入变化标脏：`purpose_pending=1`、输入修订加一、所属组标脏，用途随正常 tick 重判升级，不需要逐会话 rebuild。整链重建仍可选走 [rebuild](#rebuild)。
+
+默认只预览，输出 `candidates`（事实缺键且 raw 带显式文本 operation 的行数）、`operations`（按 operation 值的分布，只取元数据）、`conv_keys`（受影响会话键）。加 `--apply` 必须同时给 `--approval-id`，否则退出码 1 且错误码 `approval_id_required`。
+
+候选只覆盖判定可能改变的行：raw 没有 operation 的行保持旧事实，用途走原协议路径；raw 已过期的行不补猜。逐笔独立事务，单行失败记入 `failed` 不影响其它行；事实已带 `operation` 键的行（含空集合）不再命中，重复执行时 `candidates` 与 `rewritten` 为 0。事实列损坏的行由 `json_valid` 守住候选查询，重投影按缺失重建。
 
 ### purge-metadata
 

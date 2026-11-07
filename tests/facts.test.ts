@@ -71,6 +71,7 @@ function projection(overrides: Partial<RequestProjection> = {}): RequestProjecti
     },
     prompt: { state: 'complete' as const, tokens: 1, counted: 1 as const, window: 1, turns: 1, partsJson: null },
     kind: { state: 'single' as const, values: ['chat'], merged: 'chat', ledger: ['chat'], route: [] },
+    operation: [],
     hook: { state: 'absent' as const, models: [], successes: [], basis: [] },
     identity: {
       state: 'complete' as const, orderState: 'provable' as const, session: 's', nativeSession: null,
@@ -205,4 +206,18 @@ test('空事实与重复合并幂等', () => {
   expect(mergeSourceFacts(empty, empty)).toEqual(empty);
   const once = buildSourceFacts(projection(), null);
   expect(mergeSourceFacts(once, buildSourceFacts(projection(), once))).toEqual(once);
+});
+
+test('operation观测进长期事实：缺失留标记、旧事实缺键兼容、合并幂等', () => {
+  const facts = buildSourceFacts(projection({ operation: ['embeddings', null] }), null);
+  expect(facts.operation).toEqual({ values: ['embeddings'], overflow: false, missing: true, invalid: false });
+  const again = buildSourceFacts(projection({ operation: ['embeddings'] }), facts);
+  expect(again.operation).toEqual(facts.operation);
+  const invalid = buildSourceFacts(projection({ operation: [7 as unknown as string] }), null);
+  expect(invalid.operation?.invalid).toBe(true);
+  expect(invalid.operation?.values).toEqual([]);
+  // 旧事实缺键：序列化后读回仍合法，合并不撤销新观测。
+  const legacy = { ...emptySourceFacts(), operation: undefined };
+  expect(readSourceFacts(serializeFacts(legacy))?.operation).toBeUndefined();
+  expect(mergeSourceFacts(legacy, facts).operation?.values).toEqual(['embeddings']);
 });
