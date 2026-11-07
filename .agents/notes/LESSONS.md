@@ -73,7 +73,13 @@
 **门禁报红先确认文件是否属于本批改动，再判断是否自己引入。**
 - 证据：2026-11-03 全量 `verify:notes` 在 `.agents/notes/implemented/feature/2026-11-03-live-session-activity-and-navigation.md` 报 implemented 格式错，该文件是并发会话尚未跟踪的迁移中途产物；本批改动在 `--staged` 与 `--range` 两处均通过。同一轮还有 7 个历史批次真的缺 note，不能因为存在并发文件就全部当成误报。
 - 防护：报红文件先跑 `git ls-files <path>`，输出为空说明未跟踪、归并发会话；本批范围单独跑 `node scripts/verify-change-notes.mjs --range origin/master..HEAD`；历史缺口逐批看提交信息里有没有 `Agent-Note: none`。
-- Seen 1× (2026-11-03).
+- 同日补充：主检出（干净 master）同样红不等于「与本次无关」。2026-11-07 静态白名单断言在主检出也红，被当成既有基线放过；实际是 76c23b5 合并的前端外移把两个新模块带进 `web/` 却没登记，生产页面 404。
+- Seen 2× (2026-11-03, 2026-11-07).
+
+**新增或搬移 `web/` 模块后，必须跑 `tests/http.test.ts` 的静态白名单断言，并重启生产服务再验页面。**
+- 证据：2026-11-07 前端叶子外移合并（76c23b5）新增 `web/empty-state.js` 与 `web/scroll.js`，未登记 `src/http.ts` 的 `STATIC_FILES`。浏览器模块图 404，生产页面整页停在「正在读取本机会话…」，会话列表与三栏都不渲染。补两行登记并重启后恢复。
+- 防护：动 `web/` 目录后跑 `bun test tests/http.test.ts`；白名单是启动时载入内存的常量，改完要 `bun run service restart`。生产核对看静态资源的 `responseStatus`，不只看 DOM 是否存在。
+- Seen 1× (2026-11-07).
 
 ## 依赖与命名
 

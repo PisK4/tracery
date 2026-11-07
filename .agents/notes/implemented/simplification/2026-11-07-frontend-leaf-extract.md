@@ -36,4 +36,5 @@ Status: implemented
 - `web/app.js` 2,824 → 2,645 行；新增 `web/empty-state.js`（146 行）、`web/scroll.js`（13 行），`web/selection.js` 290 → 312 行。
 - 行为零变化：调用点不动（`spiderArt` 2 处、`armSpider` 3 处、`restoreScroll` 1 处、`createMoreTargets` 1 处），只换定义位置。
 - 测试与基线持平：`web.test.ts` + `reader-store.test.ts` + `trace-view.test.ts` 150 pass / 0 fail（搬移前基线同值）；typecheck 除既有 `web/reader-store.js` 错误外干净。
-- 浏览器核对边界：临时实例（空库 + 合成注入）确认新模块图下页面正常加载、三栏渲染完好；蜘蛛动效、滚动恢复、`+N` 弹层的现场点验依赖"逐字搬移 + 既有单测覆盖"背书，未在生产数据页面上逐项点击。
+- 合并回归：新模块未登记 `src/http.ts` 的 `STATIC_FILES`，生产页面模块图 404，整页不启动（会话列表停在「正在读取本机会话…」）。`tests/http.test.ts` 的「静态白名单与 web 目录互相覆盖」在合并时已红，被误读为既有基线；修复补两行登记并重启服务。教训：搬移或新增 web 模块必须跑这条白名单断言，只跑 `web.test.ts` 发现不了 404。
+- 浏览器核对：生产页面恢复后，空态蜘蛛 `data-motion` 从 `idle` 变 `running`，5 个 SMIL 动画全部启动；`restoreScroll` 在真实布局下把 240 → 120、超上限夹到 900；`createMoreTargets` 的 remember/listOf/reset 正常。`+N` 弹层的真实锚点需要多目标工具行，当前 20 个会话窗口里没有出现，按模块级调用验证，悬停弹层未现场点击。
