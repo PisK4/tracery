@@ -231,7 +231,6 @@ export const dict = {
   'Request {id} 未找到': 'Request {id} not found',
   'Request {id} 未在当前窗口': 'Request {id} not in the loaded window',
   '全部 Agent': 'All agents',
-  '{n} 家 · 点折叠': ({ n }) => `${n} agents · click to collapse`,
   '有活跃会话': 'has active sessions',
   '已加载 {n}': ({ n }) => (n === 1 ? '1 loaded' : `${n} loaded`),
   '含失败': 'has failures',

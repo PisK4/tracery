@@ -598,10 +598,8 @@ if (typeof document !== 'undefined') {
     el('agent-list').innerHTML = allRow + ranked.map(a=>{
       const c = counts.get(a) ?? 0;
       const dot = liveAgents.has(a) ? `<span class="live-dot" title="${esc(t('有活跃会话'))}"></span>` : '';
-      const init = (a[0]??'?').toUpperCase();
-      return `<button class="agent-row" data-agent="${esc(a)}" aria-pressed="${state.agent===a}" title="${esc(a)}"><span class="ic">${esc(init)}</span><span class="lbl">${esc(agentLabel(a))}</span><span class="cnt">${c}</span>${dot}</button>`;
+      return `<button class="agent-row" data-agent="${esc(a)}" aria-pressed="${state.agent===a}" title="${esc(a)}"><span class="lead">${agentLogoHtml(a)}</span><span class="lbl">${esc(agentLabel(a))}</span><span class="cnt">${c}</span>${dot}</button>`;
     }).join('');
-    el('agent-count').textContent = t('{n} 家 · 点折叠', { n: ranked.length });
   }
 
   /** @param {SessionRow} s */

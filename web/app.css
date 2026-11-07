@@ -168,6 +168,9 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .agent-row[aria-pressed="true"]::before{content:"";position:absolute;left:-12px;top:6px;bottom:6px;width:3px;border-radius:2px;background:var(--accent)}
 .agent-row .ic{width:16px;height:16px;flex:none;display:grid;place-items:center;font-size:10px;border-radius:4px;background:var(--inset);color:var(--text-2);font-weight:700}
 .agent-row[aria-pressed="true"] .ic{background:var(--surface);color:var(--accent)}
+.agent-row .lead{width:16px;height:16px;flex:none;display:inline-flex;align-items:center;justify-content:center;line-height:0}
+.agent-row .lead .agent-logo{width:16px;height:16px}
+.agent-row .lead .agent-logo svg,.agent-row .lead .agent-logo img{width:16px;height:16px}
 .agent-row .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
 .agent-row .cnt{font:11px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
 .agent-row[aria-pressed="true"] .cnt{color:var(--accent)}

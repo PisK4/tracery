@@ -20,7 +20,9 @@ Status: implemented
 - 主栏切换会话：保持既有 `session-swap-in` 180ms 淡入 + 4px 上滑，不新做位移动画
 - 降级：`prefers-reduced-motion` 下关闭折叠与脉冲动画；折叠用 `max-height:0` + `visibility`，键盘与读屏保持可达
 
-改动落点：`web/index.html`（swaps `#agent-filters` 为 `#agent-scope`）、`web/app.css`（新增 `.agent-scope/.group-head/.agent-list/.agent-row`，删 `.filters`）、`web/app.js`（`renderFilters` 改渲染树）、`web/layout.js`（折叠绑定）、`web/i18n-en.js`（新增两条）。
+改动落点：`web/index.html`（swaps `#agent-filters` 为 `#agent-scope`）、`web/app.css`（新增 `.agent-scope/.group-head/.agent-list/.agent-row`，删 `.filters`）、`web/app.js`（`renderFilters` 改渲染树）、`web/layout.js`（折叠绑定）、`web/i18n-en.js`（新增 `有活跃会话`）。
+
+后续打磨（2026-11-07 第二轮，反馈截图）：组头右侧计数已删除；Agent 行首已改用 `agentLogoHtml(id)` 品牌 logo（16px，与会话行同款），不再用首字母圆角块和 `✦` 字母锁；`全部 Agent` 行仍保留 `✦` 图标，因为它是“清空过滤”的动作入口，不对应具体一家 Agent。
 
 ## Alternatives considered
 
