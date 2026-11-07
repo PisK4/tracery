@@ -2382,3 +2382,47 @@ Grok 的 `session_usage` 有 4 行而游标有 6 个，不是漏刷：本机 6 �
 ### 门禁
 
 `bun run typecheck` 通过；`tests/web.test.ts`、`tests/http.test.ts`、`tests/trace-model.test.ts`、`tests/context-detail.test.ts`、`tests/trace-commit.test.ts`、`tests/context-map.test.ts` 共 126 pass。`verify-agent-note-format` 检查 255 篇通过。
+
+## 切会话动效档 1 生产部署与真实流量验收（2026-11-08）
+
+前提：master `7fd0a42`，档 1 只改 `web/` 与文档，没有 `src/` 改动。浏览器走查在 127.0.0.1:8320 的生产页面上做，读的是本机真实库；页面只记录状态、计算样式与耗时，不读取真实请求正文、账号与令牌。
+
+### 部署
+
+`bun run service restart` 返回 0，pid 27253，用时 880 毫秒；`bun run service status` 报告作业 running、代码未落后、127.0.0.1:8320 的 `/api/stats` 可读（2 毫秒）。重启后拉取 `/`、`/app.css`、`/app.js`、`/context-detail.js`、`/motion.js`、`/motion.vendor.js`、`/reader-store.js`、`/read-http.js`、`/read-scheduler.js`、`/selection.js` 十个静态资源，全部 200。`app.css` 命中 `main-skeleton`、`.agent-row.chip-fresh` 与两处 `data-switch-state="entering"`，`.filters .chip-btn.chip-fresh` 残留 0；`app.js` 命中 `startSwapIn` 与 `main-skeleton`；`context-detail.js` 命中 `removeProperty('opacity')`。
+
+合成验收节的未覆盖项写了生产未部署、8320 上的采集器还在跑旧代码，这一句需要更正。档 1 没有 `src/` 改动，`web/` 每次请求现读文件（`scripts/service.ts` 的代码落后判定也只跟踪 `src/`），静态资源带 `cache-control: no-store`。合并到 master 时 8320 已经返回带新标识的页面；本轮部署前抓取 `/app.css`、`/app.js`、`/context-detail.js` 同样命中全部新标识，服务并不在跑旧代码。这次 `restart` 给真实流量验收落一个确定的重启后状态，同时验证 launchd 托管路径可用。
+
+### 真实流量逐帧
+
+单次切会话记录 `#main` 的属性与子树变化，t 为点击后的毫秒：点击同 tick 左栏 `aria-current` 已指向目标会话，中栏还是上一场的 30 组；1 ms 时 `data-switch-state=switching`，`inert=true`、`aria-busy=true`；19 ms 进 `entering`，`inert` 与 `aria-busy` 清空，30 条静态灰条占位；89–238 ms 灰条按 30、29、27 一直换到 0，逐批替成真实内容；254 ms 状态清空；1603 ms 复查仍是 `null`、`inert=false`、`aria-busy` 为空。全程 `#main .pulse` 为 0。
+
+慢网用 CDP `Network.emulateNetworkConditions` 注入 800 ms 延迟与 400 kB/s 带宽：307 ms 出 8 行 `.main-skeleton`，骨架条计算宽 558.539 px、背景 `rgb(35,35,35)`；900 ms 进 `entering`，30 条占位灰条计算宽 500.758 px、背景同色、`animation-name: none`、文本为空；2601 ms 复查占位仍有 30 条，生产正文读取比合成页慢，骨架与文字 pulse 全程为 0。状态序列 `switching → null → entering → null`，符合保留上限 300 ms 到点后先画骨架、窗口页到达再淡回的设计。
+
+### 交互与计算样式
+
+- 60 ms 内连点两个不同会话：两次点击各自同 tick 高亮到位，最终 `aria-current` 落在第二笔；状态序列 `switching → entering → null`，`switching` 只出现 2 帧，中途没有 pulse，也没有两次换场。
+- 显式刷新：27 ms 进 `entering`，700 ms 后 `data-switch-state`、`inert`、`aria-busy` 全部清空；页面不带 `switching`，也不设忙标记。
+- 明细弹窗首次打开计算透明度 0.707718、inline 为空；关闭后 inline 固化成 `opacity:0`、计算透明度 0；二次打开 inline 清空、计算透明度回到 0.708133、`.ctx-dialog` 存在；再关闭回到 0。
+- 换场的计算样式：`switching` 期间 `.step-list` 的 `pointer-events` 为 `none`，粘性头部下沿的 `::after` 跑 `switch-sweep`，`left` 从 -387.977 px 起；`entering` 期间头部与列表计算透明度都是 0.55、动画名 `session-swap-in`；700 ms 后透明度回 1、动画名 `none`、`pointer-events` 回 `auto`。
+- 工具四页同键切换：从配对页切到概览页触发 140 ms 的 WAAPI 动画，起点透明度 0.35；选中段挂上 `chip-fresh`，`animation-name: chip-pop`、时长 0.16 s。合成页面未覆盖的这一项在本轮真实页面上验到了。
+- `prefers-reduced-motion: reduce` 下切会话：`session-head` 与伪元素动画名都是 `none`、扫描线 `left: 0px`、右栏无在飞动画；状态仍走 `switching → entering → null`，900 ms 后无残留、`inert=false`、中栏 pulse 为 0。
+- 浏览器累计 250 个资源请求，无 400 及以上响应；`/app.css` 正常加载。
+
+### 取样陷阱
+
+连点首测曾得出第二笔点击不生效的结论，原因是第一笔点击后 `renderAll()` 重建左栏，脚本复用的旧 DOM 节点已脱离文档，派发的 `MouseEvent` 不会冒泡到委托。改为每次从实时 DOM 按 `data-session` 重新取节点后，落定正确。
+
+工具四页首测报 `[data-tool-page]` 为 0，源于 600 ms 采样窗口早于页签渲染；随后单独读取页面时四个页签都在。同键淡入首测逐帧采样里 `currentTime` 一直 0、透明度停在 0.35，源于 `page.evaluate` 的同步采样循环不让浏览器推进动画时钟；离开采样循环后等 1.5 秒，动画清空、计算透明度回到 1。三处都是取样方式的问题，页面行为本身没有缺陷。
+
+### 未覆盖与边界
+
+- 逐组填充的节奏仍在，灰条按 30 到 0 分十几批换成正文。档 1 只压住了满屏刷新文字与硬切观感，要根治得走到档 2（预取首屏正文）或档 3（会话快照缓存），两者都未采纳。
+- 慢网到 2601 ms 时 30 条占位仍未备齐，本轮只验到骨架与灰条形态、计算样式与无 pulse，没有等到该会话全部正文落定。
+- `reduced-motion` 只抑制动画声明，300 ms 保留与状态机三态照常走；审查列出的其余动效缺陷（theme-switching 后全局动画重播、vendor `fill:"both"` 固化 inline、无限动画相位重置、瞬态类不清除）本批未修，另立待办。
+- 浏览器只走了本机会话列表首页可见的 5 个会话中的 4 个，未覆盖所有来源与正文状态组合；真实正文、账号与令牌没有读取、没有记录。
+- 本轮没有改代码，未重跑 typecheck、测试套件与 `patrol weekly`；既有 `body_ratio` 与 `hook_absent` 越界基线不参与本轮判定。
+
+### 门禁
+
+追加验收记录与工作教训属纯文档改动，提交信息带 `Agent-Note: none` 豁免；本轮不改代码，不重复上一轮通过的 typecheck 与 126 项窄测试。
