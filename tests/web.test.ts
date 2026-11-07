@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
-import { createMoreTargets, restoreScroll } from '../web/app.js';
+import { createMoreTargets } from '../web/selection.js';
+import { restoreScroll } from '../web/scroll.js';
 import { backendStateHtml, backendStateText } from '../web/backend-state.js';
 import { replyCompleteness } from '../web/row-summary.js';
 import { renderTraceRows } from '../web/trace-view.js';
