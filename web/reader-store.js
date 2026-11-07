@@ -127,7 +127,7 @@ export function createReaderStore(transport, onReadChanged, options) {
   let sessionsInflight = null;
   /** @type {ReturnType<typeof setTimeout> | null} 标题重试定时器：dirty 组的空标题到点再拉一次。 */
   let titleRetryTimer = null;
-  /** 最近一次标题回填返回了空标题的 keys，timer 触发时再拉一次。 */
+  /** @type {string[]} 最近一次标题回填返回了空标题的 keys，timer 触发时再拉一次。 */
   let titleRetryKeys = [];
   /** @type {string | null} */
   let sessionKey = null;
@@ -295,6 +295,7 @@ export function createReaderStore(transport, onReadChanged, options) {
     sessions.retrying = false;
   }
 
+  /** @param {string[]} keys */
   function scheduleTitleRetry(keys) {
     if (keys.length === 0 || demoSilent) return;
     clearTitleRetry();
@@ -312,8 +313,8 @@ export function createReaderStore(transport, onReadChanged, options) {
 
   /**
    * 标题回填：单次调 sessionsTitle，返回仍为空标题的 keys 供调用方决定是否排队重试。
+   * 执行作用域默认 pageScope；dispose 时 pageScope 已换新，旧请求走取消异常。
    * @param {string[]} keys
-   * @param {object} [scope] 执行作用域，默认 pageScope；dispose 时 pageScope 已换新，旧请求走取消异常
    * @param {boolean} [isRetry]
    * @returns {Promise<string[]>}
    */
