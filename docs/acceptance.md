@@ -2462,3 +2462,37 @@ Grok 的 `session_usage` 有 4 行而游标有 6 个，不是漏刷：本机 6 �
 ### 门禁
 
 `bun run typecheck` 通过；`tests/web.test.ts` 54 pass / 0 fail / 406 expect（新增一条换场守门）。`verify-agent-note-format` 与 `verify-archived-agent-notes` 在全量 `verify:notes` 中通过。
+
+## 可感知换场生产部署与真实流量验收（2026-11-08）
+
+前提：master `065b2c5`，只改 `web/` 与文档，没有 `src/` 改动。浏览器走查在 127.0.0.1:8320 的生产页面上进行，读本机真实库；页面只记录状态、计算样式与耗时，不读取真实请求正文、账号与令牌。本节验证的是持续时间与计算样式中间值，人眼观感仍需用户手动再点一次确认。
+
+### 部署
+
+`bun run service restart` 返回 0，pid 43338，用时 476 毫秒；`bun run service status` 报告作业 running、代码未落后、127.0.0.1:8320 的 `/api/stats` 可读（2 毫秒）。重启后拉取 `/`、`/app.css`、`/app.js`、`/context-detail.js`、`/motion.js`、`/motion.vendor.js`、`/reader-store.js`、`/read-http.js`、`/read-scheduler.js`、`/selection.js` 十个静态资源，全部 200。合并前抓取 8320 已命中 `switch-leave 200ms`、`session-swap-in 240ms`、`SWITCH_MIN_HOLD_MS = 200` 与两处 `}, 260);`，`switch-sweep 1s linear infinite` 残留 0。部署后错误日志尾部无 error、exception、failed 与 crash。
+
+### 真实流量逐帧
+
+不注入延迟的单次切换（t 为点击后的毫秒，读 `getComputedStyle`）：点击同 tick 左栏 `aria-current` 已指向目标会话；1 ms 进 `switching`，`inert=true`、`aria-busy=true`，头部与列表播 `switch-leave`，扫描线 `switch-sweep` 从 -383.414 px 起；252 ms 进 `entering`，`inert` 与 `aria-busy` 清空，头部与列表计算透明度 0.25、位移下方 12px、动画名 `session-swap-in`，标题已换成新会话；316 ms 透明度 0.50、位移 8.07px；360 ms 为 0.77、位移 3.71px；389 ms 为 0.88、位移 1.93px；478 ms 状态清空，透明度 1、`transform:none`、动画名 `none`。占位灰条同期从 30 分批换到 10，577 ms 换完。910 ms 复查仍无残留状态。全程 `#main .pulse` 为 0。
+
+对照上一批的生产记录：同一动作里 `switching` 从 18 ms 延长到 252 ms，`entering` 从 180 ms 的 0.55 淡回改成 240 ms 的 0.25 透明度加 12px 位移，扫描线从 1s 无限循环改成一轮 200ms。上一批只有 0.55 到 1 的淡回，这次有旧画面让位、扫描线横过、新画面从下方淡入三段可读的中间态。
+
+### 交互与回归
+
+- 60 ms 内连点两个不同会话：逐帧追踪左栏，两次点击各自同 tick 高亮到位，第二笔点击时目标节点仍在文档内；最终 `aria-current` 落在第二笔，状态 `switching → entering → null`，无 pulse、无残留。一次汇总采样曾把第二笔的同 tick 高亮报成第一笔，逐帧复查确认是取样时序问题。
+- 显式刷新：34 ms 进 `entering`，头部透明度 0.25、位移 12px、`session-swap-in`；812 ms 后状态、动画名与 transform 全清，`inert=false`、`aria-busy` 为空。
+- `prefers-reduced-motion: reduce`：33 ms 就落定，头部动画名 `none`、透明度 1、`transform:none`，893 ms 后状态全清。最短驻留与两段动画都被跳过，切会话与改动前一样即时。
+- 800 ms 延迟 + 400 kB/s 慢网：455 ms 出 8 行骨架（计算宽 551.578 px、背景 `rgb(35,35,35)`），912 ms 窗口页到达播 `session-swap-in` 并出 30 条占位灰条；状态 `switching → null → entering → null`，全程无 pulse。2409 ms 复查占位仍有 30 条，生产正文读取比合成页慢。
+- 浏览器累计 239 个资源请求，无 400 及以上响应；收尾时 `data-switch-state`、`inert`、`aria-busy` 全清，中栏直属子节点无 inline opacity 残留。
+
+### 未覆盖与边界
+
+- 逐组填充的节奏仍在：577 ms 换场收敛之后灰条继续分批换成正文。这次只把换场做成可感知的两段，没有消除内容逐批落定；要根治得走到档 2 预取首屏正文或档 3 会话快照缓存，两者都未采纳。
+- 慢网到 2409 ms 时 30 条占位仍未备齐，本轮只验到骨架形态、淡回计算样式与无 pulse，没有等到该会话全部正文落定。
+- 机器判据能证明换场持续了 252 ms 且中间值连续变化，不能代替用户手动验收。上一批的教训正是把两者混为一谈，落地后需要人在 8320 上再点一次确认观感。
+- 浏览器只走了本机会话列表首页可见的 7 个会话中的若干组合，未覆盖所有来源与正文状态组合；真实正文、账号与令牌没有读取、没有记录。
+- 本轮没有改后端与 `src/`，未重跑全量测试套件、`patrol weekly` 与跨浏览器矩阵；同日既有 `body_ratio` 与 `hook_absent` 越界基线不参与本轮判定。
+
+### 门禁
+
+追加验收记录属纯文档改动，提交信息带 `Agent-Note: none` 豁免；合并批次已跑过 `bun run typecheck`、`tests/web.test.ts` 与 `tests/http.test.ts` 共 83 pass、全量 `verify:notes`，本轮不重复。
