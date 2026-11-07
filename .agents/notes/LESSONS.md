@@ -82,6 +82,11 @@
 - 防护：动 `web/` 目录后跑 `bun test tests/http.test.ts`；白名单是启动时载入内存的常量，改完要 `bun run service restart`。生产核对看静态资源的 `responseStatus`，不只看 DOM 是否存在。
 - Seen 1× (2026-11-07).
 
+**CSS 过渡/动画的验收要读计算样式，不能只看 DOM 有没有带类。**
+- 证据：2026-11-08 档 1 首版用 `.compact-preview::after` 画占位灰条，DOM 与类名都在，但 `.compact-preview` 在 flex 行里被 `min-width:0` 压成 0 宽、`overflow:hidden` 又把伪元素裁掉，浏览器实测 `getComputedStyle(...,'::after').width` 为 `0px`。同一轮 `startSwapIn()` 只设 `data-switch-state="entering"` 没排清理定时器，刷新后状态永久停在 entering，也是靠浏览器逐帧观测才抓到，静态测试全绿。
+- 防护：动效改动在合成页面用 `getComputedStyle` 钉住实际宽高/背景/动画名，并用 `MutationObserver` 记录状态序列确认末尾清干净；源码级守门测试只证明声明存在，不证明渲染生效。
+- Seen 1× (2026-11-08).
+
 **新判定规则的编排位置，要对照生产存量的状态组合核对，不能只按设计意图写合成测试。**
 - 证据：2026-11-07 operation 准入首版把 `operationDecision` 放在 retained 早退之后，合成套件全绿；生产 16 笔 `execute_tool` 行正文已回收、retained 在 `source:mcp` 仍参与链，新规则永远不到达。合成视图只覆盖了设计时想到的组合，漏掉「旧版本 × 正文回收 × 新事实」这个真实存量状态，靠生产只读分布核对才抓到。
 - 防护：规则落地后先在生产只读快照列出目标群体的状态组合（版本 × 正文状态 × 新事实），逐组确认编排能到达；规则行为变化升 `PURPOSE_VERSION`，旧目标行走显式 rebuild 重判。

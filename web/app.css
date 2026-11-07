@@ -241,6 +241,11 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .sess-skel-title{height:12px}
 .sess-skel-meta{width:42%}
 @keyframes sess-skel-pulse{from{opacity:.55}to{opacity:1}}
+.main-skeleton{padding:0 24px 28px}
+.main-skel-row{height:36px;border-bottom:1px solid var(--line);display:flex;align-items:center;padding-inline:5px}
+.main-skel-row::after{content:"";display:block;height:10px;width:var(--skel-w,58%);border-radius:4px;background:var(--line)}
+.main-skel-row:nth-child(3n+2)::after{--skel-w:42%}
+.main-skel-row:nth-child(3n)::after{--skel-w:70%}
 /* 插画 0.35s 淡入：节点出现后由 JS 隔帧加 .is-in；静态降级与 reduce 直接就位。 */
 .spider-art{opacity:0;transition:opacity .35s ease}
 .spider-art.is-in,.spider-art[data-motion="static"]{opacity:1}
@@ -936,14 +941,21 @@ button.ctx-row{width:100%;font:inherit;border:0;background:none;text-align:left;
 .rail-tabs button.tab-fresh[aria-pressed="true"]::after{animation:underline-grow 160ms var(--ease-out)}
 @keyframes underline-grow{from{transform:scaleX(0)}}
 /* 分段控件选中段的弹起：同款瞬态类（.chip-fresh）只在用户点击时加。 */
-.filters .chip-btn.chip-fresh[aria-pressed="true"],
+.agent-row.chip-fresh[aria-pressed="true"],
 .tool-page-tabs button.chip-fresh[aria-pressed="true"]{animation:chip-pop 160ms var(--ease-out)}
 @keyframes chip-pop{from{transform:scale(.85)}}
 /* 在跑的读取文案：1.4s 呼吸。只挂异步进行中的说明，静态说明不用。 */
 .pulse{animation:pulse-load 1.4s ease-in-out infinite}
 @keyframes pulse-load{50%{opacity:.45}}
-/* 读取中的占位步骤行：步骤键固定以 :preparing 结尾，文本槽整行呼吸。 */
-.compact-select[data-step-key$=":preparing"] .compact-preview{animation:pulse-load 1.4s ease-in-out infinite}
+/* 读取中的占位步骤行：步骤键固定以 :preparing 结尾。文本槽自己撑开成灰条，
+   备齐后由 group-fill 淡回；不再逐行呼吸，整窗准备时不会一屏文字同时闪。 */
+.compact-select[data-step-key$=":preparing"] .compact-preview{
+  flex:1;height:10px;min-width:40px;max-width:var(--prep-width,52%);
+  border-radius:4px;background:var(--line);font-size:0;
+}
+.compact-select[data-step-key$=":preparing"] .compact-preview::after{content:none}
+.trace-group:nth-of-type(3n+2) .compact-select[data-step-key$=":preparing"] .compact-preview{--prep-width:38%}
+.trace-group:nth-of-type(3n) .compact-select[data-step-key$=":preparing"] .compact-preview{--prep-width:64%}
 /* 尾部追加的组一次性渐显：键控提交创建节点时由 shouldEnter 标记；
    窗口重建与首屏填充不算追加。准备行换成真实内容时只从压暗值淡回，不整组消失。 */
 .trace-group[data-enter="append"]{animation:group-in 180ms var(--ease-out)}
@@ -953,16 +965,20 @@ button.ctx-row{width:100%;font:inherit;border:0;background:none;text-align:left;
 /* 定位滚动的落点确认：目标组呼吸一次淡出（locate 意图触发）。 */
 .trace-group.landed{animation:land-flash 700ms var(--ease-out)}
 @keyframes land-flash{from{background-color:var(--accent-soft)}}
-/* 换会话的保留态与一次换场：保留期间中栏压暗、栏顶走一条细线，换场时新列表
-   从压暗值淡回。状态只由 app.js 的 selectSession 写入 data-switch-state。 */
-.col-main[data-switch-state="switching"]{
-  background-image:linear-gradient(90deg,transparent,var(--accent),transparent);
-  background-size:38% 2px;background-repeat:no-repeat;background-position:-40% 0;
+/* 换会话的保留态与一次换场：保留期间中栏压暗、会话头下沿走一条细线，
+   换场时新头部与新列表一起淡回。状态只由 app.js 写入 data-switch-state。 */
+.col-main[data-switch-state="switching"] .step-list,
+.col-main[data-switch-state="switching"] .session-head{opacity:.55;transition:opacity 120ms linear}
+.col-main[data-switch-state="switching"] .step-list{pointer-events:none}
+/* 扫描线挂在粘性头部下沿：画在 col-main 顶部会被不透明头部盖住。 */
+.col-main[data-switch-state="switching"] .session-head::after{
+  content:"";position:absolute;left:0;bottom:-1px;width:38%;height:2px;
+  background:linear-gradient(90deg,transparent,var(--accent),transparent);
   animation:switch-sweep 1s linear infinite;
 }
-.col-main[data-switch-state="switching"] .step-list{opacity:.55;pointer-events:none;transition:opacity 120ms linear}
-.col-main[data-switch-state="entering"] .step-list{animation:session-swap-in 180ms var(--ease-out)}
-@keyframes switch-sweep{from{background-position:-40% 0}to{background-position:140% 0}}
+.col-main[data-switch-state="entering"] .step-list,
+.col-main[data-switch-state="entering"] .session-head{animation:session-swap-in 180ms var(--ease-out)}
+@keyframes switch-sweep{from{left:-38%}to{left:100%}}
 @keyframes session-swap-in{from{opacity:.55}}
 /* toast：入场走 CSS（插入即播），离场由 motion() 驱动后移除。 */
 .toast{animation:toast-in 180ms var(--ease-out)}
@@ -995,8 +1011,8 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
     animation-duration:.01ms!important;animation-iteration-count:1!important;
     transition-duration:0s!important;transition-delay:0s!important;
   }
-  /* 扫描线是无限动画：关停后停成一个静态的左起短线，而不是停在画面外。 */
-  .col-main[data-switch-state="switching"]{background-position:0 0;animation:none}
+  /* 扫描线是无限动画：关停后停在头部左端的静态短线，而不是停在画面外。 */
+  .col-main[data-switch-state="switching"] .session-head::after{left:0;animation:none}
 }
 /* 切主题两帧抑制：主题当帧完成（既有决策），交互过渡在其余时刻照常。 */
 body.theme-switching *,body.theme-switching *::before,body.theme-switching *::after{
