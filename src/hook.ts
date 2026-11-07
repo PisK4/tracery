@@ -12,6 +12,7 @@ import { SOURCE_PROJECTION_VERSION, projectRequestTx } from './sources/projectio
 import { mergeRequestTx } from './merge';
 import { HAVE_BODY, MATCH_BY_RESPONSE_ID, MATCH_BY_TURN, hookConv, insertEvidenceTx, sessionIdentity } from './evidence';
 import type { ConvRef } from './evidence';
+import { findRequestOwnerTx } from './owner';
 import { codexTurnFactsOf } from './harness/codex';
 
 /**
@@ -20,7 +21,8 @@ import { codexTurnFactsOf } from './harness/codex';
  * 不变量：
  * - 相同 hook_id 重放不产生任何副作用（靠 request_evidence 的 hook 证据行判重）。
  * - 正文、证据、pending 记录在同一事务里提交；返回成功之前一切已落盘。
- * - 关联只认可核验的 response ID，不按时间近邻猜；一个规范化 ID 命中多条时标 ambiguous。
+ * - 关联只认可核验的身份线索（response ID、turn、完成时间对齐），不按时间近邻猜；
+ *   一个规范化 ID 命中多条时标 ambiguous。
  * - 归属未知的请求 actor 保持 NULL，不写共享哨兵，也不进 derive_queue。
  */
 
@@ -91,8 +93,9 @@ function bytesOf(value: unknown): Uint8Array {
 export { convDigestOf };
 
 /**
- * 按规范化 response ID 找候选。只认 route_id 非空的存活请求；
- * 多个候选时不挑一个，标 ambiguous 留给后续证据收敛。
+ * 按规范化 response ID 找路由候选。只认 route_id 非空的存活请求；
+ * 多个候选时不挑一个，标 ambiguous 留给后续证据收敛。零候选时调用方
+ * 回落到统一 owner 查找：会话适配器先建的行没有 route_id，只能在那里认领。
  */
 function findCandidates(db: Database, responseIdNorm: string | null): number[] {
   if (responseIdNorm === null) return [];
@@ -223,6 +226,7 @@ export function acceptHook(
 
     // 先决定关联对象，再写请求：已有关联时复用那一条，避免多造一行。
     const turnRef = envelope.request === null ? null : (codexTurnFactsOf(envelope.request)?.turnRef ?? null);
+    const conv = digestConv ?? hookConv(sessionIdentity(envelope.session), envelope.hook_id);
     const joined = responseIdNorm === null ? { candidates: [] as number[], target: null as number | null }
       : (() => {
         const candidates = findCandidates(db, responseIdNorm);
@@ -239,12 +243,33 @@ export function acceptHook(
         joinedByTurn = true;
       }
     }
+    // 会话适配器先写、hook 后到：会话行没有 route_id，上面的候选查找看不到它。
+    // route 与 turn 都没认领时回落到统一 owner 查找；hook 给出了完成时间，
+    // 弱开始窗在 owner 里自然关闭，只按 response id、turn 与完成时间对齐。
+    let joinedRule: string | null = null;
+    if (joined.target === null) {
+      const owner = findRequestOwnerTx(db, {
+        responseIdNorm,
+        turnRef,
+        convKey: conv.key,
+        agent: envelope.agent,
+        startedMs: Number.isFinite(envelope.observed_start_ms) ? envelope.observed_start_ms : now,
+        endMs: Number.isFinite(envelope.observed_finish_ms) ? envelope.observed_finish_ms : null,
+        model: envelope.model,
+        usage: null,
+        excludeSourceKind: 'hook',
+      });
+      if (owner.reqId !== null) {
+        joined.target = owner.reqId;
+        joinedRule = owner.rule;
+      }
+    }
 
     let reqId: number;
     if (joined.target !== null) {
       reqId = joined.target;
     } else {
-      reqId = insertHookRequest(db, envelope, now, responseIdNorm, digestConv);
+      reqId = insertHookRequest(db, envelope, now, responseIdNorm, conv);
     }
     if (turnRef !== null) {
       db.run('UPDATE request SET turn_ref=COALESCE(turn_ref,?) WHERE req_id=?', [turnRef, reqId]);
@@ -286,7 +311,7 @@ export function acceptHook(
 
     insertEvidenceTx(db, reqId, 'hook', envelope.hook_id,
       joined.target === null ? 'pending' : 'merged',
-      joinedByTurn ? MATCH_BY_TURN : MATCH_BY_RESPONSE_ID, now);
+      joinedRule ?? (joinedByTurn ? MATCH_BY_TURN : MATCH_BY_RESPONSE_ID), now);
     db.run(
       `INSERT INTO raw_hook(hook_id,received_at,protocol,path,agent,session,cwd,origin,model,stream,success,duration_ms,
          request_z,response_z,request_bytes,response_bytes,parse_state,reply_state,miss_reason,magpie_version)
