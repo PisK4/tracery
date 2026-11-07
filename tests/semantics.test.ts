@@ -18,6 +18,7 @@ function view(over: Partial<PurposeView> = {}): PurposeView {
     tailUserBlockHeads: [],
     userImageBlocks: 0,
     source: { state: 'missing', value: null },
+    operation: { state: 'missing', value: null },
     upstreamTurn: null,
     stored: {
       version: null, status: 'missing', rule: null, signals: [],
@@ -317,4 +318,71 @@ test('claude suggestion 与上下文压缩按尾部块首识别为旁路', () =>
     userBlockHeads: ['[SUGGESTION MODE: old'],
     tailUserBlockHeads: ['普通用户消息'],
   }))).toMatchObject({ chain: 'participate' });
+});
+
+test('显式非对话 operation 无正文也排除链', () => {
+  const decision = classifyPurpose(view({
+    parse: 'missing',
+    operation: { state: 'single', value: 'embeddings' },
+  }));
+  expect(decision).toMatchObject({
+    status: 'recognized', version: PURPOSE_VERSION, rule: 'operation.v1',
+    chain: 'exclude', kind: 'embeddings', modelTitle: null,
+  });
+  expect(decision.signals).toContain('operation.embeddings');
+});
+
+test('登记的非对话 operation 都排除链', () => {
+  for (const operation of ['embeddings', 'rerank', 'transcriptions', 'translations', 'generate_content']) {
+    expect(classifyPurpose(view({ operation: { state: 'single', value: operation } })))
+      .toMatchObject({ chain: 'exclude', kind: operation, rule: 'operation.v1' });
+  }
+});
+
+test('未登记 operation 隔离而不兜底 chat', () => {
+  const decision = classifyPurpose(view({
+    operation: { state: 'single', value: 'execute_tool' },
+  }));
+  expect(decision).toMatchObject({
+    status: 'unrecognized', version: PURPOSE_VERSION, rule: 'operation.unknown.v1',
+    chain: 'exclude', kind: 'operation:execute_tool', modelTitle: null,
+  });
+  expect(decision.signals).toContain('operation.unknown');
+  expect(decision.signals).toContain('operation.execute_tool');
+});
+
+test('operation 冲突、非法、溢出与缺失都不出结论', () => {
+  for (const state of ['conflict', 'invalid', 'overflow', 'missing'] as const) {
+    expect(classifyPurpose(view({ operation: { state, value: null } })))
+      .toMatchObject({ kind: 'chat', chain: 'participate' });
+  }
+});
+
+test('operation 先于来源 kind：非对话操作不因来源值参与链', () => {
+  const decision = classifyPurpose(view({
+    source: { state: 'single', value: 'mcp' },
+    operation: { state: 'single', value: 'embeddings' },
+  }));
+  expect(decision).toMatchObject({ chain: 'exclude', kind: 'embeddings' });
+});
+
+test('Harness 强指纹优先于 operation', () => {
+  const decision = classifyPurpose(view({
+    systemTexts: ['You are a security monitor for autonomous AI coding agents.'],
+    stopSequences: ['</block>'],
+    operation: { state: 'single', value: 'embeddings' },
+  }));
+  expect(decision.kind).toBe('auto-mode-classifier');
+});
+
+test('正文回收后有旧解释的行保留旧用途，operation 不覆盖', () => {
+  const decision = classifyPurpose(view({
+    parse: 'missing',
+    operation: { state: 'single', value: 'embeddings' },
+    stored: {
+      version: 11, status: 'recognized', rule: 'legacy', signals: [],
+      chain: 'participate', kind: 'chat', modelTitle: null,
+    },
+  }));
+  expect(decision).toMatchObject({ status: 'retained', version: 11, chain: 'participate' });
 });

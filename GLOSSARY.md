@@ -85,6 +85,8 @@ _Avoid_: merge_state（证据关联状态）
 
 **调用用途（kind）**：上游报告的调用用途，对应 raw_ledger.kind；与一次尝试是否转交给其他上游无关。
 
+**操作（operation）**：Magpie 账本对非对话操作的显式标签（embeddings、rerank、generate_content 等），对应 raw_ledger.payload_json.operation；普通 LM turn 常省略。它是用途准入的正向事实，不挂到 Agent Profile，也不混进 kind 的旁路语义。
+
 **请求种类（req_kind）**：本项目对单笔请求用途的判定结果；与上游自报用途和是否参与主链分别表达不同事实。
 
 **链参与（purpose_chain）**：请求是否参与主链的判定；被排除的请求不进入祖先集合。

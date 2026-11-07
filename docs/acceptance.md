@@ -6,6 +6,22 @@
 
 记录里的数字、端口、pid 与耗时都来自作者机器，用于说明当时怎么判断，不是可复现的基准。
 
+## Magpie operation 会话准入（合成，2026-11-07）
+
+前提：分支 `feat/operation-admission`，`PURPOSE_VERSION` 11→12、`SOURCE_PROJECTION_VERSION` 1→2，schema 不变。全部使用合成数据，未写生产库。
+
+### 合成验收
+
+- `bun test tests/semantics.test.ts tests/harness-purpose.test.ts tests/magpie.test.ts tests/facts.test.ts tests/projection.test.ts tests/request-purpose.test.ts tests/operation-backfill.test.ts`：120 项通过，0 失败。覆盖：五个登记 operation 排除链、无正文 pending 行经结算落 exclude 与稳定 kind、`AsyncOpenAI` 与 `curl` 标签不影响结论、未登记值隔离并写 `operation_unregistered` issue（重判 upsert 不重复计数）、operation 缺失仍参与主链、Harness 强指纹与 retained 优先、operation 先于来源 kind、冲突/非法/溢出不出结论、事实集合幂等与旧格式缺键兼容、raw 过期不撤销集合、回填预览分布与会话键、应用标脏重判、重复执行幂等、损坏事实修复。
+- `bun test` 全量：1425 项通过，0 失败。首轮唯一的 `i18n-coverage` 失败与 `web/reader-store.js` 四处 typecheck 报错经主检出对照确认为标题重试合并（6adf07c、93bc2a6）引入的基线回归，按 2026-11-07 LESSONS「主检出同样红不等于与本次无关」在本批一并修复：en 字典补「读取标题中/读取标题中…」两条，reader-store 补 `titleRetryKeys` 与 `scheduleTitleRetry` 类型注解、删除不存在的 `@param scope`。
+- `bun run typecheck`：0 错误。`bun test tests/i18n-coverage.test.ts tests/http.test.ts`：32 项通过。
+
+### 未执行与边界
+
+- 生产库回填预览、应用与真实流量验收待显式执行：首屏折叠效果、失败 embedding 可查、未知 operation 健康入口可见都还没有真实流量证据。
+- `execute_tool` 上游赋值锚点未核对，暂走未知桶；登记前每次结算按请求记一条 issue。
+- raw 已过期的历史行不在回填候选里，保持原判定。
+
 ## 首页超时修复部署与回归（真实生产，2026-11-06）
 
 前提：实现 `61c14be` 以 `--no-ff` 合并为 master `285ac99`，schema 仍为 v14，没有重建或执行历史数据订正。部署前只读复核：缺席候选使用 `i_req_body`，stats 使用同索引覆盖分组；生产新候选查询三次约 7.121/5.651/5.729 ms，均为 0 条。发布前预检与合并后预检均为 `in_place`、db/code 14。

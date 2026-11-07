@@ -43,6 +43,11 @@ export type SelectedFacts = {
 export type SourceFacts = {
   format: 1;
   kinds: SourceKinds;
+  /**
+   * Magpie 账本 operation 的有界集合（只有账本侧报告）。旧事实缺这个键按
+   * 未观测处理，走协议判定；原始账本过期后集合仍是用途判定的长期依据。
+   */
+  operation?: BoundedValues;
   hook: { models: BoundedValues; successes: boolean[] };
   selected: SelectedFacts | null;
   /**
@@ -147,6 +152,7 @@ export function mergeSourceFacts(left: SourceFacts, right: SourceFacts): SourceF
   return {
     format: 1,
     kinds: kindState(ledger, route),
+    operation: unionValues(left.operation ?? emptyValues(), right.operation ?? emptyValues()),
     hook: {
       models: unionValues(left.hook.models, right.hook.models),
       successes: [...new Set([...left.hook.successes, ...right.hook.successes])]
@@ -162,6 +168,7 @@ export function emptySourceFacts(): SourceFacts {
   return {
     format: 1,
     kinds: kindState(emptyValues(), emptyValues()),
+    operation: emptyValues(),
     hook: { models: emptyValues(), successes: [] },
     selected: null,
   };
@@ -219,6 +226,7 @@ export function buildSourceFacts(projection: RequestProjection, old: SourceFacts
   return {
     format: 1,
     kinds,
+    operation: foldValues(projection.operation, old?.operation ?? emptyValues()),
     hook,
     selected: selectedFactsOf(projection, old?.selected ?? null),
     ...(old?.session !== undefined ? { session: old.session } : {}),
@@ -289,6 +297,7 @@ function isSourceFacts(value: unknown): value is SourceFacts {
   const kindRecord = kinds as Record<string, unknown>;
   return record.format === 1 && isBoundedValues(kindRecord.ledger) && isBoundedValues(kindRecord.route)
     && typeof kindRecord.state === 'string'
+    && (record.operation === undefined || isBoundedValues(record.operation))
     && isBoundedValues(hookRecord.models) && Array.isArray(hookRecord.successes);
 }
 

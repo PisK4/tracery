@@ -29,6 +29,7 @@ export type LedgerShape = {
   err: FieldState;
   errType: FieldState;
   kind: FieldState;
+  operation: FieldState;
 };
 
 export type RouteShape = {
@@ -48,6 +49,8 @@ export type LedgerFields = {
   via: string | null;
   handedOn: number;
   kind: string | null;
+  /** Magpie usage.Record.Operation：非对话操作的显式标签；普通 LM turn 常省略。 */
+  operation: string | null;
   agent: string | null;
   provider: string | null;
   host: string | null;
@@ -261,6 +264,7 @@ export function mapLedgerRow(row: Record<string, unknown>): LedgerFields | null 
   const err = stringField(row, 'err');
   const errType = stringField(row, 'err_type');
   const kind = stringField(row, 'kind');
+  const operation = stringField(row, 'operation');
   const account = stringField(row, 'account');
   const providerAccount = stringField(row, 'providerAccount');
   return {
@@ -271,6 +275,7 @@ export function mapLedgerRow(row: Record<string, unknown>): LedgerFields | null 
     via: optionalString(row, 'via'),
     handedOn: row.handed_on === true || row.handed_on === 1 ? 1 : 0,
     kind: kind.value,
+    operation: operation.value,
     agent: optionalString(row, 'agent'),
     provider: optionalString(row, 'provider'),
     host: optionalString(row, 'host'),
@@ -316,7 +321,7 @@ export function mapLedgerRow(row: Record<string, unknown>): LedgerFields | null 
     magpieVersion: optionalString(row, 'magpie_version') ?? optionalString(row, 'version'),
     shape: {
       req: requested.state, model: model.state, served: served.state, cost: cost.state,
-      err: err.state, errType: errType.state, kind: kind.state,
+      err: err.state, errType: errType.state, kind: kind.state, operation: operation.state,
     },
   };
 }

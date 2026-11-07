@@ -7,6 +7,7 @@ import {
   projectRequestTx,
 } from '../src/sources/projection';
 import type { RequestProjection } from '../src/sources/projection';
+import { readSourceFacts } from '../src/sources/facts';
 
 type TestStore = ReturnType<typeof fixture>['store'];
 // 合成代际用真实形状 dev:ino:birthtimeNs:epoch，和 A 的 /^(\d+:\d+:\d+:\d+)\|(\d{20})$/ 一致
@@ -376,4 +377,38 @@ test('清空请求事实后同一入口重建出相同结果', () => {
   } finally {
     f.close();
   }
+});
+
+function operationFacts(store: TestStore, reqId: number) {
+  return readSourceFacts(store.read.query<{ source_facts_json: string | null }, [number]>(
+    'SELECT source_facts_json FROM request WHERE req_id=?').get(reqId)!.source_facts_json)?.operation;
+}
+
+test('账本operation进投影与长期事实且重投影幂等', () => {
+  const f = fixture();
+  try {
+    seedRequest(f.store);
+    addLedger(f.store, 1, 0, { t: '2026-10-22T00:00:00Z', operation: 'embeddings', status: 200 });
+    expect(project(f.store, 1).operation).toEqual(['embeddings']);
+    const expected = { values: ['embeddings'], overflow: false, missing: false, invalid: false };
+    expect(operationFacts(f.store, 1)).toEqual(expected);
+    project(f.store, 1);
+    expect(operationFacts(f.store, 1)).toEqual(expected);
+  } finally { f.close(); }
+});
+
+test('operation缺失记missing，raw过期不撤销已观测值', () => {
+  const f = fixture();
+  try {
+    seedRequest(f.store, 1);
+    seedRequest(f.store, 2);
+    addLedger(f.store, 1, 0, { t: '2026-10-22T00:00:00Z', operation: 'embeddings', status: 200 });
+    addLedger(f.store, 2, 10, { t: '2026-10-22T00:00:00Z', status: 200 });
+    project(f.store, 1);
+    project(f.store, 2);
+    expect(operationFacts(f.store, 2)).toEqual({ values: [], overflow: false, missing: true, invalid: false });
+    f.store.write(db => db.run('DELETE FROM raw_ledger WHERE byte_offset=0'));
+    expect(project(f.store, 1).operation).toEqual([]);
+    expect(operationFacts(f.store, 1)?.values).toEqual(['embeddings']);
+  } finally { f.close(); }
 });

@@ -42,6 +42,8 @@ export type PurposeSeed = {
   request?: unknown;
   reply?: unknown;
   sourceKind?: string | null;
+  /** Magpie 账本 operation 长期事实；省略时事实缺这个键（旧格式兼容路径）。 */
+  operation?: string | null;
   purposeTarget?: number;
   purposeVersion?: number | null;
   purposeStatus?: string;
@@ -84,16 +86,21 @@ export function seedPurposeRequest(store: Store, input: PurposeSeed = {}): numbe
       redact_version: 1,
     }));
   }
-  if (input.sourceKind !== undefined && input.sourceKind !== null) {
+  const hasKind = input.sourceKind !== undefined && input.sourceKind !== null;
+  const hasOperation = input.operation !== undefined && input.operation !== null;
+  if (hasKind || hasOperation) {
+    const kind = hasKind ? input.sourceKind! : null;
     store.write(db => db.run('UPDATE request SET source_facts_json=? WHERE req_id=?', [
       JSON.stringify({
         format: 1,
         kinds: {
-          ledger: { values: [input.sourceKind], overflow: false, missing: false, invalid: false },
+          ledger: { values: kind === null ? [] : [kind], overflow: false, missing: kind === null, invalid: false },
           route: { values: [], overflow: false, missing: true, invalid: false },
-          state: 'single',
-          value: input.sourceKind,
+          state: kind === null ? 'missing' : 'single',
+          value: kind,
         },
+        ...(hasOperation
+          ? { operation: { values: [input.operation], overflow: false, missing: false, invalid: false } } : {}),
         hook: { models: { values: [], overflow: false, missing: true, invalid: false }, successes: [] },
         selected: null,
       }),

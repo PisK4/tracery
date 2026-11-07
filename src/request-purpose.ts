@@ -5,6 +5,7 @@ import { readBodyMetaTx } from './body';
 import { markGroupDirtyTx, requestPositionTx } from './derive/state';
 import { classifyPurpose, upstreamTurnFactsOf } from './harness/purpose';
 import { parseProtocol } from './protocols';
+import { recordIssue } from './reconcile';
 import { readSourceFacts } from './sources/facts';
 import { interpretMessage, messageText, titlePromptText } from './input-interpretation';
 import {
@@ -61,6 +62,7 @@ export type PurposeIdentity = {
   retry: number;
   stored: PurposeStored;
   source: PurposeSource;
+  operation: PurposeSource;
 };
 
 export type PurposeTask = PurposeIdentity & { view: PurposeView };
@@ -98,20 +100,36 @@ function parseSignals(raw: string): string[] {
 }
 
 /**
- * 来源 kind 只从长期来源事实里取；事实列损坏或缺失不能猜成某个类别。
+ * 来源 kind 与 operation 只从长期来源事实里取；事实列损坏或缺失不能猜成某个类别。
  *
  * `state` 决定是否可信：只有 single/agree 带着确定值，冲突、缺失、溢出与
- * 非法都交给纯解释模块回落到标题兼容。
+ * 非法都交给纯解释模块回落到协议与标题兼容。旧事实缺 operation 键按缺失
+ * 处理，不触发未知值隔离。
  */
-function parseSource(raw: string | null): PurposeSource {
-  if (raw === null) return { state: 'missing', value: null };
+function parseSourceFacts(raw: string | null): { source: PurposeSource; operation: PurposeSource } {
+  const missing: PurposeSource = { state: 'missing', value: null };
+  if (raw === null) return { source: missing, operation: missing };
   const facts = readSourceFacts(raw);
-  if (facts === null) return { state: 'invalid', value: null };
+  if (facts === null) {
+    const invalid: PurposeSource = { state: 'invalid', value: null };
+    return { source: invalid, operation: invalid };
+  }
   const state = facts.kinds.state;
-  if (!SOURCE_STATES.has(state)) return { state: 'invalid', value: null };
-  const value = typeof facts.kinds.value === 'string' && facts.kinds.value.length > 0
-    ? facts.kinds.value : null;
-  return { state, value };
+  const source: PurposeSource = SOURCE_STATES.has(state)
+    ? {
+      state,
+      value: typeof facts.kinds.value === 'string' && facts.kinds.value.length > 0
+        ? facts.kinds.value : null,
+    }
+    : { state: 'invalid', value: null };
+  const observed = facts.operation;
+  const operation: PurposeSource = observed === undefined ? missing
+    : observed.overflow ? { state: 'overflow', value: null }
+      : observed.invalid ? { state: 'invalid', value: null }
+        : observed.values.length === 0 ? missing
+          : observed.values.length > 1 ? { state: 'conflict', value: null }
+            : { state: 'single', value: observed.values[0]! };
+  return { source, operation };
 }
 
 /** 只读请求行本身；正文与来源事实分别由视图读取补齐。 */
@@ -125,6 +143,7 @@ export function readPurposeIdentityTx(db: Database, reqId: number): PurposeIdent
   const status = PURPOSE_STATUSES.has(row.purpose_status as PurposeStatus)
     ? row.purpose_status as PurposeStatus : 'missing';
   const chain: PurposeChain = row.purpose_chain === 'exclude' ? 'exclude' : 'participate';
+  const { source, operation } = parseSourceFacts(row.source_facts_json);
   return {
     reqId: row.req_id,
     convKey: row.conv_key,
@@ -144,7 +163,8 @@ export function readPurposeIdentityTx(db: Database, reqId: number): PurposeIdent
       kind: row.req_kind ?? 'chat',
       modelTitle: row.model_title,
     },
-    source: parseSource(row.source_facts_json),
+    source,
+    operation,
   };
 }
 
@@ -164,6 +184,7 @@ function emptyView(identity: PurposeIdentity, parse: PurposeParse, reply: unknow
     userImageBlocks: 0,
     upstreamTurn: null,
     source: identity.source,
+    operation: identity.operation,
     stored: identity.stored,
   };
 }
@@ -349,6 +370,7 @@ export function readPurposeViewTx(db: Database, identity: PurposeIdentity): Purp
     tailUserBlockHeads: purposeTailUserBlockHeadsTx(db, identity.reqId),
     upstreamTurn: upstreamTurnFactsOf(body.request),
     source: identity.source,
+    operation: identity.operation,
     stored: identity.stored,
   };
 }
@@ -474,6 +496,11 @@ export function drainRequestPurposesTx(
     }
     applied += 1;
     if (decision.status === 'retained') retained += 1;
+    // 未登记 operation 的隔离结论同时记契约漂移 issue：值留在用途信号里，
+    // 这里只按请求计数，健康入口按 reason 聚合可见。
+    if (decision.rule === 'operation.unknown.v1') {
+      recordIssue(db, 'ledger', `req:${req_id}`, 'operation_unregistered', Date.now(), null);
+    }
   }
   const remaining = scope === undefined
     ? db.query<{ n: number }, []>(

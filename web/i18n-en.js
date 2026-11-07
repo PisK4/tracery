@@ -237,6 +237,8 @@ export const dict = {
   '缺正文': 'missing body',
   '归属未知': 'Unknown owner',
   '（无标题）': '(untitled)',
+  '读取标题中': 'Loading title',
+  '读取标题中…': 'Loading title…',
   '{n} 笔': ({ n }) => (n === 1 ? '1 request' : `${n} requests`),
   '活跃': 'Live',
   '全部会话': 'All sessions',

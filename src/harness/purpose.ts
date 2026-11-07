@@ -13,6 +13,7 @@ import { codexDecision, codexTurnFactsOf, type UpstreamTurnFacts } from './codex
 import { skillHintDecision } from './omp';
 import {
   PURPOSE_VERSION,
+  operationDecision,
   sourceDecision,
   titleDecision,
   unavailableDecision,
@@ -51,9 +52,11 @@ export function upstreamTurnFactsOf(request: unknown): UpstreamTurnFacts | null 
 /**
  * 一条请求的用途判定。
  *
- * 规则优先级固定为：Harness 专属强指纹（登记次序）> 来源 kind > 标题兼容 >
- * 兜底。正文不可读时先保留旧解释，来源 kind 只对没有旧解释的行生效；否则
- * 正文回收后，一条普通来源 kind 会覆盖此前识别出的分类器或标题。
+ * 规则优先级固定为：Harness 专属强指纹（登记次序）> Magpie operation >
+ * 来源 kind > 标题兼容 > 兜底。正文不可读时先保留旧解释，operation 与来源
+ * kind 只对没有旧解释的行生效；否则正文回收后，一条普通来源 kind 会覆盖
+ * 此前识别出的分类器或标题。operation 不依赖正文：非对话请求常没有 hook
+ * 正文，它是这类行唯一的正向用途事实。
  */
 export function classifyPurpose(view: PurposeView): PurposeDecision {
   return classifyPurposeWithRules(PURPOSE_RULES, view);
@@ -74,6 +77,8 @@ export function classifyPurposeWithRules(
       if (decision !== null) return decision;
     }
   }
+  const operation = operationDecision(view);
+  if (operation !== null) return operation;
   const source = sourceDecision(view);
   if (source !== null) return source;
   if (view.parse === 'ok') {

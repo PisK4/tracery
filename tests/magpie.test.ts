@@ -15,18 +15,19 @@ test('账本来源字段按req与cost读取并给出类型状态', () => {
     t: '2026-10-20T00:00:00Z', req: 'synthetic-req', model: 'synthetic-provider',
     served: 'synthetic-served', cost: 0, err: 'synthetic error',
     err_type: 'rate_limit', kind: 'compact', account: 'synthetic-account',
+    operation: 'embeddings',
   })!;
   expect({
     requested: fields.requested, model: fields.model, served: fields.served,
     ownCost: fields.ownCost, err: fields.err, errType: fields.errType,
-    kind: fields.kind, account: fields.account, shape: fields.shape,
+    kind: fields.kind, account: fields.account, operation: fields.operation, shape: fields.shape,
   }).toEqual({
     requested: 'synthetic-req', model: 'synthetic-provider', served: 'synthetic-served',
     ownCost: 0, err: 'synthetic error', errType: 'rate_limit', kind: 'compact',
-    account: 'synthetic-account',
+    account: 'synthetic-account', operation: 'embeddings',
     shape: {
       req: 'reported', model: 'reported', served: 'reported', cost: 'reported',
-      err: 'reported', errType: 'reported', kind: 'reported',
+      err: 'reported', errType: 'reported', kind: 'reported', operation: 'reported',
     },
   });
 });
@@ -35,18 +36,22 @@ test('账本旧键、空串与非法类型分开记录且都不当新值', () =>
   const legacy = mapLedgerRow({ t: '2026-10-20T00:00:00Z', requested: 'legacy', own_cost: 3, ownCost: 4 })!;
   expect([legacy.requested, legacy.ownCost, legacy.shape.req, legacy.shape.cost])
     .toEqual([null, null, 'absent', 'absent']);
+  expect([legacy.operation, legacy.shape.operation]).toEqual([null, 'absent']);
   const invalid = mapLedgerRow({
     t: '2026-10-20T00:00:00Z', req: 42, model: {}, served: [], cost: '0', err: [], err_type: true, kind: 7,
+    operation: true,
   })!;
   expect([invalid.requested, invalid.model, invalid.served, invalid.ownCost, invalid.err, invalid.errType, invalid.kind])
     .toEqual([null, null, null, null, null, null, null]);
+  expect([invalid.operation, invalid.shape.operation]).toEqual([null, 'invalid']);
   expect(invalid.shape).toEqual({
     req: 'invalid', model: 'invalid', served: 'invalid', cost: 'invalid',
-    err: 'invalid', errType: 'invalid', kind: 'invalid',
+    err: 'invalid', errType: 'invalid', kind: 'invalid', operation: 'invalid',
   });
-  const empty = mapLedgerRow({ t: '2026-10-20T00:00:00Z', req: '', kind: '' })!;
+  const empty = mapLedgerRow({ t: '2026-10-20T00:00:00Z', req: '', kind: '', operation: '' })!;
   expect([empty.requested, empty.kind, empty.shape.req, empty.shape.kind])
     .toEqual([null, null, 'empty', 'empty']);
+  expect([empty.operation, empty.shape.operation]).toEqual([null, 'empty']);
 });
 
 test('路由Prompt只在校准布尔与tokens合法时给出counted', () => {

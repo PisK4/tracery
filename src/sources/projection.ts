@@ -16,7 +16,7 @@ import {
   serializeMeta,
 } from './facts';
 
-export const SOURCE_PROJECTION_VERSION = 1;
+export const SOURCE_PROJECTION_VERSION = 2;
 const MAX_KIND_VALUES_PER_SOURCE = 8;
 const MAX_KIND_REPORT_VALUES = 16;
 const MAX_HOOK_VALUES = 8;
@@ -110,6 +110,8 @@ export type RequestProjection = {
   attempts: AttemptProjection;
   prompt: PromptProjection;
   kind: SourceKindProjection;
+  /** 账本 operation 的逐行观测（含 null=缺失/非法）：喂给有界事实集合，不做用途结论。 */
+  operation: (string | null)[];
   hook: HookProjection;
   identity: LedgerIdentityProjection;
   families: Record<ProjectionFamily, FamilyProjection>;
@@ -596,6 +598,9 @@ function buildProjection(db: Database, reqId: number, version: number): RequestP
   );
   const prompt = promptProjection(routes);
   const kind = kindProjection(ledgers, routes, owner.unsupported);
+  const operation = ledgers
+    .filter(row => row.state === 'present' && row.fields !== null)
+    .map(row => row.fields!.operation);
   const hook = hookProjection(hooks);
   const identity = identityProjection(ledgers, ledgerState, selected, final.unprovable);
   const selectedState: ProjectionState = ledgerState === 'complete'
@@ -633,7 +638,7 @@ function buildProjection(db: Database, reqId: number, version: number): RequestP
   const reasons = [...new Set(Object.values(families).flatMap(row => row.reasons))];
   return {
     reqId, version, state, selected, attempts, prompt,
-    kind: kind.report, hook: hook.report, identity: identity.projection, families, reasons,
+    kind: kind.report, operation, hook: hook.report, identity: identity.projection, families, reasons,
   };
 }
 
@@ -727,6 +732,7 @@ export function projectionSignature(projection: RequestProjection): string {
     attempts: projection.attempts,
     prompt: projection.prompt,
     kind: projection.kind,
+    operation: projection.operation,
     hook: projection.hook,
     identity: projection.identity,
     families: projection.families,
