@@ -94,6 +94,8 @@ function analyze(db: Database): { actions: Action[]; report: SessionDedupeReport
       model: row.model_requested ?? row.model_served,
       usage: usageOf(row),
       excludeSourceKind: row.source_kind,
+      // 源行自己带着同一个 response_id 键：第 1 条线索只会报歧义并挡住指纹。
+      skipResponseId: true,
     });
     if (owner.outcome === 'absent') continue;
     if (owner.outcome === 'ambiguous') {

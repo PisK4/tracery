@@ -404,7 +404,7 @@ bun run maintain body-bytes-backfill --db '<dataDir>/trace.db' --apply --approva
 
 修复本地会话来源的历史重复行：早期匹配规则要求模型名跨来源严格相等，网关的 `group/auto-…` 与本地 `auto/…` 对不上，同一笔调用会在 `request` 表里各留一行。默认只预览，输出 `scanned`、`candidates`、`merged`、`ambiguous`、`weak_only`、`already_owned` 与按来源的 `by_source`。加 `--apply` 必须同时给 `--approval-id`，否则退出码 1 且错误码 `approval_id_required`。
 
-只处理当前只有一条会话证据的请求：已经并入 hook 或账本证据的行是正式 owner，不会再被并走。身份判断复用 `findRequestOwnerTx`，只认 response id、turn ref 与四段用量指纹；只能被 ±60 秒弱时间窗配上的行只增加 `weak_only`，不在事后改行。命中后把源行的证据、正文引用、工具链接、别名与身份字段迁到目标，删除源行，重算两边的派生组；目标已有的正文与事实不覆盖。
+只处理当前只有一条会话证据的请求：已经并入 hook 或账本证据的行是正式 owner，不会再被并走。身份判断复用 `findRequestOwnerTx`，但跳过 response id 线索——重复的源行与目标行带着同一个键，这条线索只会报歧义并挡住后面的用量指纹；改走 turn ref 与四段用量指纹。只能被 ±60 秒弱时间窗配上的行只增加 `weak_only`，不在事后改行。命中后把源行的证据、正文引用、工具链接、别名与身份字段迁到目标，删除源行，重算两边的派生组；目标已有的正文与事实不覆盖。
 
 重复执行时 `candidates` 与 `merged` 为 0。修复不重置采集游标，也不重新解析会话文件；后续轮转按修正后的规则直接合并。
 
