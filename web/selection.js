@@ -288,3 +288,25 @@ export function applyIntent(state, intent) {
   }
   return { state, effects: [] };
 }
+
+/**
+ * `+N` 的完整目标清单生命周期：键是步骤稳定键，条目跟随当前会话的渲染行。
+ * 不按条数清空——清空会让仍在页面上的旧 chip 静默失效（弹层拿不到清单）；
+ * 行随会话整体更换，换会话与显式刷新时整表重置，不跨会话累积。
+ * 独立成工厂是为了让这条生命周期可单测：生产实例在 document 守卫内装配。
+ * @returns {{remember: (key: string, list: string[]) => void,
+ *   listOf: (key: string) => string[] | undefined, reset: () => void,
+ *   readonly size: number}}
+ */
+export function createMoreTargets() {
+  /** @type {Map<string, string[]>} */
+  const entries = new Map();
+  return {
+    /** @param {string} key @param {string[]} list */
+    remember(key, list) { entries.set(key, list); },
+    /** @param {string} key @returns {string[] | undefined} */
+    listOf(key) { return entries.get(key); },
+    reset() { entries.clear(); },
+    get size() { return entries.size; },
+  };
+}
