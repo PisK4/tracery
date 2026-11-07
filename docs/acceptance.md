@@ -2319,3 +2319,30 @@ Grok 的 `session_usage` 有 4 行而游标有 6 个，不是漏刷：本机 6 �
 - 定稿 #3「回落到 `findRequestOwnerTx`（含指纹）」收窄为 `usage: null`：hook envelope 不带 usage，跨协议归一有差异，且重复组会话行 99% 以上带 response id；理由见 [hook 回退 note](../.agents/notes/implemented/bug-fix/2026-11-07-hook-owner-fallback.md)。
 - 定稿 §6 运维命令登记表的触发条件已满足（`otlp-replay` 成为第 19 条命令），本轮不试点：登记表重构要改 `cli.ts` 与 source-health 只读入口，属独立变更，不与修复混批；待下次维护命令窗口单独做。
 - `handle_responses` 的形状核对已完成（64 条仍在库，2026-11-10 17:04:45 过期；有用量、无模型、无调用身份），见 [提案](../.agents/notes/proposed/feature/2026-11-07-otlp-handle-responses-rule.md)。
+
+## 生产重启验收与右栏重绘时序修复（合成 + 生产真实流量，2026-11-08）
+
+### 合成数据
+
+- 修复前复现：`prototypes/synthetic-server.ts` 的 `conv-synthetic-reading` 直达 `?trace=106`（`chain_role='aux'` 的标题生成请求）稳定停在「阅读版本已变化 · 正在准备当前版本，请稍候」；同一会话普通请求 `?trace=101` 正常出正文，会话首页点辅助组后正常。
+- 修复后：上述三个场景全部直接出正文。
+- 最窄回归：`tests/web.test.ts`、`tests/trace-model.test.ts`、`tests/trace-preparation.test.ts`、`tests/http.test.ts` 93 项通过；`bun run typecheck` 干净；`bun run verify:notes` 通过。
+
+### 缺陷定位
+
+浏览器注入探针（`Map.prototype.get`、`Element.innerHTML` setter）记录到：目标组在 455 ms 已是 `stale=null, rev=1`（备齐），`rail-body` 最后一次写入停在 491 ms 的等待态，此后 9 秒内显示模型持续更新而右栏不再重绘。点该组、切右栏页签、点「立即重读」都立即出正文，说明数据在手、缺的是重绘时机。
+
+根因是 `onPrepared` 先 `scheduleRenderMain()` 再同步 `renderRail()`：主栏提交在微任务里跑 `traceModel.update`，右栏同步读到的是上一版保留态。普通组之后有增量与依赖带来的 `onStoreChange` 兜底，辅助请求没有增量也没有依赖，永久停在等待态。
+
+### 生产真实流量
+
+- 部署：`bun run service restart`，pid 46321，用时 483 ms；`service status` 报告代码未落后。
+- 默认选中验证：首笔为辅助请求的会话（`a9fb174c…`，首笔 194495）直接打开、带 `&trace=194495` 直达、以及大会话 `ea1621b2…` 的 `&trace=189724` 三例，右栏全部直接出正文，无等待态。
+- 首页：会话列表与中栏正常渲染，静态资源零 404。
+- 数据侧：`response_id_norm` 重复组 0；`session_with_hook=23` 仍是修复前存量（`added_at` 为 11-05/06），本轮未取得修复后新样本。
+- `patrol weekly`：2 项越界——`body_ratio` 30.4%（下限 45%，既有基线）、`hook_absent` 2026-11-07 单日 1329（前 7 日均值 430.6，单 agent 最多 AsyncOpenAI 1227）；`otlp_yield` 100%（15/15）、`evidence_gap` 0.0%、`pending_hook` 1680、可重放 0、未知形状 64。
+
+### 未执行与边界
+
+- `hook_absent` 单日 1329 的归因未做，本轮只记录读数；`AsyncOpenAI` 单 agent 1227 笔需要按来源拆解后再判断是采集缺口还是正常无 hook 流量。
+- 首笔为辅助请求的覆盖面来自只读统计（4,611 个会话中 2,608 个），未逐个会话走查。
