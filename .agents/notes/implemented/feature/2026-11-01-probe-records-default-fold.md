@@ -20,7 +20,7 @@ Status: implemented
 
 ## Decision
 
-探针记录与旁路会话在左栏默认折叠，可展开；存储、用途判定与统计口径不变。
+探针记录与旁路会话在左栏默认折叠，可展开；存储、用途判定与统计口径不变。旁路这一半后被[会话栏全量 Agent 目录与旁路前置过滤](2026-11-08-session-rail-full-agent-directory.md)取代：bypass 下推 SQL 在分页前排除、不再到达客户端，折叠条删掉 bypass 分支改计 background；探针记录的折叠判据与可展开痕迹不变。
 
 ### 判定：全量探针、无正文、零用量
 

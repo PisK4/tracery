@@ -18,7 +18,7 @@ Supersession check：本记录细化[第一轮治理的 Deferred](2026-11-01-col
 
 列表读取分两阶段在同一条只读连接的同一事务里完成，接口、游标编码与返回结构不变，不新增表、索引、缓存、schema 或算法版本。
 
-第一阶段沿 `i_req_session_time` 覆盖索引只读会话键与真实最近请求时间，排序取 `limit + 1` 个候选；游标条件应用在分组之后，首页不带 HAVING。第二阶段以页内会话键的 `IN` 列表复用既有标题、计数、agents 与 flags 聚合；多取的一条只判断 `next_cursor`，空候选直接返回空页。页面顺序按第一阶段候选排列，不依赖第二阶段分组输出次序。页外会话不参与任何宽字段计算，列表读取不触碰正文。
+第一阶段沿 `i_req_session_time` 覆盖索引只读会话键与真实最近请求时间，排序取 `limit + 1` 个候选；游标条件应用在分组之后，首页不带 HAVING。第二阶段以页内会话键的 `IN` 列表复用既有标题、计数、agents 与 flags 聚合；多取的一条只判断 `next_cursor`，空候选直接返回空页。页面顺序按第一阶段候选排列，不依赖第二阶段分组输出次序。页外会话不参与任何宽字段计算，列表读取不触碰正文。两阶段结构与 WAL 快照不变；[会话栏全量 Agent 目录与旁路前置过滤](../feature/2026-11-08-session-rail-full-agent-directory.md)后续在阶段一加了可选 HAVING（`visibleOnly`/`agent`，缺省仍无 HAVING 报全量存储事实）与 schema v15 覆盖索引 `i_req_session_visible`，游标元组与整组 `last_ms` 不变，冻结 oracle 走缺省路径仍等价。
 
 两个阶段放在同一个 `store.read.transaction()`：WAL 快照由阶段一首读固定，采集在两阶段之间提交后，本页排序依据与内容仍来自同一旧快照，下一次调用才可见新会话。事务只覆盖列表需要的同步读取，不跨 `await` 持有。
 

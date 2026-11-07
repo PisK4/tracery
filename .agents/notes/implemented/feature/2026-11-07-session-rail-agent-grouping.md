@@ -15,7 +15,7 @@ Status: implemented
 - Agent 行：`agent-row`，32px 高，品牌 logo 16px icon + 常显名字 + 右对齐 mono 计数，选中蓝底 + 左 3px 竖条（Wake 同款），hover 120ms 抬底
 - 分组头：chevron 旋转折叠（160ms），列表用 max-height + opacity 同步收拢，不跳动
 - 全部 Agent 行：树顶一行「全部 Agent」带已加载总数，点即清空过滤（替代旧 chips 的 all 段）
-- 计数口径：仍是已加载窗口的相对计数（保留 `count >= 50` 阈值与 `slice(0, 7)`），界面维持「已加载」标注，不伪造全量精确数
+- 计数口径：仍是已加载窗口的相对计数（保留 `count >= 50` 阈值与 `slice(0, 7)`），界面维持「已加载」标注，不伪造全量精确数。此口径后被[会话栏全量 Agent 目录与旁路前置过滤](2026-11-08-session-rail-full-agent-directory.md)取代：改读全库可见会话数的具名目录快照，阈值与前 7 上限删除，正是下文列为推迟项的「后端精确聚合」；布局、品牌 logo、活跃绿点保留。
 - 活跃标记：Agent 行尾绿点脉冲（2s），数据源为 `items` 中 `inflight` 或 `live_until` 未过期的会话；会话行内的时间格「请求中」保留不变
 - 主栏切换会话：保持既有 `session-swap-in` 180ms 淡入 + 4px 上滑，不新做位移动画
 - 降级：`prefers-reduced-motion` 下关闭折叠与脉冲动画；折叠用 `max-height:0` + `visibility`，键盘与读屏保持可达
