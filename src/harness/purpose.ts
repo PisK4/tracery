@@ -53,10 +53,11 @@ export function upstreamTurnFactsOf(request: unknown): UpstreamTurnFacts | null 
  * 一条请求的用途判定。
  *
  * 规则优先级固定为：Harness 专属强指纹（登记次序）> Magpie operation >
- * 来源 kind > 标题兼容 > 兜底。正文不可读时先保留旧解释，operation 与来源
- * kind 只对没有旧解释的行生效；否则正文回收后，一条普通来源 kind 会覆盖
- * 此前识别出的分类器或标题。operation 不依赖正文：非对话请求常没有 hook
- * 正文，它是这类行唯一的正向用途事实。
+ * 来源 kind > 标题兼容 > 兜底。operation 先于正文不可读的 retained 保留：
+ * 它是长期来源事实而非正文解释，要纠正 source:mcp 这类把非对话请求放进
+ * 链的旧判定；来源 kind 仍只对没有旧解释的行生效，否则正文回收后一条
+ * 普通来源 kind 会覆盖此前识别出的分类器或标题。operation 不依赖正文：
+ * 非对话请求常没有 hook 正文，它是这类行唯一的正向用途事实。
  */
 export function classifyPurpose(view: PurposeView): PurposeDecision {
   return classifyPurposeWithRules(PURPOSE_RULES, view);
@@ -67,9 +68,6 @@ export function classifyPurposeWithRules(
   rules: readonly HarnessPurposeRule[],
   view: PurposeView,
 ): PurposeDecision {
-  if (view.parse !== 'ok' && view.stored.version !== null) {
-    return unavailableDecision(view);
-  }
   if (view.parse === 'ok') {
     for (const rule of rules) {
       if (rule.agent !== view.agent) continue;
@@ -79,6 +77,9 @@ export function classifyPurposeWithRules(
   }
   const operation = operationDecision(view);
   if (operation !== null) return operation;
+  if (view.parse !== 'ok' && view.stored.version !== null) {
+    return unavailableDecision(view);
+  }
   const source = sourceDecision(view);
   if (source !== null) return source;
   if (view.parse === 'ok') {
