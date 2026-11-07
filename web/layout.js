@@ -148,6 +148,12 @@ export function initLayout(onLocaleChange) {
 
   el('sidebar-toggle').addEventListener('click', () => { document.body.classList.toggle('sidebar-collapsed'); syncPanelButtons(); fitRail(); });
   el('rail-toggle').addEventListener('click', () => { document.body.classList.toggle('rail-collapsed'); syncPanelButtons(); });
+  el('agent-head').addEventListener('click', () => {
+    const list = el('agent-list');
+    const open = list.dataset.open === 'true';
+    list.dataset.open = String(!open);
+    el('agent-head').setAttribute('aria-expanded', String(!open));
+  });
 
   applyTheme();
   applyLangButton();
