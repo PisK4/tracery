@@ -22,9 +22,9 @@ Magpie 的 usage Record 已经输出 `operation`：embedding、rerank、音频�
 - `operation` 空或缺失时不出结论，继续按协议、端点、来源 kind 与正文判定。普通 LM turn 大多省略 operation，显式 operation 白名单不套在所有行上。
 - 未登记的显式 operation 保留证据，落 `unrecognized` + `operation:<value>` + `exclude`，结算时写 `ingest_issue`（`source_kind='ledger'`、`reason='operation_unregistered'`、按请求 upsert），不兜底 chat。
 
-落点按现有分层：[账本映射](../../../../src/sources/magpie/mapping.ts) 用 `stringField` 读 `operation` 并记 shape 状态，[投影](../../../../src/sources/projection.ts) 携带逐行观测（含 null=缺失/非法）进 [来源事实](../../../../src/sources/facts.ts) 的 `operation` 有界集合，[用途编排](../../../../src/harness/purpose.ts) 从长期事实消费。优先级固定为 Harness 强指纹 > operation > 来源 kind > 标题兼容 > 兜底；operation 插在来源 kind 之前，纠正 `source:mcp` 这类仍参与链的非对话行，不覆盖已识别标题的 `model_title`，也不替代 Harness 强指纹。operation 与来源 kind 一样只对没有旧解释的行生效，且不依赖正文可读性——非对话请求常没有 hook 正文，operation 是这类行唯一的正向用途事实。
+落点按现有分层：[账本映射](../../../../src/sources/magpie/mapping.ts) 用 `stringField` 读 `operation` 并记 shape 状态，[投影](../../../../src/sources/projection.ts) 携带逐行观测（含 null=缺失/非法）进 [来源事实](../../../../src/sources/facts.ts) 的 `operation` 有界集合，[用途编排](../../../../src/harness/purpose.ts) 从长期事实消费。优先级固定为 Harness 强指纹 > operation > 来源 kind > 标题兼容 > 兜底；operation 还先于正文不可读的 retained 保留——它是长期来源事实而非正文解释，要纠正 `source:mcp` 这类把非对话请求放进链的旧判定。首版把 operation 放在 retained 之后，生产验收发现 16 笔 `execute_tool` 行正文回收后 retained 在 `source:mcp` 仍参与链，编排随即前移；来源 kind 维持只对无旧解释的行生效，标题与分类器行不携带 operation，`model_title` 不受影响。operation 不依赖正文可读性——非对话请求常没有 hook 正文，operation 是这类行唯一的正向用途事实。
 
-版本：`PURPOSE_VERSION` 11→12，`SOURCE_PROJECTION_VERSION` 1→2（映射新读 operation、事实形状扩展）；`GROUP_ALGORITHM` 与 `DERIVE_ALGORITHM` 不动，组与切片算法本身没变，重判经输入标脏触发。旧来源事实缺 `operation` 键按未观测兼容读取，不触发未知值隔离。
+版本：`PURPOSE_VERSION` 11→13（12 是首版，13 是 retained 边界修正，旧目标行经显式 rebuild 升级重判），`SOURCE_PROJECTION_VERSION` 1→2（映射新读 operation、事实形状扩展）；`GROUP_ALGORITHM` 与 `DERIVE_ALGORITHM` 不动，组与切片算法本身没变，重判经输入标脏触发。旧来源事实缺 `operation` 键按未观测兼容读取，不触发未知值隔离。
 
 历史回填走 `maintain operation-backfill`（[运维手册](../../../../docs/operations.md#operation-backfill)）：候选是事实缺键且 raw 账本仍带显式文本 operation 的行，预览只取 operation 分布与会话键；应用逐笔重投影补齐事实，并按输入变化 `markRequestInputTx` 标脏，用途随正常 tick 重判升级。提案原文写「再按显式 rebuild 升级」，交付改为输入标脏：事实补齐是真实的派生输入变化，与在线摄入同口径，数百个回退组键不必逐一 rebuild；整链重建仍可选走 [rebuild](../../../../docs/operations.md#rebuild)。raw 没有 operation 或已过期的行不在候选里，不凭模型名或客户端标签猜用途。
 
@@ -81,7 +81,7 @@ Magpie 的 usage Record 已经输出 `operation`：embedding、rerank、音频�
 
 代价与边界：
 
-- 有旧 `purpose_version` 的行正文回收后仍走 retained，operation 不覆盖旧解释——这与来源 kind 的保留语义一致；目标群体（无正文、无旧版本）不受影响。
+- operation 覆盖 retained 的弱来源旧判定，retained 仍保护标题与分类器解释不被来源 kind 覆盖；这些行不携带 operation，边界不冲突。
 - raw 已过期的历史行补不回 operation，保持原判定，不补猜。
 - `execute_tool` 暂在未知桶，每次结算按请求 upsert 一条 issue；上游核对前这是有意的噪音。
 - 非对话请求与旁路会话共用 bypass 折叠入口，计数文案如实区分，正常态不新增装饰性标签。
@@ -89,10 +89,9 @@ Magpie 的 usage Record 已经输出 `operation`：embedding、rerank、音频�
 
 ## Testing
 
-合成验收钉住：已知 operation 无正文排除链、未知值隔离并记 issue（重判不重复计数）、缺失走协议参与主链、客户端标签不影响结论、Harness 强指纹与 retained 的优先级、operation 先于来源 kind、事实集合幂等与旧格式兼容、raw 过期不撤销集合、回填预览/应用/幂等与损坏事实修复。用途、投影、事实、映射与回填的最窄测试与全量套件结果记在[验收记录](../../../../docs/acceptance.md)。
+合成验收钉住：已知 operation 无正文排除链、未知值隔离并记 issue（重判不重复计数）、缺失走协议参与主链、客户端标签不影响结论、Harness 强指纹优先、operation 覆盖 retained 弱来源判定而无 operation 时 retained 仍保留、operation 先于来源 kind、事实集合幂等与旧格式兼容、raw 过期不撤销集合、回填预览/应用/幂等与损坏事实修复。用途、投影、事实、映射与回填的最窄测试与全量套件结果记在[验收记录](../../../../docs/acceptance.md)。
 
 ## Deferred
 
-- 生产库的回填预览、应用与真实流量验收：与合成验收分开记录，待显式执行。
 - `execute_tool` 的上游赋值锚点核对与登记。
 - 非对话请求的独立诊断面与多模态产出阅读：有真实阅读需求时再单独立项。

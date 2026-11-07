@@ -375,14 +375,26 @@ test('Harness 强指纹优先于 operation', () => {
   expect(decision.kind).toBe('auto-mode-classifier');
 });
 
-test('正文回收后有旧解释的行保留旧用途，operation 不覆盖', () => {
+test('operation 覆盖 retained 的弱来源判定，无 operation 时 retained 仍保留', () => {
+  // 生产实例：execute_tool 行正文回收后 retained 在 source:mcp，仍参与链。
   const decision = classifyPurpose(view({
     parse: 'missing',
-    operation: { state: 'single', value: 'embeddings' },
+    operation: { state: 'single', value: 'execute_tool' },
     stored: {
-      version: 11, status: 'recognized', rule: 'legacy', signals: [],
-      chain: 'participate', kind: 'chat', modelTitle: null,
+      version: 11, status: 'recognized', rule: 'source.kind.v1', signals: [],
+      chain: 'participate', kind: 'source:mcp', modelTitle: null,
     },
   }));
-  expect(decision).toMatchObject({ status: 'retained', version: 11, chain: 'participate' });
+  expect(decision).toMatchObject({
+    status: 'unrecognized', rule: 'operation.unknown.v1',
+    chain: 'exclude', kind: 'operation:execute_tool',
+  });
+  const retained = classifyPurpose(view({
+    parse: 'missing',
+    stored: {
+      version: 11, status: 'recognized', rule: 'source.kind.v1', signals: [],
+      chain: 'participate', kind: 'source:mcp', modelTitle: null,
+    },
+  }));
+  expect(retained).toMatchObject({ status: 'retained', version: 11, kind: 'source:mcp' });
 });
