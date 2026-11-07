@@ -588,17 +588,20 @@ if (typeof document !== 'undefined') {
   }
 
   function renderFilters() {
+    const items = store.getSessions().items;
     const counts = new Map();
-    for (const s of /** @type {SessionRow[]} */ (store.getSessions().items)) {
-      for (const agent of s.agents) counts.set(agent, (counts.get(agent) ?? 0) + s.request_count);
-    }
-    const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1])
-      .filter(([agent, count]) => count >= 50 || agent === state.agent)
-      .map(([agent]) => agent)
-      .slice(0, 7);
-    el('agent-filters').innerHTML = ['all', ...ranked].map(a =>
-      `<button class="chip-btn" data-agent="${esc(a)}" aria-pressed="${state.agent === a}" title="${esc(a)}">${a === 'all' ? t('全部 Agent') : esc(agentLabel(a))}</button>`,
-    ).join('');
+    for (const s of items) for (const a of s.agents) counts.set(a, (counts.get(a) ?? 0) + s.request_count);
+    const ranked = [...counts.entries()].sort((a,b)=>b[1]-a[1]).filter(([a,c])=>c>=50||a===state.agent).map(([a])=>a).slice(0,7);
+    const liveAgents = new Set(items.filter(s=>s.inflight||(typeof s.live_until==='number'&&s.live_until>Date.now())).flatMap(s=>s.agents));
+    const total = items.length;
+    const allRow = `<button class="agent-row" data-agent="all" aria-pressed="${state.agent==='all'}" title="${esc('all')}"><span class="ic">✦</span><span class="lbl">${esc(t('全部 Agent'))}</span><span class="cnt">${total}</span></button>`;
+    el('agent-list').innerHTML = allRow + ranked.map(a=>{
+      const c = counts.get(a) ?? 0;
+      const dot = liveAgents.has(a) ? `<span class="live-dot" title="${esc(t('有活跃会话'))}"></span>` : '';
+      const init = (a[0]??'?').toUpperCase();
+      return `<button class="agent-row" data-agent="${esc(a)}" aria-pressed="${state.agent===a}" title="${esc(a)}"><span class="ic">${esc(init)}</span><span class="lbl">${esc(agentLabel(a))}</span><span class="cnt">${c}</span>${dot}</button>`;
+    }).join('');
+    el('agent-count').textContent = t('{n} 家 · 点折叠', { n: ranked.length });
   }
 
   /** @param {SessionRow} s */
@@ -1802,7 +1805,7 @@ if (typeof document !== 'undefined') {
     setAttr('brand-home', 'title', t('回到主页并刷新'));
     setAttr('sess-search', 'placeholder', t('搜索已加载会话、请求或 ID'));
     setAttr('sess-search', 'aria-label', t('搜索已加载会话'));
-    setAttr('agent-filters', 'aria-label', t('按 Agent 筛选'));
+    setAttr('agent-list', 'aria-label', t('按 Agent 筛选'));
     setAttr('rail-resize', 'aria-label', t('调整详情栏宽度'));
     setAttr('rail-resize', 'title', t('拖动调整宽度；双击恢复默认；方向键微调'));
     setAttr('rail-col', 'aria-label', t('请求读数与正文'));
@@ -2486,7 +2489,7 @@ if (typeof document !== 'undefined') {
       state.agent = agent.dataset.agent ?? 'all';
       renderFilters(); renderSessions();
       // 选中段弹起 + 列表快速刷新渐显：只挂在用户点击上，搜索逐键不播。
-      const pressed = /** @type {HTMLElement | null} */ (document.querySelector('#agent-filters .chip-btn[aria-pressed="true"]'));
+      const pressed = /** @type {HTMLElement | null} */ (document.querySelector('#agent-list .agent-row[aria-pressed="true"]'));
       if (pressed !== null) { pressed.classList.remove('chip-fresh'); void pressed.offsetWidth; pressed.classList.add('chip-fresh'); }
       motion(el('sessions-list'), { opacity: [0.35, 1] }, 0.14);
       return;
