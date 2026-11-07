@@ -2346,3 +2346,39 @@ Grok 的 `session_usage` 有 4 行而游标有 6 个，不是漏刷：本机 6 �
 
 - `hook_absent` 单日 1329 的归因未做，本轮只记录读数；`AsyncOpenAI` 单 agent 1227 笔需要按来源拆解后再判断是采集缺口还是正常无 hook 流量。
 - 首笔为辅助请求的覆盖面来自只读统计（4,611 个会话中 2,608 个），未逐个会话走查。
+
+## 切会话动效档 1（合成页面，2026-11-08）
+
+前提：worktree `atc-ui-switch-motion`，分支 `feat/ui-switch-motion`，基线 `b6bf968`。`bun run demo` 起在 8771 端口（8770 被另一会话占用），加载同一份生产 `web/`；用 CDP `Network.emulateNetworkConditions` 注入 450–600 ms 延迟放大切换时序。合成数据，不读生产库。
+
+### 逐帧观测
+
+单次切换的 `#main` 状态序列（`MutationObserver` 记录，t 为 `performance.now()`）：
+
+| 时刻 | `data-switch-state` | 形态 | `#main .pulse` |
+| --- | --- | --- | --- |
+| 41205 | null | 20 组旧会话，头部「空状态排查（合成场景）」 | 0 |
+| 41243 | switching | 旧画面保留、压暗 | 0 |
+| 41545 | null | 8 行 `main-skeleton` 骨架条 | 0 |
+| 41848 | entering | 30 组新会话，30 条静态灰条占位 | 0 |
+| 42063 | null | 组逐批换真实内容 | 0 |
+
+占位灰条的计算宽度为 315–494 px、背景 `rgb(35,35,35)`、36 px 行高；占位行文本为空、动画名为 `none`。旧实现的整列「正在读取请求…」与超时后一屏全亮 pulse 文字都不再出现。
+
+### 交互与回归
+
+- 点击同一 tick：左栏 `aria-current` 已指向 `conv-synthetic-star`，中栏标题仍是上一场「窗口分页样本（合成）」。
+- 显式刷新共用了 `entering` 淡回，1200 ms 后 `data-switch-state`、`inert`、`aria-busy` 全部清空；随后切到「轮次配对样本」落定 12 组。
+- 明细弹窗首次打开计算样式 `opacity:1`；关闭后 root 的 inline 为 `opacity:0`（残留源头）；二次打开计算样式回到 1、inline 为空。
+- `prefers-reduced-motion: reduce` 下切会话无残留状态、无 `inert`、中栏无 pulse。
+- 静态资源 `/`、`/app.css`、`/app.js` 均 200，无模块图 404。
+
+### 未覆盖
+
+- 右栏工具四页的同键淡入：当前合成会话没有渲染 `[data-tool-page]`，只做代码级核对，未做浏览器验收。
+- 生产真实流量、部署与重启均未执行；本轮不宣称生产验收通过。
+- 审查列出的其余动效缺陷（theme-switching 后全局动画重播、vendor `fill:"both"` 固化 inline、无限动画相位重置、瞬态类不清除、reduce 下 300 ms 等待）本批未修，另立待办。
+
+### 门禁
+
+`bun run typecheck` 通过；`tests/web.test.ts`、`tests/http.test.ts`、`tests/trace-model.test.ts`、`tests/context-detail.test.ts`、`tests/trace-commit.test.ts`、`tests/context-map.test.ts` 共 126 pass。`verify-agent-note-format` 检查 255 篇通过。

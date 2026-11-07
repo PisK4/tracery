@@ -170,6 +170,10 @@ if (typeof document !== 'undefined') {
    * @param {import('./selection.js').Intent} intent
    */
   function dispatch(intent) {
+    // 右栏换了整个视图但 railKey 不变：给一次轻淡入。逐条点选（select-step /
+    // select-message）不置位，保住「指哪打哪」的即时反馈。
+    if (intent.kind === 'select-tool-page' || intent.kind === 'close-tool'
+      || intent.kind === 'clear-step') railViewNudge = true;
     if (intent.kind === 'select-step' || intent.kind === 'select-message' || intent.kind === 'select-delta'
       || intent.kind === 'select-turn' || intent.kind === 'select-tab' || intent.kind === 'select-tool-page'
       || intent.kind === 'open-tool' || intent.kind === 'open-pair' || intent.kind === 'open-offpage'
@@ -320,13 +324,14 @@ if (typeof document !== 'undefined') {
 
   /**
    * 准备中的组先示一条记录行：证据未齐不画半份投影，本组在窗口中的位置由它占住。
-   * 行高与正常步骤一致，备齐替换时组顶不移位。
+   * 行高与正常步骤一致，备齐替换时组顶不移位。文本留空、骨架由 CSS 画出，
+   * 整窗准备期间不再铺满一屏「正在读取请求…」文字。
    * @param {RequestRow} r
    * @returns {import('./trace-view.js').TraceStep}
    */
   function preparingStep(r) {
     return {
-      key: `${r.req_id}:preparing`, reqId: r.req_id, kind: 'record', text: t('正在读取请求…'),
+      key: `${r.req_id}:preparing`, reqId: r.req_id, kind: 'record', text: '',
       messageOrd: null, callOrd: null, source: null, raw: null, unrecognized: false,
       status: r.status !== null && r.status >= 400 ? 'failed'
         : r.body_state !== 'available' && r.body_state !== 'partial' ? 'missing_body' : null,
@@ -990,6 +995,18 @@ if (typeof document !== 'undefined') {
     }, 220);
   }
 
+  /** 不保留旧画面的窗口重建（显式刷新、跳锚点、切窗）：只播一次换场淡回，
+   *  复用 entering 状态，不设 inert/aria-busy，读得快也不额外拖慢。 */
+  function startSwapIn() {
+    const main = el('main');
+    if (switchEnterTimer !== null) { clearTimeout(switchEnterTimer); switchEnterTimer = null; }
+    main.dataset.switchState = 'entering';
+    switchEnterTimer = setTimeout(() => {
+      switchEnterTimer = null;
+      if (main.dataset.switchState === 'entering') delete main.dataset.switchState;
+    }, 220);
+  }
+
   /** @param {Promise<void>} loading @param {number} deadline @returns {Promise<boolean>} 窗口页先到返回 true；到保留上限返回 false。 */
   function switchReady(loading, deadline) {
     return new Promise(resolve => {
@@ -1013,8 +1030,8 @@ if (typeof document !== 'undefined') {
     lastRenderedSession = state.session;
     if (state.pendingSession !== null) {
       mainView.reset();
-      main.innerHTML = `<p class="sess-empty pulse" style="padding:24px">${t('正在读取{session}的请求…', { session: esc(shortSession(state.pendingSession)) })}</p>`;
-      armSpider();
+      // 慢网超过保留上限：不给一屏「正在读取…」文字，画与真实行同位的骨架条。
+      main.innerHTML = `<div class="main-skeleton" aria-hidden="true">${'<div class="main-skel-row"></div>'.repeat(8)}</div>`;
       return;
     }
     // 首载窗口准备完成前以选中组为锚，其余组提交不把它挤出视口；准备完成后
@@ -1442,6 +1459,9 @@ if (typeof document !== 'undefined') {
 
   /** @type {string | null} */
   let lastRailKey = null;
+  /** 同键但换了展示内容的视图切换：一次性标记，renderRail 消费即清。
+   *  逐条点选与 store 常规重绘不置位，保留「指哪打哪」的即时反馈。 */
+  let railViewNudge = false;
   /** 进场判定的伴随状态：换请求/换轮淡头部，页签切换按方向滑，正文到达按相位。 */
   let lastRailReq = /** @type {number | null} */ (null);
   let lastRailTurn = /** @type {number | null} */ (null);
@@ -1534,9 +1554,10 @@ if (typeof document !== 'undefined') {
       motion(rail, dir !== 0
         ? { opacity: [0, 1], transform: [`translateX(${dir * 12}px)`, 'translateX(0px)'] }
         : { opacity: [0, 1] }, dir !== 0 ? 0.16 : 0.15);
-    } else if (phase !== lastRailPhase) {
-      motion(rail, { opacity: [0, 1] }, 0.15);
+    } else if (railViewNudge || phase !== lastRailPhase) {
+      motion(rail, { opacity: [0.35, 1] }, 0.14);
     }
+    railViewNudge = false;
     lastRailKey = key;
     lastRailReq = state.reqId;
     lastRailTurn = state.turn;
@@ -1718,6 +1739,8 @@ if (typeof document !== 'undefined') {
     } else if (state.reqId !== null && !rows.some(row => row.req_id === state.reqId)) {
       dispatch({ kind: 'open-offpage', reqId: state.reqId });
     }
+    // 窗口重建与切会话共用一次换场淡回；读得快也不会把内容压在旧态里。
+    startSwapIn();
     renderAll();
     // 导航完成：路由页随重建后的选中请求读取（效果经 nav-settled 统一发出）。
     dispatch({ kind: 'nav-settled' });
@@ -2169,6 +2192,7 @@ if (typeof document !== 'undefined') {
       // 返回列表只清结构自己的选择。步骤选择不再把折叠钉在详情上（它只给列表
       // 里的这一行高亮），所以不必连带清掉中栏选择。
       structureSelected.delete(Number(structureBack.dataset.structureBack));
+      railViewNudge = true;
       renderRail();
       return;
     }
@@ -2192,7 +2216,12 @@ if (typeof document !== 'undefined') {
       void openSummaryList({ kind: 'skill', name }, `Skill ${name}`);
       return;
     }
-    if (target.closest('[data-summary-back]') !== null) { summaryList = null; renderRail(); return; }
+    if (target.closest('[data-summary-back]') !== null) {
+      summaryList = null;
+      railViewNudge = true;
+      renderRail();
+      return;
+    }
     const summaryPair = /** @type {HTMLElement | null} */ (target.closest('[data-summary-pair]'));
     if (summaryPair !== null) {
       summaryList = null;
@@ -2307,7 +2336,13 @@ if (typeof document !== 'undefined') {
     if (sess) {
       const key = sess.dataset.session ?? '';
       // 点当前会话不再整窗重读；读取失败时仍允许点它重试。
-      if (key !== state.session || store.getWindow().error !== null) void selectSession(key);
+      if (key !== state.session || store.getWindow().error !== null) {
+        // 高亮当场落位：窗口页未到时左栏先回应点击，不等 renderAll 重建整段列表。
+        for (const row of document.querySelectorAll('#sessions-list .sess')) {
+          row.setAttribute('aria-current', String(/** @type {HTMLElement} */ (row).dataset.session === key));
+        }
+        void selectSession(key);
+      }
       return;
     }
     if (target.closest('[data-fold-toggle]')) {
@@ -2594,6 +2629,7 @@ if (typeof document !== 'undefined') {
     summaryList = null;
     contextMenu.close();
     mainView.reset();
+    startSwapIn();
     renderAll();
   });
 

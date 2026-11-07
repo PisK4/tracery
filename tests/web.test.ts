@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { createMoreTargets } from '../web/selection.js';
 import { restoreScroll } from '../web/scroll.js';
 import { backendStateHtml, backendStateText } from '../web/backend-state.js';
@@ -1097,4 +1098,30 @@ test('+N 目标清单换会话整表重置，不跨会话累积', () => {
   moreTargets.reset();
   expect(moreTargets.size).toBe(0);
   expect(moreTargets.listOf('1:call:1')).toBeUndefined();
+});
+
+test('准备中的组不铺满屏读取文案，骨架样式与占位键对齐', () => {
+  const app = readFileSync('web/app.js', 'utf8');
+  const css = readFileSync('web/app.css', 'utf8');
+  // 占位行留空文本，整窗准备时不再出现 N 行同时呼吸的「正在读取请求…」。
+  expect(app).toMatch(/function preparingStep\(r\) \{[\s\S]*?text: ''/);
+  expect(css).toContain('.compact-select[data-step-key$=":preparing"] .compact-preview');
+  expect(css).not.toContain('.compact-select[data-step-key$=":preparing"] .compact-preview{animation');
+  // 慢网占位是骨架条，不是一屏亮字；换场淡回同时覆盖头部与列表。
+  expect(app).toContain('class="main-skeleton"');
+  expect(css).toContain('.main-skel-row');
+  expect(css).toContain('.col-main[data-switch-state="entering"] .session-head');
+});
+
+test('分段控件弹起匹配真实类名，不留死选择器', () => {
+  const css = readFileSync('web/app.css', 'utf8');
+  const html = readFileSync('web/index.html', 'utf8');
+  expect(css).toContain('.agent-row.chip-fresh[aria-pressed="true"]');
+  expect(css).not.toContain('.filters .chip-btn.chip-fresh');
+  expect(html).not.toContain('class="filters');
+});
+
+test('明细弹窗重开清掉离场固化的 inline opacity', () => {
+  const source = readFileSync('web/context-detail.js', 'utf8');
+  expect(source).toContain("container.style.removeProperty('opacity')");
 });

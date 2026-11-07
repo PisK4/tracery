@@ -367,6 +367,8 @@ export function createContextMenu({ readDirectory, readEntry }) {
     const triggerFocus = document.activeElement;
     const container = /** @type {HTMLElement} */ (root);
     open = { s: selection, dir: { phase: 'loading' }, contents: new Map(), trigger: triggerFocus instanceof Element ? triggerFocus : trigger };
+    // 离场动画把末帧固化成 inline opacity:0；重开要清掉，否则二次打开恒不可见。
+    container.style.removeProperty('opacity');
     container.hidden = false;
     paint();
     void loadDirectory();
