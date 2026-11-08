@@ -1749,7 +1749,7 @@ test('列表透出子代理身份，编号按会话内首笔时间稳定，独�
   }
 });
 
-test('会话标题先取本会话自身候选，只有子代理标题时才降级使用', () => {
+test('会话标题先取本会话自身主链，只有子代理标题时才降级使用', () => {
   const f = fixture();
   try {
     const settle = (convKey: string, actor: string) => f.store.write(db => {
@@ -1770,6 +1770,22 @@ test('会话标题先取本会话自身候选，只有子代理标题时才降�
     settle(mixed, 'sub-a');
     settle(mixed, 's-main');
     expect(getSessionTitles(f.store, [mixed])[0]?.title).toBe('用户真正问的问题');
+
+    // 只插一级，不把「自身任一」升到第二级：子代理提示比首条 user 碎片更有信息量。
+    // 这条会话里自身只有一条非主链候选「Tool loaded.」，它不能压过子代理的主链候选。
+    const junk = 'sub-title-junk';
+    insertSubagentRows(f.store, junk, [
+      { reqId: 51, session: 's-main', subagent: 'sub-a', startedMs: 1000 },
+      { reqId: 52, session: 's-main', subagent: null, startedMs: 2000 },
+    ]);
+    f.store.write(db => {
+      db.run(`UPDATE request SET title='子代理收到的任务简报' WHERE req_id=51`);
+      db.run(`UPDATE request SET title='Tool loaded.' WHERE req_id=52`);
+      db.run(`UPDATE request SET chain_role='unknown' WHERE req_id=52`);
+    });
+    settle(junk, 'sub-a');
+    settle(junk, 's-main');
+    expect(getSessionTitles(f.store, [junk])[0]?.title).toBe('子代理收到的任务简报');
 
     // 只有子代理标题时不退回空标题：降级使用，不是过滤。
     const onlySub = 'sub-title-only';
