@@ -160,7 +160,8 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .group-head .chev{width:14px;height:14px;display:grid;place-items:center;transition:transform var(--t-fold) var(--ease-out);color:var(--muted)}
 .group-head[aria-expanded="false"] .chev{transform:rotate(-90deg)}
 .group-head .grp-n{margin-left:auto;font:10.5px var(--mono);letter-spacing:0;text-transform:none;color:var(--muted)}
-.agent-list{display:grid;gap:1px;overflow:auto;max-height:420px;opacity:1;transition:max-height var(--t-fold) var(--ease-out),opacity var(--t-fold) var(--ease-out)}
+/* 164px = 全部 Agent 行 + 前 4 家（5×32 + 4×1 gap），其余滚动，把高度让给会话列表 */
+.agent-list{display:grid;gap:1px;overflow:auto;max-height:164px;opacity:1;transition:max-height var(--t-fold) var(--ease-out),opacity var(--t-fold) var(--ease-out)}
 .agent-list[data-open="false"]{max-height:0;opacity:0}
 .agent-row{display:flex;align-items:center;gap:8px;height:32px;padding:0 8px;border-radius:6px;font-size:13px;color:var(--text);position:relative;width:100%;transition:background var(--t-micro) var(--ease-out)}
 .agent-row:hover{background:var(--inset)}
