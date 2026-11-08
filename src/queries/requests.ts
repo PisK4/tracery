@@ -88,7 +88,8 @@ const LAST_FIRST_REASONING_COL = `(SELECT CASE WHEN json_valid(s.tries_json)
   FROM route_summary s WHERE s.route_id = r.route_id)`;
 
 /** 列表不带摘要版本列：它是详情给 E 用的依据，列表只判断 `derived_state`。 */
-const REQUEST_COLUMNS = `r.req_id, r.conv_key, r.actor, r.agent, r.actor_state, r.started_ms, r.via,
+const REQUEST_COLUMNS = `r.req_id, r.conv_key, r.actor, r.agent, r.session, r.subagent,
+  r.actor_state, r.started_ms, r.via,
   ${derivedColSql('g', 'd', 'r', 'title')} AS title,
   ${derivedColSql('g', 'd', 'r', 'title_source')} AS title_source,
   r.status, r.model_requested, r.model_served, r.in_tok, r.out_tok,
@@ -127,6 +128,27 @@ function decodeBoundCursor(cursor: string, key: string,
 }
 
 /**
+ * 会话内折叠子代理的稳定编号：按组内首笔时间排序，指定后翻页与窗口变化都不换号。
+ *
+ * `subagent = session` 的独立子代理会话（droid）不参与：它的整场会话就是子代理，
+ * 在会话内部再标 S1 只会把每一笔都写成子代理调用。
+ */
+function subagentNumbers(read: Store['read'], convKey: string): Map<string, number> {
+  const rows = read.query<{ subagent: string; no: number }, [string]>(`
+    SELECT subagent, ROW_NUMBER() OVER (ORDER BY MIN(started_ms), subagent) AS no
+    FROM request
+    WHERE conv_key = ? AND subagent IS NOT NULL AND (session IS NULL OR subagent <> session)
+    GROUP BY subagent`).all(convKey);
+  return new Map(rows.map(row => [row.subagent, row.no]));
+}
+
+/** 折叠子代理行的短标编号；主链行与独立子代理会话为 null。 */
+function subagentNoOf(row: ProjectableRow, numbers: Map<string, number>): number | null {
+  if (row.subagent === null || row.subagent === row.session) return null;
+  return numbers.get(row.subagent) ?? null;
+}
+
+/**
  * 会话内请求分页。forward 从最早页向后追加（默认）；older 无游标取最近窗口，
  * 之后向更早方向翻。返回 items 始终按 (started_ms, req_id) 升序，两个方向
  * 只是比较符与扫描方向不同；两个方向的游标都绑定会话与方向，禁止混用。
@@ -139,46 +161,54 @@ export function listRequests(
   if (direction !== 'forward' && direction !== 'older') throw new QueryInputError('invalid_direction');
   const bound = cursor === null ? null : decodeBoundCursor(cursor, key, direction);
   // 分页与状态判定必须在同一个快照里：分成两次读会把分页时的行与状态时的行混在一起。
-  const rows = store.read.transaction(() => {
-    if (direction === 'older') {
+  const snapshot = store.read.transaction(() => {
+    const pageRows = (() => {
+      if (direction === 'older') {
+        return (bound === null
+          ? store.read.query<ProjectableRow, [string, number]>(`
+              SELECT ${REQUEST_COLUMNS}, ${GROUP_READ_COLUMNS} FROM request r
+              ${deriveJoinSql('g', 'd', 'r')}
+              WHERE r.conv_key = ?
+              ORDER BY r.started_ms DESC, r.req_id DESC
+              LIMIT ?`)
+            .all(key, size + 1)
+          : store.read.query<ProjectableRow, [string, number, number, number]>(`
+              SELECT ${REQUEST_COLUMNS}, ${GROUP_READ_COLUMNS} FROM request r
+              ${deriveJoinSql('g', 'd', 'r')}
+              WHERE r.conv_key = ? AND (r.started_ms, r.req_id) < (?, ?)
+              ORDER BY r.started_ms DESC, r.req_id DESC
+              LIMIT ?`)
+            .all(key, bound.startedMs, bound.reqId, size + 1)) as ProjectableRow[];
+      }
       return (bound === null
         ? store.read.query<ProjectableRow, [string, number]>(`
             SELECT ${REQUEST_COLUMNS}, ${GROUP_READ_COLUMNS} FROM request r
             ${deriveJoinSql('g', 'd', 'r')}
             WHERE r.conv_key = ?
-            ORDER BY r.started_ms DESC, r.req_id DESC
+            ORDER BY r.started_ms ASC, r.req_id ASC
             LIMIT ?`)
           .all(key, size + 1)
         : store.read.query<ProjectableRow, [string, number, number, number]>(`
             SELECT ${REQUEST_COLUMNS}, ${GROUP_READ_COLUMNS} FROM request r
             ${deriveJoinSql('g', 'd', 'r')}
-            WHERE r.conv_key = ? AND (r.started_ms, r.req_id) < (?, ?)
-            ORDER BY r.started_ms DESC, r.req_id DESC
+            WHERE r.conv_key = ? AND (r.started_ms, r.req_id) > (?, ?)
+            ORDER BY r.started_ms ASC, r.req_id ASC
             LIMIT ?`)
           .all(key, bound.startedMs, bound.reqId, size + 1)) as ProjectableRow[];
-    }
-    return (bound === null
-      ? store.read.query<ProjectableRow, [string, number]>(`
-          SELECT ${REQUEST_COLUMNS}, ${GROUP_READ_COLUMNS} FROM request r
-          ${deriveJoinSql('g', 'd', 'r')}
-          WHERE r.conv_key = ?
-          ORDER BY r.started_ms ASC, r.req_id ASC
-          LIMIT ?`)
-        .all(key, size + 1)
-      : store.read.query<ProjectableRow, [string, number, number, number]>(`
-          SELECT ${REQUEST_COLUMNS}, ${GROUP_READ_COLUMNS} FROM request r
-          ${deriveJoinSql('g', 'd', 'r')}
-          WHERE r.conv_key = ? AND (r.started_ms, r.req_id) > (?, ?)
-          ORDER BY r.started_ms ASC, r.req_id ASC
-          LIMIT ?`)
-        .all(key, bound.startedMs, bound.reqId, size + 1)) as ProjectableRow[];
-  })() as ProjectableRow[];
+    })();
+    const numbered = pageRows.some(row => row.subagent !== null && row.subagent !== row.session);
+    return {
+      rows: pageRows,
+      numbers: numbered ? subagentNumbers(store.read, key) : new Map<string, number>(),
+    };
+  })();
+  const { rows, numbers } = snapshot;
 
   // older 先按 DESC 取页，再反转成正序返回；游标编码本页最早行，下一页严格小于它。
   const page = rows.slice(0, size);
   if (direction === 'older') page.reverse();
   const items = page.map(row => ({
-    ...projectRow(row).safe, conv_key: row.conv_key ?? key,
+    ...projectRow(row, subagentNoOf(row, numbers)).safe, conv_key: row.conv_key ?? key,
   }));
   const cursorRow = direction === 'older' ? page[0] : page[page.length - 1];
   const nextCursor = rows.length > size && cursorRow !== undefined
@@ -282,11 +312,14 @@ export function getRequest(store: Store, id: number): RequestDetail | null {
         .all(row.published_generation, canonical);
       if (generationalResults.length > 0) toolResults = generationalResults;
     }
-    return { row, toolCalls, toolResults };
+    const subagentNo = row.subagent !== null && row.subagent !== row.session
+      ? subagentNumbers(store.read, row.conv_key ?? '').get(row.subagent) ?? null
+      : null;
+    return { row, toolCalls, toolResults, subagentNo };
   })();
   if (snapshot === null) return null;
-  const { row, toolCalls, toolResults } = snapshot;
-  const projected = projectRow(row);
+  const { row, toolCalls, toolResults, subagentNo } = snapshot;
+  const projected = projectRow(row, subagentNo);
   const current = projected.state === 'current';
   // 关系与增量是行级产物：本行在组的最早受影响位置之前时，本轮算出的值仍成立。
   const rowFacts = current || projected.safe.derived_prefix;

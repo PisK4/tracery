@@ -1061,3 +1061,16 @@ test('空组判定：投影备齐且只剩状态行才离开默认时间线', ()
   // 空步骤集合本来就不渲染任何行，一并算空。
   expect(isEmptyGroup({ steps: [], stale: null, placeholder: false })).toBe(true);
 });
+
+test('子代理短标只挂在组首行，完整 id 进悬停说明', () => {
+  const r = row({ subagent: 'aedb2cec955a06a4b', subagent_no: 2 });
+  const steps = projectSteps(r, read(detail(),
+    [entry(2, { state: 'text', text: 'q', original: 'q' }, true)], null));
+  const html = renderTraceRows(r, steps, 1, null, null, 'S2');
+  // 三行步骤只出一次短标，且落在首行。
+  expect(html.match(/class="row-sub-tag"/g)?.length).toBe(1);
+  expect(html.indexOf('class="row-sub-tag"')).toBeLessThan(html.indexOf('data-step-key', html.indexOf('data-step-key') + 1));
+  expect(html).toContain('title="aedb2cec955a06a4b"');
+  // 主链行与独立子代理会话不传短标时不出标记。
+  expect(renderTraceRows(r, steps, 1, null, null, '')).not.toContain('row-sub-tag');
+});
