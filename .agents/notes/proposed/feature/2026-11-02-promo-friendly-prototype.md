@@ -14,7 +14,7 @@ ATC 正在拍一部 41 秒的产品宣传片（Remotion 工程，仓库外 `../.
 - **状态不可 URL 直达**：拍摄不点击、全靠 URL 复现，但 cue-board 展开态、cue 条目支撑清单（`railSummaryListHtml`，`web/session-view.js:387`）、轮次定位都没有 URL 参数。
 - **静置期间数据可能变动**：`web/reader-store.js` 的「作废即自动重读」10 秒冷却、无尝试上限，若合成数据存在持久 reading token 不匹配的记录，会在截图瞬间持续发请求。
 
-本提案与[前端方向 A 重制提案](2026-11-02-frontend-direction-a-restyle.md)同方向：重制改变视觉语言，本提案保证样片数据与可达性，两份提案互为前提。红线不变：合成数据只是场景样本、不参与生产验收；服务只监听回环、不连真实库、不读令牌；合成时间基准用固定 `BASE_MS`（`prototypes/synthetic-server.ts:25`），渲染路径不引入 `Date.now()`/`Math.random()`；接口字段与生产类型一致（typecheck 同场检查）。
+本提案与[前端方向 A 重制](../../implemented/feature/2026-11-02-frontend-direction-a-restyle.md)同方向：重制改变视觉语言，本提案保证样片数据与可达性，两份提案互为前提。红线不变：合成数据只是场景样本、不参与生产验收；服务只监听回环、不连真实库、不读令牌；合成时间基准用固定 `BASE_MS`（`prototypes/synthetic-server.ts:25`），渲染路径不引入 `Date.now()`/`Math.random()`；接口字段与生产类型一致（typecheck 同场检查）。
 
 ## Proposal
 

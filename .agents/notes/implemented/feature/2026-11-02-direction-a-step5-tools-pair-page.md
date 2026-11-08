@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-[方向 A 重制提案](../../proposed/feature/2026-11-02-frontend-direction-a-restyle.md)第 5 步：工具列表页逐行带一枚彩色工具名 chip，同一名字在页头、每行重复 N 次；页头没有总数与失败数，要数行才知道规模。配对页两个片段靠彩色 chip 区分角色，中间一行大号「↓ 上一条请求的返回」占据视觉主线；概览/参数/配对/Schema 四个标签是松散文字按钮。
+[方向 A 重制](2026-11-02-frontend-direction-a-restyle.md)第 5 步：工具列表页逐行带一枚彩色工具名 chip，同一名字在页头、每行重复 N 次；页头没有总数与失败数，要数行才知道规模。配对页两个片段靠彩色 chip 区分角色，中间一行大号「↓ 上一条请求的返回」占据视觉主线；概览/参数/配对/Schema 四个标签是松散文字按钮。
 
 ## Decision
 

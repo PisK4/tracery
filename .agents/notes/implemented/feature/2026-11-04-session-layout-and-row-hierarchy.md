@@ -138,5 +138,5 @@ Status: implemented
 - 对齐修正：[方向 A 对齐修正](../../implemented/bug-fix/2026-11-02-direction-a-alignment-audit.md)。
 - 头部两栏事实：[会话头部两栏](../../implemented/feature/2026-11-01-session-header-two-column.md)。
 - 降噪常备约束：[前端降噪常备约束](../../implemented/process/2026-10-24-frontend-denoise-standing-rule.md)。
-- 视觉语言提案（第 3 步与本笔记有重叠）：[前端主界面按方向 A 重制视觉语言](../../proposed/feature/2026-11-02-frontend-direction-a-restyle.md)。
+- 视觉语言决策（第 3 步与本笔记有重叠）：[前端主界面按方向 A 重制视觉语言](2026-11-02-frontend-direction-a-restyle.md)。
 - 双语化：i18n 合并说明见 `web/i18n.js` 与 `web/i18n-en.js` 文件头。

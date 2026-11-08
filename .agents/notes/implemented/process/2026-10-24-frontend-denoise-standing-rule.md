@@ -10,7 +10,7 @@ web 界面在时间线角色徽章、右栏折叠行与各正文面板里积累�
 
 根 AGENTS.md 栈特有约定加入一条：界面不加多余的二级标签与说明文字，让布局解释结构；正常态不带装饰性状态，异常才出现标签。原文：Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining.
 
-本 note 只记录把它立为常备约束这件事，提炼过程不随仓库发布。
+本 note 只记录把它立为常备约束这件事，提炼过程不随仓库发布。规则全文的现行家为 [UIUX-DESIGN.md](../../../../UIUX-DESIGN.md)，立家过程见[前端设计规则立唯一权威](2026-11-08-uiux-design-rulebook.md)。
 
 ## Alternatives considered
 

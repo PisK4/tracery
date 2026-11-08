@@ -60,6 +60,11 @@
 - 防护：提交前跑 `bun run verify:notes:staged`；新增或移动 note 的 commit 不走合并也跑。跨 worktree 的实现批次不能指望主检出里的 note 顶数，要在同一暂存集里带一篇。
 - Seen 2× (2026-11-04, 2026-11-05).
 
+**分步交付的提案，收尾那一步负责把 umbrella 提案转 implemented。**
+- 证据：2026-11-08 立前端规则文档时核对，方向 A 六步 note 全部 implemented，umbrella 提案仍滞留 proposed；蜘蛛插画代码已交付，note 也仍 proposed。规则的最新事实被迫去代码注释里找，入站链接还指着 proposed 路径。
+- 防护：分步提案的最后一步交付时，把 umbrella 转 implemented 并同批修入站链接；收尾跑 `rg -l '<提案文件名>' .agents/notes` 核对没有残留的旧路径引用。
+- Seen 1× (2026-11-08，方向 A umbrella 与蜘蛛两例).
+
 **`list.param` 是分组键，展示文案放 `label`。**
 - 证据：2026-11-02 方向 A 第 5 步第一版把 `param` 传成 `${name} 的调用`，对组永不命中、失败数恒 0；测试直接传 meta 测不到这条装配路径，真实后端同样中招，靠合成数据 curl 对比抓到。
 - 防护：改 `summaryList` 的取数后，用合成页面 curl 对比 chip 与页头计数；参数摘要从 `arg_path`/`arg_skill` 读，不从 `param` 反解。

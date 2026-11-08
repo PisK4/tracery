@@ -30,7 +30,7 @@ bun run verify:notes   # 合并到 master 前
 - 测试只用合成数据；真实请求正文、账号、令牌与用户配置不进 fixture、日志或提交。
 - **不装本地 git hook**：闸门是 `.agents/KIT-VERSION` 基线下显式执行的 `verify:notes`，kit 升级也是显式动作，见[接入 agent-kit](.agents/notes/implemented/process/2026-10-21-adopt-agent-kit-notes.md)。
 - **改代码前读 [工作教训](.agents/notes/LESSONS.md)，收尾时回写。** 非平凡任务结束前，把本次踩到、下次还会踩的坑追加一条；同一坑再次出现补 Seen 日期。教训稳定成测试、脚本或常备约定后迁入对应家，并从 LESSONS.md 删除。设计决策进 note，单次缺陷复盘进 bug-fix note。
-- **一个事实一个家**：架构与存储形状归[架构设计](docs/architecture-design.md)，运维步骤归[运维手册](docs/operations.md)，术语归 [GLOSSARY.md](GLOSSARY.md)，对外介绍归 [README](README.md)，验收结果归[验收记录](docs/acceptance.md)，周期性巡查归[巡查程序](docs/patrol.md)；note 只写为什么这样定、否决了什么、代价是什么。文档分层与文风归[文档标准](docs/AGENTS.md)。
+- **一个事实一个家**：架构与存储形状归[架构设计](docs/architecture-design.md)，运维步骤归[运维手册](docs/operations.md)，术语归 [GLOSSARY.md](GLOSSARY.md)，前端设计规则归 [UIUX-DESIGN.md](UIUX-DESIGN.md)，对外介绍归 [README](README.md)，验收结果归[验收记录](docs/acceptance.md)，周期性巡查归[巡查程序](docs/patrol.md)；note 只写为什么这样定、否决了什么、代价是什么。文档分层与文风归[文档标准](docs/AGENTS.md)。
 - **工具默认名以项目入口为准**：Skill 模板里的 `GLOSSARY.md` 指本仓 [GLOSSARY.md](GLOSSARY.md)，`docs/adr/` 指 [.agents/notes/](.agents/notes/README.md)；存在本入口时不新建第二份词汇表或决策记录。
 
 ## 栈特有约定
@@ -44,6 +44,7 @@ bun run verify:notes   # 合并到 master 前
 - 监听地址写死 `127.0.0.1`，不读环境变量覆盖；运行数据在仓库外，文件 0600、目录 0700，其余边界见[安全边界](docs/architecture-design.md#安全边界)。
 - **正文与路由内容在页面一律转义**，不直接插 HTML。
 - **页面读取统一走读取架构**：新增或改动读取前先读[读取功能接入规则](docs/read-feature-rules.md)确定用途、owner 与预算；具名操作进 `src/read-contract.ts`，HTTP Fetch 只允许 `web/read-http.js`（`tests/read-boundaries.test.ts` 守门），并发与取消只归 `web/read-scheduler.js`，证据缓存只归 `web/reader-store.js`。见[读取架构](.agents/notes/implemented/architecture/2026-11-02-read-architecture-and-client-seams.md)。
+- **改界面前读 [UIUX-DESIGN.md](UIUX-DESIGN.md)**：通用原则与 Tracery 实现规则两层都读（色彩预算、首屏层级、动效分工、例外登记）；色值与令牌数值以 web/app.css 为准。
 - 界面不加多余的二级标签与说明文字，让布局解释结构：分组、间距、对齐与表面明度差承担解释职责；正常态不带装饰性状态，异常才出现标签。见[前端降噪常备约束](.agents/notes/implemented/process/2026-10-24-frontend-denoise-standing-rule.md)。
 
 ## 目录与上位文档

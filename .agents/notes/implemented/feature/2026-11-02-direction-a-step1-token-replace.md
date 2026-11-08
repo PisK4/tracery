@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-[前端方向 A 重制提案](../../proposed/feature/2026-11-02-frontend-direction-a-restyle.md)的六步落地中，第 1 步是把 `web/app.css` 三段 token（浅色 `:root`、深色 `@media`、深色 `[data-theme="dark"]`）从蓝灰倾向的旧配色换成 Geist 中性灰阶加 Apple 系统蓝。样张附录的映射表只列了主 token，生产 token 集里还有若干相邻变量需要补全决策。
+[前端方向 A 重制](2026-11-02-frontend-direction-a-restyle.md)的六步落地中，第 1 步是把 `web/app.css` 三段 token（浅色 `:root`、深色 `@media`、深色 `[data-theme="dark"]`）从蓝灰倾向的旧配色换成 Geist 中性灰阶加 Apple 系统蓝。样张附录的映射表只列了主 token，生产 token 集里还有若干相邻变量需要补全决策。
 
 ## Decision
 

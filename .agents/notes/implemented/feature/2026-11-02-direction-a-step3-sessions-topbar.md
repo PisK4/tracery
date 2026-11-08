@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-[方向 A 重制提案](../../proposed/feature/2026-11-02-frontend-direction-a-restyle.md)第 3 步：会话栏与顶栏的导航层此前沿用内容层的强调语言（选中会话用 accent 左缘加阴影、筛选 chip 逐个描边），与「导航中性、内容区才用蓝」的层级目标相悖；顶栏 52px 偏高，三个图标按钮带框，logo 三枚实心圆过重。
+[方向 A 重制](2026-11-02-frontend-direction-a-restyle.md)第 3 步：会话栏与顶栏的导航层此前沿用内容层的强调语言（选中会话用 accent 左缘加阴影、筛选 chip 逐个描边），与「导航中性、内容区才用蓝」的层级目标相悖；顶栏 52px 偏高，三个图标按钮带框，logo 三枚实心圆过重。
 
 ## Decision
 

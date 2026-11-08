@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-[方向 A 重制提案](../../proposed/feature/2026-11-02-frontend-direction-a-restyle.md)第 2 步：同屏 soft 底色超过十种的最大来源是工具七档身份色（Read 蓝、Edit 橙、Write 紫、Bash 玫红、Skill 黄、Agent 绿、其余青灰）叠在角色五档底块上。本步删工具七档、角色徽章 pill 化并封顶四档、pending 行去满铺底、选中行补齐左缘，中栏、右栏与头部摘要三处 chip 规则一次改齐。
+[方向 A 重制](2026-11-02-frontend-direction-a-restyle.md)第 2 步：同屏 soft 底色超过十种的最大来源是工具七档身份色（Read 蓝、Edit 橙、Write 紫、Bash 玫红、Skill 黄、Agent 绿、其余青灰）叠在角色五档底块上。本步删工具七档、角色徽章 pill 化并封顶四档、pending 行去满铺底、选中行补齐左缘，中栏、右栏与头部摘要三处 chip 规则一次改齐。
 
 ## Decision
 

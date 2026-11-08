@@ -19,7 +19,7 @@ Status: implemented
 
 **切主题决策修订**：app.css 原注释「背景色一律不做过渡（切主题残留旧色一帧）」放宽为——切主题时 `body.theme-switching` 两帧禁用全部过渡（layout.js），主题仍当帧完成，其余时刻交互底色过渡照常。
 
-**reduced-motion**：CSS 侧动效区末尾 media blanket 一网打尽；JS 侧 `motion()` 同口径短路；既有 JS 平滑滚动守卫保持。蜘蛛插画（[2026-11-02-empty-state-spider](../../proposed/feature/2026-11-02-empty-state-spider.md)）自带静态降级，与本层并存。
+**reduced-motion**：CSS 侧动效区末尾 media blanket 一网打尽；JS 侧 `motion()` 同口径短路；既有 JS 平滑滚动守卫保持。蜘蛛插画（[2026-11-02-empty-state-spider](2026-11-02-empty-state-spider.md)）自带静态降级，与本层并存。
 
 **范围修正**：`select-turn` 刻意不加滚动——轮次点选保持「轨迹高亮不动」的既有语义，落点呼吸只挂 `locate` 路径（汇总条目定位、切窗定位、URL 轮锚点）。
 
