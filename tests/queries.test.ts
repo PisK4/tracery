@@ -219,7 +219,7 @@ test('已完成的组在列表与详情里都是current', () => {
     const caller = getRequest(f.store, 1)!;
     expect(caller.tool_calls[0]?.state).toBe('resolved');
     expect(caller.tool_calls[0]?.result_req).toBe(2);
-    const { exec_ms: _callExec, ...callFacts } = caller.tool_calls[0]!;
+    const { exec_ms: _callExec, agent_ref: _callRef, agent_no: _callNo, ...callFacts } = caller.tool_calls[0]!;
     expect(detail.tool_results).toEqual([{ owner_req: 1, ...callFacts }]);
     // 当前行不需要 historical：当前值已经在顶层。
     expect(detail.historical).toBeNull();
@@ -1029,7 +1029,9 @@ test('发布代存在时整套读取发布结果，标题列表详情工具同�
     expect(detail.summary_state).toBe('recomputed');
     expect(detail.summary_basis).toBe('{"why":"synthetic"}');
     expect(detail.tool_calls[0]?.result_path).toBe('request.messages[4].content[1]');
-    const { exec_ms: _publishedExec, ...publishedCallFacts } = detail.tool_calls[0]!;
+    // 反向索引只带位置事实：执行段与子代理引用都是调用侧读数，不在其中。
+    const { exec_ms: _publishedExec, agent_ref: _publishedRef, agent_no: _publishedNo,
+      ...publishedCallFacts } = detail.tool_calls[0]!;
     expect(detail.tool_results).toEqual([{ owner_req: id, ...publishedCallFacts }]);
     expect(listRequests(f.store, 'conv-reading').items[0]?.title).toBe('published title');
     expect(listSessions(f.store).items.find(s => s.conv_key === 'conv-reading')?.title)

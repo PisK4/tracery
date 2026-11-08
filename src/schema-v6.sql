@@ -139,6 +139,8 @@ CREATE TABLE IF NOT EXISTS derive_tool_result (
   result_path       TEXT,
   is_error          INTEGER,
   state             TEXT NOT NULL,
+  -- 调用启动的子代理 id；与同步 tool_call.agent_ref 同义，随工具阶段转写。
+  agent_ref         TEXT,
   algorithm_version INTEGER,
   basis_json        TEXT NOT NULL DEFAULT '{}',
   retention_state   TEXT NOT NULL CHECK(retention_state IN ('recomputed','retained','legacy')),
@@ -170,6 +172,8 @@ CREATE TABLE IF NOT EXISTS derive_result_work (
   path          TEXT NOT NULL,
   call_id       TEXT NOT NULL,
   preview       TEXT,
+  -- 结果块启动子代理的回执 id；请求阶段从完整结果文本提取，工具阶段按工具名门控转写。
+  agent_ref     TEXT,
   -- 结果块的失败位随候选一起进工作行；缺席按协议缺省读成 0。
   is_error      INTEGER NOT NULL DEFAULT 0,
   request_index INTEGER NOT NULL,

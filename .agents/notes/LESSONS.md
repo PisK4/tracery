@@ -112,6 +112,11 @@
 - 防护：规则落地后先在生产只读快照列出目标群体的状态组合（版本 × 正文状态 × 新事实），逐组确认编排能到达；规则行为变化升 `PURPOSE_VERSION`，旧目标行走显式 rebuild 重判。
 - Seen 1× (2026-11-07).
 
+**隔离实例验收先补齐两个口径：读接口要带 Bearer，`conv_key` 是 JSON 数组字符串。**
+- 证据：2026-11-08 工具调用启动点验收，直接 `curl /api/sessions/...` 全部返回 `unauthorized`——无 Origin 时读路径只认 `Authorization: Bearer <base64url(read.token)>` 或浏览器的 `sec-fetch-site: same-origin`，而浏览器直接打开页面走的是导航放行，两条路径的认证条件不同。同一轮把 `--session` 传成裸 uuid 得到空结果，库里实际键是 `["session","<uuid>"]`，按 `conv_key like '%<uuid>%'` 才找得到。
+- 防护：脚本验收读接口时先从数据目录读 `read.token` 转 base64url 作 Bearer；查会话键用 `select distinct conv_key from request where conv_key like '%<uuid>%'`，不按裸 uuid 猜。浏览器验收不受影响，别把它的成功当成接口免认证。
+- Seen 1× (2026-11-08).
+
 ## 依赖与命名
 
 **引入 `t` 前，先查同作用域里叫 `t` 的局部变量。**

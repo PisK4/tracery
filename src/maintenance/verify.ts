@@ -14,7 +14,7 @@ export type VerifyReport = {
  * 代码侧 schema 版本，与 store.ts 的 `SCHEMA_VERSION` 同步；store 升版而这里没跟
  * 时，precheck 在新装库上的 current 断言会先报红。
  */
-export const CODE_SCHEMA_VERSION = 15;
+export const CODE_SCHEMA_VERSION = 16;
 
 export type PrecheckReport = {
   ok: boolean;

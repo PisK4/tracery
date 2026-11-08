@@ -788,7 +788,7 @@ function detailOf(r: SynthRequest): ReadingDetail {
       state:prompt.state, reason:prompt.reason, basis:[]}},
     prompt,
     derivation:{state:'clean', chain_state:'current', summary_state:'current', reason:null},
-    tool_calls:r.toolCalls.map(c => ({ ...c, exec_ms: execMsOf(r, c) })), tool_results:toolResultsOf(r), historical:null, reading_token: readingToken,
+    tool_calls:r.toolCalls.map(c => ({ ...c, exec_ms: execMsOf(r, c), agent_ref:null, agent_no:null })), tool_results:toolResultsOf(r), historical:null, reading_token: readingToken,
   };
 }
 

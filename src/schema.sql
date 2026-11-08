@@ -348,6 +348,8 @@ CREATE TABLE tool_call (
   -- 未配对为 NULL。聚合计失败数，缺席按协议缺省读成非失败。
   is_error   INTEGER,
   state      TEXT NOT NULL,
+  -- 该调用启动的子代理 id；只从启动回执提取，未启动或结果不可读为 NULL。
+  agent_ref  TEXT,
   derive_version INTEGER NOT NULL DEFAULT 1,
   algorithm_version INTEGER,
   basis_json TEXT,

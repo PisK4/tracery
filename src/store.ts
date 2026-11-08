@@ -148,7 +148,7 @@ const SCHEMA_V12 = readFileSync(new URL('./schema-v12.sql', import.meta.url), 'u
 const SCHEMA_V13 = readFileSync(new URL('./schema-v13.sql', import.meta.url), 'utf8');
 const SCHEMA_V14 = readFileSync(new URL('./schema-v14.sql', import.meta.url), 'utf8');
 const SCHEMA_V15 = readFileSync(new URL('./schema-v15.sql', import.meta.url), 'utf8');
-const SCHEMA_VERSION = 15;
+const SCHEMA_VERSION = 16;
 
 function tableNames(db: Database): string[] {
   return (db.query(
@@ -220,6 +220,23 @@ function execAdditiveV15(db: Database): void {
 }
 
 /**
+ * v16 给工具配对的行与发布代结果工作行加子代理引用列。
+ *
+ * 逐表检查列后单独 ALTER：`ADD COLUMN` 没有 IF NOT EXISTS，从半迁移与旧包
+ * 恢复的库可能只缺其中一张。旧行为 NULL，由显式重建补齐。
+ */
+function execAdditiveV16(db: Database): void {
+  const add = (table: string): void => {
+    const columns = (db.query(`PRAGMA table_info(${table})`).all() as { name: string }[])
+      .map(row => row.name);
+    if (!columns.includes('agent_ref')) db.exec(`ALTER TABLE ${table} ADD COLUMN agent_ref TEXT`);
+  };
+  add('tool_call');
+  add('derive_tool_result');
+  add('derive_result_work');
+}
+
+/**
  * v12 把 droid 原始层改名成共享的会话原始层，并加来源列。
  *
  * 半迁移状态（已改名但没加列、索引没重建）由第二步补齐；旧行默认
@@ -267,6 +284,7 @@ function migrate(db: Database): void {
       execAdditiveV13(db);
       execAdditiveV14(db);
       execAdditiveV15(db);
+      execAdditiveV16(db);
       db.exec(`PRAGMA user_version=${SCHEMA_VERSION}`);
     }).immediate();
     return;
@@ -275,10 +293,10 @@ function migrate(db: Database): void {
   if (version > SCHEMA_VERSION) {
     throw new Error(`schema_version_unsupported: db v${version} > code v${SCHEMA_VERSION}`);
   }
-  // v6→v7、…、v14→v15 都是纯新增或原地改名（OTLP 原始层表、部分反向
+  // v6→v7、…、v15→v16 都是纯新增或原地改名（OTLP 原始层表、部分反向
   // 索引、队列的 claim_from_sort 列、请求的内容指纹与 turn 身份、droid 原始层
   // 与会话用量、会话原始层统一、用量表的读侧索引、四源容量计数、会话可见性
-  // 覆盖索引），原地执行即可；更低的库没有升级路径：普通启动不做 ALTER，也不
+  // 覆盖索引、工具配对的子代理引用列），原地执行即可；更低的库没有升级路径：普通启动不做 ALTER，也不
   // 搬旧数据，旧库由运维显式删除后重建。
   if (version === 6) {
     db.transaction(() => {
@@ -291,6 +309,7 @@ function migrate(db: Database): void {
       execAdditiveV13(db);
       execAdditiveV14(db);
       execAdditiveV15(db);
+      execAdditiveV16(db);
       db.exec(`PRAGMA user_version=${SCHEMA_VERSION}`);
     }).immediate();
   } else if (version === 7) {
@@ -303,6 +322,7 @@ function migrate(db: Database): void {
       execAdditiveV13(db);
       execAdditiveV14(db);
       execAdditiveV15(db);
+      execAdditiveV16(db);
       db.exec(`PRAGMA user_version=${SCHEMA_VERSION}`);
     }).immediate();
   } else if (version === 8) {
@@ -314,6 +334,7 @@ function migrate(db: Database): void {
       execAdditiveV13(db);
       execAdditiveV14(db);
       execAdditiveV15(db);
+      execAdditiveV16(db);
       db.exec(`PRAGMA user_version=${SCHEMA_VERSION}`);
     }).immediate();
   } else if (version === 9) {
@@ -324,6 +345,7 @@ function migrate(db: Database): void {
       execAdditiveV13(db);
       execAdditiveV14(db);
       execAdditiveV15(db);
+      execAdditiveV16(db);
       db.exec(`PRAGMA user_version=${SCHEMA_VERSION}`);
     }).immediate();
   } else if (version === 10) {
@@ -333,6 +355,7 @@ function migrate(db: Database): void {
       execAdditiveV13(db);
       execAdditiveV14(db);
       execAdditiveV15(db);
+      execAdditiveV16(db);
       db.exec(`PRAGMA user_version=${SCHEMA_VERSION}`);
     }).immediate();
   } else if (version === 11) {
@@ -341,6 +364,7 @@ function migrate(db: Database): void {
       execAdditiveV13(db);
       execAdditiveV14(db);
       execAdditiveV15(db);
+      execAdditiveV16(db);
       db.exec(`PRAGMA user_version=${SCHEMA_VERSION}`);
     }).immediate();
   } else if (version === 12) {
@@ -348,17 +372,25 @@ function migrate(db: Database): void {
       execAdditiveV13(db);
       execAdditiveV14(db);
       execAdditiveV15(db);
+      execAdditiveV16(db);
       db.exec(`PRAGMA user_version=${SCHEMA_VERSION}`);
     }).immediate();
   } else if (version === 13) {
     db.transaction(() => {
       execAdditiveV14(db);
       execAdditiveV15(db);
+      execAdditiveV16(db);
       db.exec(`PRAGMA user_version=${SCHEMA_VERSION}`);
     }).immediate();
   } else if (version === 14) {
     db.transaction(() => {
       execAdditiveV15(db);
+      execAdditiveV16(db);
+      db.exec(`PRAGMA user_version=${SCHEMA_VERSION}`);
+    }).immediate();
+  } else if (version === 15) {
+    db.transaction(() => {
+      execAdditiveV16(db);
       db.exec(`PRAGMA user_version=${SCHEMA_VERSION}`);
     }).immediate();
   } else if (version < SCHEMA_VERSION) {

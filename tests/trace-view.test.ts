@@ -896,7 +896,7 @@ test('行尾读数：承载消息的文本行挂产出请求的推理段，调�
     ]),
   ];
   const d = detail({ prev_req_id: 5, delta_ordinals: [2, 3] });
-  const calls = [{ call_id: 'c1', ord: 1, tool_name: 'Bash', result_req: 8, result_ord: 0, result_path: 'p', state: 'resolved', exec_ms: 2400 }];
+  const calls = [{ call_id: 'c1', ord: 1, tool_name: 'Bash', result_req: 8, result_ord: 0, result_path: 'p', state: 'resolved', exec_ms: 2400, agent_ref: null, agent_no: null }];
   const steps = projectSteps(r, read(d, entries, null), null, [], () => ({ reasoningMs: 2100, calls }));
   expect(steps.filter(s => s.kind !== 'record' && s.kind !== 'flag').map(s => s.kind)).toEqual(['user', 'assistant', 'tool', 'assistant']);
   // 推理段只挂到唯一 assistant 消息的第一段文本；同消息的第二段不重复。
@@ -922,9 +922,9 @@ test('读数按工具类别取档位，等待型工具不上色', () => {
   ])];
   const d = detail({ prev_req_id: 5, delta_ordinals: [3] });
   const calls = [
-    { call_id: 'q', ord: 0, tool_name: 'AskUserQuestion', result_req: 8, result_ord: 0, result_path: 'p', state: 'resolved', exec_ms: 45_000 },
-    { call_id: 'r', ord: 1, tool_name: 'Read', result_req: 8, result_ord: 1, result_path: 'p', state: 'resolved', exec_ms: 12_000 },
-    { call_id: 'a', ord: 2, tool_name: 'Agent', result_req: 8, result_ord: 2, result_path: 'p', state: 'resolved', exec_ms: 95_000 },
+    { call_id: 'q', ord: 0, tool_name: 'AskUserQuestion', result_req: 8, result_ord: 0, result_path: 'p', state: 'resolved', exec_ms: 45_000, agent_ref: null, agent_no: null },
+    { call_id: 'r', ord: 1, tool_name: 'Read', result_req: 8, result_ord: 1, result_path: 'p', state: 'resolved', exec_ms: 12_000, agent_ref: null, agent_no: null },
+    { call_id: 'a', ord: 2, tool_name: 'Agent', result_req: 8, result_ord: 2, result_path: 'p', state: 'resolved', exec_ms: 95_000, agent_ref: null, agent_no: null },
   ];
   const html = renderTraceRows(r, projectSteps(r, read(d, entries, null), null, [], () => ({ reasoningMs: null, calls })), 1, null);
   // 等人回答的 45s 不上档：数值照常显示，整枚标签退成中性色。
@@ -943,7 +943,7 @@ test('读不出时不写 0：推理段与执行段缺值都留空槽', () => {
     { kind: 'call', text: 'Bash({})', index: 1, raw: { type: 'tool_use', id: 'c1', name: 'Bash', input: { command: 'ls' } }, path: 'content[1]' },
   ])];
   const d = detail({ prev_req_id: 5, delta_ordinals: [3] });
-  const calls = [{ call_id: 'c1', ord: 1, tool_name: 'Bash', result_req: null, result_ord: null, result_path: null, state: 'pending', exec_ms: null }];
+  const calls = [{ call_id: 'c1', ord: 1, tool_name: 'Bash', result_req: null, result_ord: null, result_path: null, state: 'pending', exec_ms: null, agent_ref: null, agent_no: null }];
   // 产出请求可读但没有推理段与结算时长：两行读数都留空。
   const steps = projectSteps(r, read(d, entries, null), null, [], () => ({ reasoningMs: null, calls }));
   expect(steps.filter(s => s.kind !== 'record' && s.kind !== 'flag').map(s => s.reading ?? null)).toEqual([null, null]);
@@ -1098,4 +1098,27 @@ test('阅读视图筛选：主链排除辅助请求与折叠子代理，编号�
   expect(effectiveView(rows, 2)).toBe('main');
   expect(effectiveView(rows, 1)).toBe(1);
   expect(effectiveView(rows, 'all')).toBe('all');
+});
+
+test('构建点标记只挂在启动子代理的调用行，带可点的 S 编号', () => {
+  const r = row();
+  const entries = [assistantEntry(3, [
+    { kind: 'call', text: 'Agent({})', index: 0, raw: { type: 'tool_use', id: 'a1', name: 'Agent', input: {} }, path: 'content[0]' },
+    { kind: 'call', text: 'Read({})', index: 1, raw: { type: 'tool_use', id: 'r1', name: 'Read', input: { file_path: '/x' } }, path: 'content[1]' },
+  ])];
+  const d = detail({ prev_req_id: 5, delta_ordinals: [3] });
+  const calls = [
+    { call_id: 'a1', ord: 0, tool_name: 'Agent', result_req: 8, result_ord: 0, result_path: 'p', state: 'resolved', exec_ms: 9000, agent_ref: 'ae04d60797985196a', agent_no: 1 },
+    { call_id: 'r1', ord: 1, tool_name: 'Read', result_req: 8, result_ord: 1, result_path: 'p', state: 'resolved', exec_ms: 200, agent_ref: null, agent_no: null },
+  ];
+  const steps = projectSteps(r, read(d, entries, null), null, [], () => ({ reasoningMs: null, calls }));
+  expect(steps.filter(s => s.kind === 'tool').map(s => s.agentNo ?? null)).toEqual([1, null]);
+  const html = renderTraceRows(r, steps, 1, null);
+  expect(html.match(/class="row-agent"/g)?.length).toBe(1);
+  expect(html).toContain('data-agent-no="1"');
+  expect(html).toContain('→ S1');
+  expect(html).toContain('aria-label="跳转到子代理 S1"');
+  // 没有启动回执的调用行不给标记，也不写一个空的 S0。
+  const noRef = projectSteps(r, read(d, entries, null), null, [], () => ({ reasoningMs: null, calls: calls.map(c => ({ ...c, agent_ref: null, agent_no: null })) }));
+  expect(renderTraceRows(r, noRef, 1, null)).not.toContain('row-agent');
 });

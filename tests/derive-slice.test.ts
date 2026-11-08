@@ -689,9 +689,9 @@ test('摘要阶段与同步路径给出同一套标题与摘录，随后发布',
       join(slice.dir, 'trace.db')).status).toBe('published');
     const known = getSessionSummary(slice.store, SEED_GROUP.convKey).coverage.calls_fact_known;
     expect(known).toBeGreaterThan(0);
-    slice.store.write(db => db.run('UPDATE derive_tool_result SET algorithm_version=10 WHERE generation=?', [generation]));
+    slice.store.write(db => db.run('UPDATE derive_tool_result SET algorithm_version=11 WHERE generation=?', [generation]));
     expect(getSessionSummary(slice.store, SEED_GROUP.convKey).coverage.calls_fact_known).toBe(known);
-    slice.store.write(db => db.run('UPDATE derive_tool_result SET algorithm_version=9 WHERE generation=?', [generation]));
+    slice.store.write(db => db.run('UPDATE derive_tool_result SET algorithm_version=10 WHERE generation=?', [generation]));
     expect(getSessionSummary(slice.store, SEED_GROUP.convKey).coverage.calls_fact_known).toBe(0);
     expect(slice.store.read.query('SELECT * FROM derive_queue').get())
       .toMatchObject({ state: 'clean', published_generation: generation });
@@ -1075,5 +1075,43 @@ test('请求切片物化回复形状位：可读按内核判定，不可读保�
       { req_id: 2, reply_shape: 'tools', retention_state: 'recomputed' },
       { req_id: 3, reply_shape: 'unknown', retention_state: 'retained' },
     ]);
+  } finally { f.close(); }
+});
+
+test('切片工具阶段只把启动工具的引用转写进本代结果行', () => {
+  const f = fixture();
+  try {
+    f.store.write(db => db.run(`INSERT INTO derive_queue(conv_key,actor,from_sort,
+      group_epoch,input_revision,published_revision,target_algorithm,state,dirty_since_ms)
+      VALUES ('c','a','','g1',1,0,?, 'dirty',1)`, [DERIVE_ALGORITHM]));
+    const generation = beginGeneration(f.store, 'c', 'a', 10)!;
+    f.store.write(db => {
+      for (const id of [1, 2]) {
+        db.run(`INSERT INTO request(req_id,conv_key,actor,actor_state,started_ms,day,via,
+          body_state,derive_version,have,created_at,updated_at,input_epoch,input_revision,
+          purpose_revision,purpose_version,req_kind)
+          VALUES (?,'c','a','known',?,'2026-10-22','hook','available',0,1,1,1,'e1',1,11,1,'chat')`,
+        [id, 100 + id]);
+        db.run(`INSERT INTO derive_request_result(generation,req_id,input_epoch,
+          input_revision,started_ms,traversal_ord,purpose_revision,purpose_version,
+          chain_role,algorithm,retention_state,basis_json)
+          VALUES (?,?,'e1',1,?,?,11,1,'main',5,'recomputed','{}')`,
+        [generation, id, 100 + id, id - 1]);
+      }
+      // 同一份结果文本挂到两个调用：只有启动工具的那一行带引用。
+      db.run(`INSERT INTO derive_call_work(generation,req_id,ord,call_id,tool_name,
+        request_index,traversal_ord) VALUES
+        (?,1,0,'spawn','Agent',0,0),(?,1,1,'read','Read',0,0)`, [generation, generation]);
+      db.run(`INSERT INTO derive_result_work(generation,req_id,ord,path,call_id,preview,
+        agent_ref,request_index,traversal_ord,confirmed) VALUES
+        (?,2,0,'0','spawn','launched','ae04d60797985196a',1,1,1),
+        (?,2,1,'1','read','launched','ae04d60797985196a',1,1,1)`, [generation, generation]);
+      db.run(`UPDATE derive_generation SET stage='tools',request_count=2,tool_count=0,
+        tool_cursor_ord=-1 WHERE generation=?`, [generation]);
+    });
+    runStage(f, generation, sliceToolsStage);
+    expect(f.store.read.query<{ call_id: string; agent_ref: string | null }, [string]>(`
+      SELECT call_id,agent_ref FROM derive_tool_result WHERE generation=? ORDER BY ord`).all(generation))
+      .toEqual([{ call_id: 'spawn', agent_ref: 'ae04d60797985196a' }, { call_id: 'read', agent_ref: null }]);
   } finally { f.close(); }
 });

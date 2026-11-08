@@ -66,11 +66,11 @@ test('末尾判定升版保留前一算法已提取的工具事实覆盖率', ()
       ] },
     });
     rebuild(f.store);
-    expect(GROUP_ALGORITHM).toBe(7);
-    expect(DERIVE_ALGORITHM).toBe(11);
-    f.store.write(db => db.run('UPDATE tool_call SET algorithm_version=6 WHERE req_id=1'));
+    expect(GROUP_ALGORITHM).toBe(8);
+    expect(DERIVE_ALGORITHM).toBe(12);
+    f.store.write(db => db.run('UPDATE tool_call SET algorithm_version=7 WHERE req_id=1'));
     expect(getSessionSummary(f.store, GROUP).coverage.calls_fact_known).toBe(1);
-    f.store.write(db => db.run('UPDATE tool_call SET algorithm_version=5 WHERE req_id=1'));
+    f.store.write(db => db.run('UPDATE tool_call SET algorithm_version=6 WHERE req_id=1'));
     expect(getSessionSummary(f.store, GROUP).coverage.calls_fact_known).toBe(0);
   } finally { f.close(); }
 });
