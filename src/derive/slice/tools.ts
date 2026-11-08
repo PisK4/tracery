@@ -6,6 +6,7 @@ import type { Store } from '../../store';
 import { initialPairState, pairOutcome } from '../decision';
 import { compareLogicalOrder, type LogicalRow } from '../read';
 import { DERIVE_ALGORITHM } from '../state';
+import { isSpawnTool } from '../../harness/spawn';
 import { assertQueueRevision, count, one, sliceDiscardReason, type SliceStep } from './generation';
 import { requestUncertain } from './requests';
 
@@ -27,6 +28,7 @@ type CallWork = {
 type ResultWork = {
   req_id: number; ord: number; path: string; call_id: string;
   confirmed: number; traversal_ord: number; is_error: number;
+  agent_ref: string | null;
 };
 
 /** 阶段步进的结果：`work` 表示又推进了一步，另外两种表示这次调用到头了。 */
@@ -87,7 +89,7 @@ function pairRequestTools(db: Database, generation: string, reqId: number): numb
       toolBasis(generation, call.call_id)]);
     writes += 1;
     const results = db.query<ResultWork, [string, string]>(`
-      SELECT w.req_id,w.ord,w.path,w.call_id,w.confirmed,w.traversal_ord,w.is_error
+      SELECT w.req_id,w.ord,w.path,w.call_id,w.confirmed,w.traversal_ord,w.is_error,w.agent_ref
       FROM derive_result_work w
       JOIN derive_request_result d ON d.generation=w.generation AND d.req_id=w.req_id
       WHERE w.generation=? AND w.call_id=? AND d.purpose_chain='participate'
@@ -121,8 +123,9 @@ function pairRequestTools(db: Database, generation: string, reqId: number): numb
       });
       if (outcome === 'skip') continue;
       db.run(`UPDATE derive_tool_result SET result_req=?,result_ord=?,result_path=?,
-        is_error=?,state=? WHERE generation=? AND req_id=? AND ord=?`,
+        is_error=?,state=?,agent_ref=? WHERE generation=? AND req_id=? AND ord=?`,
       [result.req_id, result.ord, result.path, result.is_error, outcome,
+        isSpawnTool(call.tool_name) ? result.agent_ref : null,
         generation, call.req_id, call.ord]);
       writes += 1;
     }

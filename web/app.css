@@ -407,6 +407,10 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 /* 多目标计数：一行只报数，完整清单在 hover/聚焦时由弹层按需渲染。 */
 .row-more{flex:none;margin-left:3px;padding:0 4px;border-radius:3px;background:var(--inset);color:var(--text-2);font:9.5px var(--mono);font-weight:600;cursor:default}
 .compact-select:hover .row-more{background:var(--hover);color:var(--text)}
+/* 构建点标记：启动子代理的调用行给一枚可点的 S 编号，点它切到该子代理视图。
+   形状与 +N 计数同族，只在悬停时加深，不做常驻强调。 */
+.row-agent{flex:none;margin-left:3px;padding:0 4px;border-radius:3px;background:var(--inset);color:var(--text-2);font:9.5px var(--mono);font-weight:600;cursor:pointer}
+.compact-select:hover .row-agent{background:var(--accent-soft);color:var(--accent)}
 /* 完整目标弹层：只有一个实例，打开时现填，关闭时清空。 */
 .more-pop{position:fixed;left:0;top:0;z-index:60;max-width:340px;max-height:280px;overflow:auto;padding:6px 0;border:1px solid var(--line);border-radius:6px;background:var(--surface);box-shadow:0 8px 24px rgb(0 0 0 / .12);opacity:0;pointer-events:none;transition:opacity .12s ease}
 .more-pop.show{opacity:1;pointer-events:auto}

@@ -25,8 +25,15 @@ type PairColumns = {
  * 执行段：结果请求开始 − 调用请求结束（调用请求的 started_ms + ms）。
  * 两笔时长都在且窗口非负才算，负值是时钟或结算异常，留空不显示。窗口包含
  * 客户端处理、权限确认与会话中断，是上界，不是工具进程自己的耗时。
+ *
+ * `agent_ref` 是该调用启动的子代理 id；只从启动回执提取，未启动或旧派生行
+ * 为 NULL。`agent_no` 是同一会话里该子代理的 S 编号，供页面标记与跳转；
+ * 回执指向的子代理不在本会话时为空。反向索引不携带这两列：结果行不需要知道
+ * 是谁发起的子代理。
  */
-export type ToolCallRow = PairColumns & { exec_ms: number | null };
+export type ToolCallRow = PairColumns & {
+  exec_ms: number | null; agent_ref: string | null; agent_no: number | null;
+};
 
 /** 反向配对：本请求承载的结果块指向的调用，owner_req 是发起调用的请求。 */
 export type ToolResultIndexRow = PairColumns & { owner_req: number };
@@ -275,6 +282,7 @@ export function getRequest(store: Store, id: number): RequestDetail | null {
     // 同步旧表——它仍是调用身份的家。配对是否可信由 current 屏蔽决定。
     const toolCallsFromSync = () => store.read.query<ToolCallRow, [number]>(`
       SELECT c.call_id, c.ord, c.tool_name, c.result_req, c.result_ord, c.result_path, c.state,
+             c.agent_ref,
              CASE WHEN rr.started_ms IS NOT NULL AND o.ms IS NOT NULL
                        AND rr.started_ms >= o.started_ms + o.ms
                   THEN rr.started_ms - (o.started_ms + o.ms) END AS exec_ms
@@ -286,6 +294,7 @@ export function getRequest(store: Store, id: number): RequestDetail | null {
     if (row.published_generation !== null) {
       const generational = store.read.query<ToolCallRow, [string, number]>(`
         SELECT c.call_id, c.ord, c.tool_name, c.result_req, c.result_ord, c.result_path, c.state,
+               c.agent_ref,
                CASE WHEN rr.started_ms IS NOT NULL AND o.ms IS NOT NULL
                          AND rr.started_ms >= o.started_ms + o.ms
                     THEN rr.started_ms - (o.started_ms + o.ms) END AS exec_ms
@@ -315,6 +324,16 @@ export function getRequest(store: Store, id: number): RequestDetail | null {
     const subagentNo = row.subagent !== null && row.subagent !== row.session
       ? subagentNumbers(store.read, row.conv_key ?? '').get(row.subagent) ?? null
       : null;
+    // 启动回执里的子代理 id 换成同一会话的 S 编号：不在本会话的回执（跨会话、
+    // 已被清理）编号为 null，页面按「无编号」处理，不拿它拼跳转目标。
+    if (toolCalls.some(call => call.agent_ref !== null)) {
+      const numbers = subagentNumbers(store.read, row.conv_key ?? '');
+      toolCalls = toolCalls.map(call => ({
+        ...call, agent_no: call.agent_ref === null ? null : numbers.get(call.agent_ref) ?? null,
+      }));
+    } else {
+      toolCalls = toolCalls.map(call => ({ ...call, agent_no: null }));
+    }
     return { row, toolCalls, toolResults, subagentNo };
   })();
   if (snapshot === null) return null;
@@ -384,9 +403,10 @@ export function getRequest(store: Store, id: number): RequestDetail | null {
     archive: row.archive,
     route_state: routeState,
     // 工具候选同样是组结果：非当前时只保留调用身份，结果位置不外露。
+    // `agent_ref` 来自配对到的结果正文，同属组结果，与配对位置一起清空。
     tool_calls: current ? toolCalls : toolCalls.map(call => ({
       ...call, result_req: null, result_ord: null, result_path: null,
-      state: 'pending', exec_ms: null,
+      state: 'pending', exec_ms: null, agent_ref: null, agent_no: null,
     })),
     // 反向索引整条都是组结果：非当前时没有可保留的身份，直接为空。
     tool_results: current ? toolResults : [],

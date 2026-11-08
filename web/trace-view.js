@@ -50,6 +50,7 @@ export { toolSummary };
  * @property {string | null} [toolInput] 调用步的完整参数 JSON，供悬停展示；其余步骤缺省
  * @property {boolean | null} [isError] 结果内容块的 is_error：true/false，未报告为 null；其余步骤缺省
  * @property {string | null} [bgNote] 背景作业配对标注：发起结果行与通知事件行携带，其余步骤缺省
+ * @property {number | null} [agentNo] 调用步启动的子代理 S 编号；没有启动回执或子代理不在本会话时缺省
  * @property {{kind: 'reason'|'exec', ms: number} | null} [reading] 行尾读数：文本行是推理段，调用行是执行段；其余步骤缺省
  */
 
@@ -376,6 +377,7 @@ export function projectSteps(row, read, systemContext = null, bgJobs = [], prevI
             result: pair === null ? null
               : { state: /** @type {'resolved'|'pending'|'ambiguous'|'unpaired'} */ (pair.state), reqId: pair.result_req },
             pairOwner: null, callOwner: pair === null || prevId === null ? null : { reqId: prevId, callOrd: pair.ord },
+            agentNo: pair?.agent_no ?? null,
             reading: execReading(pair),
           });
         }
@@ -570,7 +572,7 @@ export function projectTailReply(row, read) {
         raw: block.raw,
         unrecognized: false, status: null,
         result: pair === null ? null : { state: /** @type {'resolved'|'pending'|'ambiguous'|'unpaired'} */ (pair.state), reqId: pair.result_req },
-        pairOwner: null, reading: execReading(pair) });
+        pairOwner: null, agentNo: pair?.agent_no ?? null, reading: execReading(pair) });
     } else if (block.kind !== 'thinking') {
       // 未知块给记录入口，不做语义推测；来源仍指向协议位置，右栏可读转义 JSON。
       steps.push({ key: `${row.req_id}:reply:block:${index}`, reqId: row.req_id, kind: 'record',
@@ -684,6 +686,11 @@ export function renderTraceRow(row, step, ordinal, callOf = null, selected = fal
   // 背景作业配对读数跟在行尾；发起行与通知事件行各有自己的内容，不重复正文。
   const bgNoteHtml = step.bgNote === undefined || step.bgNote === null
     ? '' : ` <span class="bg-note" title="${esc(step.bgNote)}">${esc(step.bgNote)}</span>`;
+  // 构建点标记：启动子代理的调用行给一个可点的 S 编号，点它切到该子代理的视图。
+  // 与 +N 计数同款内联入口：不另占一行，也不把行选择让给嵌套按钮。
+  const agentHtml = step.agentNo === undefined || step.agentNo === null
+    ? ''
+    : ` <span class="row-agent" data-agent-no="${step.agentNo}" aria-label="${t('跳转到子代理 S{no}', { no: step.agentNo })}" title="${t('跳转到子代理 S{no}', { no: step.agentNo })}">→ S${step.agentNo}</span>`;
   // 读数槽定宽右对齐：有读数才出标签，没读数的行留空，列宽与右边缘不跳。
   const readingHtml = step.reading === undefined || step.reading === null ? '' : readingChip(step.reading, step);
   // 组级状态行只表达缺口，不伪装成一条内容：标签位是警示标记，整行按缺口强度着色。
@@ -700,7 +707,7 @@ export function renderTraceRow(row, step, ordinal, callOf = null, selected = fal
     <span class="compact-meta" title="${t('序号表示当前窗口内的请求 · 请求 {ordinal}', { ordinal })}"><b>${ordinal}</b></span>${subTagHtml}
     ${labelHtml}
     ${chip}
-    <span class="compact-preview"${titleAttr}>${previewHtml}</span>${bgNoteHtml}<span class="compact-reading">${readingHtml}</span>
+    <span class="compact-preview"${titleAttr}>${previewHtml}</span>${agentHtml}${bgNoteHtml}<span class="compact-reading">${readingHtml}</span>
   </button>
 </div>
 </div>`;

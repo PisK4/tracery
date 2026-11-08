@@ -13,9 +13,10 @@ import type { BodyReadCache, BodyReadStats } from '../body-cache';
 import { planBackgroundJobs, writeBackgroundJobsTx } from './bg-jobs';
 import type { BgJobPlan } from './bg-jobs';
 import {
-  chainRolesOf, confirmedDeltaOf, initialPairState, matchPredecessor, pairOutcome,
+  chainRolesOf, confirmedDeltaOf, flattenToolContent, initialPairState, matchPredecessor, pairOutcome,
   presentationDecision, replyCallsOf, requestResultsOf,
 } from './decision';
+import { isSpawnTool, spawnedAgentRef } from '../harness/spawn';
 import type { PredecessorMatch, ResolvedTool } from './decision';
 import {
   compareLogicalOrder, compareTraversalOrder, contextEventTx, fingerprintsOf, incrementalInputOf,
@@ -613,7 +614,7 @@ export type ToolPlan = {
     callId: string; reqId: number; ord: number; name: string;
     argPath: string | null; argSkill: string | null;
     resultReq: number | null; resultOrd: number | null; resultPath: string | null;
-    isError: number | null; state: string; basis: string;
+    isError: number | null; state: string; agentRef: string | null; basis: string;
   }[];
   deletes: { reqId: number; ord: number }[];
   associations: ResolvedTool[];
@@ -674,6 +675,9 @@ function planToolCalls(db: Database, group: Group, ordered: readonly PairRow[],
 
   const plan: ToolPlan = { upserts: [], deletes: [], associations: [] };
   const key = (reqId: number, ord: number): string => `${reqId}:${ord}`;
+  // 结果正文只在配对计算段读得到；resolved 时从这里取回启动回执。
+  const valueByResultKey = new Map<string, unknown>();
+  for (const result of results) valueByResultKey.set(key(result.req_id, result.ord), result.value);
   // 本轮的行状态：插入时的初值，随结果更新推进；等价于旧实现的读回结果。
   const stateByKey = new Map<string, string>();
   const resultByKey = new Map<string, { req: number; ord: number; path: string }>();
@@ -684,7 +688,7 @@ function planToolCalls(db: Database, group: Group, ordered: readonly PairRow[],
       callId: call.call_id, reqId: call.req_id, ord: call.ord, name: call.name,
       argPath: call.arg_path, argSkill: call.arg_skill,
       resultReq: null, resultOrd: null, resultPath: null, isError: null, state,
-      basis: toolBasis(group, call.call_id),
+      agentRef: null, basis: toolBasis(group, call.call_id),
     });
     stateByKey.set(key(call.req_id, call.ord), state);
   }
@@ -734,6 +738,11 @@ function planToolCalls(db: Database, group: Group, ordered: readonly PairRow[],
     const state = stateByKey.get(key(call.req_id, call.ord));
     const placed = resultByKey.get(key(call.req_id, call.ord));
     if (state !== 'resolved' || placed === undefined) continue;
+    const value = valueByResultKey.get(key(placed.req, placed.ord));
+    const row = finalByKey.get(key(call.req_id, call.ord));
+    if (row !== undefined && isSpawnTool(call.name)) {
+      row.agentRef = spawnedAgentRef(flattenToolContent(value));
+    }
     plan.associations.push({
       callReq: call.req_id, callOrd: call.ord, callId: call.call_id, name: call.name,
       resultReq: placed.req, resultOrd: placed.ord, resultPath: placed.path,
@@ -745,11 +754,11 @@ function planToolCalls(db: Database, group: Group, ordered: readonly PairRow[],
     call_id: string; req_id: number; ord: number; tool_name: string | null;
     arg_path: string | null; arg_skill: string | null;
     result_req: number | null; result_ord: number | null; result_path: string | null;
-    is_error: number | null; state: string; derive_version: number;
+    is_error: number | null; state: string; agent_ref: string | null; derive_version: number;
     algorithm_version: number | null; basis_json: string | null; retention_state: string;
   }, [string, string]>(`
     SELECT call_id,req_id,ord,tool_name,arg_path,arg_skill,result_req,result_ord,
-           result_path,is_error,state,derive_version,algorithm_version,basis_json,retention_state
+           result_path,is_error,state,agent_ref,derive_version,algorithm_version,basis_json,retention_state
     FROM tool_call WHERE req_id IN (
       SELECT req_id FROM request WHERE conv_key=? AND actor=? AND actor_state='known'
         AND body_state IN ('available','partial'))`)
@@ -762,6 +771,7 @@ function planToolCalls(db: Database, group: Group, ordered: readonly PairRow[],
       && (cur.arg_path ?? null) === row.argPath && (cur.arg_skill ?? null) === row.argSkill
       && (cur.result_req ?? null) === row.resultReq && (cur.result_ord ?? null) === row.resultOrd
       && (cur.result_path ?? null) === row.resultPath && (cur.is_error ?? null) === row.isError
+      && (cur.agent_ref ?? null) === row.agentRef
       && cur.state === row.state && cur.derive_version === 1
       && cur.algorithm_version === GROUP_ALGORITHM
       && (cur.basis_json ?? null) === row.basis && cur.retention_state === 'recomputed') continue;
@@ -778,18 +788,19 @@ function writeToolPlanTx(db: Database, group: Group, plan: ToolPlan): void {
   for (const row of plan.upserts) {
     db.run(
       `INSERT INTO tool_call(call_id,req_id,ord,tool_name,arg_path,arg_skill,
-         result_req,result_ord,result_path,is_error,state,derive_version,
+         result_req,result_ord,result_path,is_error,state,agent_ref,derive_version,
          algorithm_version,basis_json,retention_state)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,'recomputed')
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,'recomputed')
        ON CONFLICT(req_id,ord) DO UPDATE SET call_id=excluded.call_id,tool_name=excluded.tool_name,
          arg_path=excluded.arg_path,arg_skill=excluded.arg_skill,
          result_req=excluded.result_req,result_ord=excluded.result_ord,
          result_path=excluded.result_path,is_error=excluded.is_error,state=excluded.state,
+         agent_ref=excluded.agent_ref,
          derive_version=excluded.derive_version,
          algorithm_version=excluded.algorithm_version,basis_json=excluded.basis_json,
          retention_state='recomputed'`,
       [row.callId, row.reqId, row.ord, row.name, row.argPath, row.argSkill,
-        row.resultReq, row.resultOrd, row.resultPath, row.isError, row.state,
+        row.resultReq, row.resultOrd, row.resultPath, row.isError, row.state, row.agentRef,
         GROUP_ALGORITHM, row.basis],
     );
   }

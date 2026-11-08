@@ -337,3 +337,57 @@ test('先到的未确认结果不挡后来的确认配对', () => {
     f.close();
   }
 });
+
+test('启动回执里的子代理 id 落到调用行，普通结果与读文件里的同形文本不算', () => {
+  const f = fixture();
+  try {
+    seedDeriveRound(f.store, [1, 2]);
+    const launch = 'Async agent launched successfully.\nagentId: ae04d60797985196a (internal ID)\n'
+      + 'The agent is working in the background.';
+    persistBody(f.store, 1, { protocol: 'anthropic', request: { messages: [
+      { role: 'user', content: [{ type: 'text', text: 'synthetic input' }] },
+    ] }, reply: { content: [
+      { type: 'tool_use', id: 'spawn_call', name: 'Agent', input: { prompt: 'explore' } },
+    ] }, redact_version: 1 });
+    persistBody(f.store, 2, { protocol: 'anthropic', request: { messages: [
+      { role: 'user', content: [{ type: 'text', text: 'synthetic input' }] },
+      { role: 'assistant', content: [
+        { type: 'tool_use', id: 'spawn_call', name: 'Agent', input: { prompt: 'explore' } },
+      ] },
+      { role: 'user', content: [
+        { type: 'tool_result', tool_use_id: 'spawn_call', content: [{ type: 'text', text: launch }] },
+      ] },
+    ] }, reply: { content: [] }, redact_version: 1 });
+    rebuildDeriveGroup(f.store);
+    expect(f.store.read.query<{ state: string; agent_ref: string | null }, []>(
+      `SELECT state,agent_ref FROM tool_call WHERE call_id='spawn_call'`).get())
+      .toEqual({ state: 'resolved', agent_ref: 'ae04d60797985196a' });
+  } finally { f.close(); }
+});
+
+test('非启动工具的结果带同样文案也不记子代理引用', () => {
+  const f = fixture();
+  try {
+    seedDeriveRound(f.store, [1, 2]);
+    // Read 结果里恰好抄了一段启动回执：工具名门控让它不进引用列。
+    const text = 'Async agent launched successfully. agentId: ae04d60797985196a';
+    persistBody(f.store, 1, { protocol: 'anthropic', request: { messages: [
+      { role: 'user', content: [{ type: 'text', text: 'synthetic input' }] },
+    ] }, reply: { content: [
+      { type: 'tool_use', id: 'read_call', name: 'Read', input: { file_path: '/tmp/log' } },
+    ] }, redact_version: 1 });
+    persistBody(f.store, 2, { protocol: 'anthropic', request: { messages: [
+      { role: 'user', content: [{ type: 'text', text: 'synthetic input' }] },
+      { role: 'assistant', content: [
+        { type: 'tool_use', id: 'read_call', name: 'Read', input: { file_path: '/tmp/log' } },
+      ] },
+      { role: 'user', content: [
+        { type: 'tool_result', tool_use_id: 'read_call', content: [{ type: 'text', text }] },
+      ] },
+    ] }, reply: { content: [] }, redact_version: 1 });
+    rebuildDeriveGroup(f.store);
+    expect(f.store.read.query<{ state: string; agent_ref: string | null }, []>(
+      `SELECT state,agent_ref FROM tool_call WHERE call_id='read_call'`).get())
+      .toEqual({ state: 'resolved', agent_ref: null });
+  } finally { f.close(); }
+});

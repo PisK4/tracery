@@ -1891,6 +1891,22 @@ if (typeof document !== 'undefined') {
     dispatch({ kind: 'locate', reqId: id });
   }
 
+  /**
+   * 构建点跳转：切到子代理 S{n} 的阅读视图，选中它在当前窗口里的第一笔。
+   * 只在这个窗口里找；窗口内没有该子代理的行时不假装到达，说明原因后停在原处。
+   * @param {number} no
+   */
+  function jumpToSubagent(no) {
+    if (!Number.isSafeInteger(no) || no <= 0) return;
+    const first = currentRows().find(row => viewMatches(row, no)) ?? null;
+    if (first === null) {
+      toast(t('子代理 S{no} 不在当前窗口；先切窗再试', { no }));
+      return;
+    }
+    state.view = no;
+    locateRequest(first.req_id);
+  }
+
   /** 默认选中后必须让选中组进入可见区域；头锚点下第一组居中即停在顶部。 */
   function ensureSelectedVisible() {
     const nav = navEpoch, selection = selectionEpoch;
@@ -2296,6 +2312,10 @@ if (typeof document !== 'undefined') {
       return;
     }
     if (target.closest('#switch-window')) { void switchWindowFor(state.offPageReqId); return; }
+    // 构建点跳转：调用行上的 → S1 切到该子代理的视图并选中窗口内它的第一笔。
+    // 标记是行内的 span（按钮里不能再嵌按钮），键盘入口是同名的视图切换钮。
+    const agentJump = /** @type {HTMLElement | null} */ (target.closest('[data-agent-no]'));
+    if (agentJump !== null) { jumpToSubagent(Number(agentJump.dataset.agentNo)); return; }
     // 阅读视图切换：控件随会话头重建，走委托；只筛已加载窗口，序号与选择身份都不变。
     const viewBtn = /** @type {HTMLElement | null} */ (target.closest('[data-view]'));
     if (viewBtn !== null) {

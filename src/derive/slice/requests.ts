@@ -8,6 +8,7 @@ import type { Store } from '../../store';
 import {
   flattenToolContent, replyCallsOf, replyShapeOf, requestResultsOf,
 } from '../decision';
+import { spawnedAgentRef } from '../../harness/spawn';
 import { compareTraversalOrder, uncertainOrderIds, type LogicalRow } from '../read';
 import { DERIVE_ALGORITHM } from '../state';
 import { assertQueueRevision, one, sliceDiscardReason, type SliceStep } from './generation';
@@ -32,12 +33,12 @@ function stageRow(db: Database, generation: string): StageRow | null {
 }
 
 /** 候选摘要：压平后取前若干字符，空内容存 NULL 而不是空串。 */
-function previewText(value: unknown): string | null {
-  const flat = flattenToolContent(value).replace(/\s+/g, ' ').trim();
-  if (flat.length === 0) return null;
-  const chars = [...flat];
+function previewText(flat: string): string | null {
+  const text = flat.replace(/\s+/g, ' ').trim();
+  if (text.length === 0) return null;
+  const chars = [...text];
   return chars.length <= CANDIDATE_PREVIEW_LIMIT
-    ? flat
+    ? text
     : `${chars.slice(0, CANDIDATE_PREVIEW_LIMIT).join('')}…`;
 }
 
@@ -134,10 +135,13 @@ function materializePage(db: Database, generation: string, budget: DeriveBudget)
       writes += 1;
     }
     for (const result of results) {
+      // 同一份结果正文压平一次：摘要与启动回执各取一段。
+      const flat = flattenToolContent(result.value);
       db.run(`INSERT INTO derive_result_work(generation,req_id,ord,path,call_id,
-        preview,is_error,request_index,traversal_ord,confirmed) VALUES (?,?,?,?,?,?,?,-1,-1,0)`,
+        preview,agent_ref,is_error,request_index,traversal_ord,confirmed)
+        VALUES (?,?,?,?,?,?,?,?,-1,-1,0)`,
       [generation, row.req_id, result.ord, result.path, result.id,
-        previewText(result.value), result.isError]);
+        previewText(flat), spawnedAgentRef(flat), result.isError]);
       writes += 1;
     }
     if (performance.now() - rowStarted > budget.maxRequestMs) {
