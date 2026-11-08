@@ -6,6 +6,29 @@
 
 记录里的数字、端口、pid 与耗时都来自作者机器，用于说明当时怎么判断，不是可复现的基准。
 
+## 工具调用启动点标记（合成 + 生产真实流量，2026-11-08）
+
+前提：分支 `feat/agent-spawn-link`（合并 `0765ad9`），schema v16、`GROUP_ALGORITHM` 8、`DERIVE_ALGORITHM` 12。验收目标是「主链的 `Agent` 调用行标出它启动的子代理并能跳过去」，设计取舍见[工具调用标出它启动的子代理](../.agents/notes/implemented/feature/2026-11-08-tool-call-spawn-link.md)。
+
+### 合成数据
+
+- `bun test tests/derive-tool-pairing.test.ts tests/derive-slice.test.ts tests/trace-view.test.ts tests/queries.test.ts tests/session-summary.test.ts`：同步与切片两条路径都只有 `Agent` 行落 `agent_ref`，同样回执文本挂在 `Read` 结果上为 NULL；`agent_no` 非空时渲染一个 `row-agent`，为 null 时不出标记。
+- `bun run typecheck`：0 错误。全量套件 1450 项通过，0 失败。
+
+### 隔离实例（生产库只读备份）
+
+隔离实例 8399 用生产库 `.backup` 副本与独立 `ATC_DATA_DIR`/`ATC_PORT`，未碰 8320。打开时 `user_version` 由 15 升到 16，三张表的 `agent_ref` 列都在。`maintain rebuild --session '["session","d0b52d1f-…"]'` 重算 878 笔（`target_algorithm` 8、实际 8:878），该会话 1 笔 `Agent` 行落 `agent_ref=ae04d60797985196a`。`?trace=194442` 下主链视图出现 `→ S1`，点击后视图切到 S1、URL 的 `trace` 变 194451，与库内该子代理首笔一致。
+
+### 生产真实流量
+
+部署按备份 → 重启 → 显式 rebuild → 验证执行；重启 pid 106，`service status` 代码未落后，`/api/stats` 13 毫秒可读。`maintain rebuild` 对同一会话重算 878 笔后，`/api/requests/194442` 返回 `agent_ref=ae04d60797985196a`、`agent_no=1`；8320 页面同样显示 `→ S1`（`aria-label` 为「跳转到子代理 S1」），点击后 `aria-pressed` 落在 S1、`trace` 变 194451。
+
+### 未覆盖与边界
+
+- 升级只加列不回填：重启后全库只有 1 笔新流量带 `agent_ref`，存量会话要逐会话 `rebuild` 才有标记。
+- 窗口外提示分支只在合成测试里走过；隔离实例与生产验的会话整段都在已加载窗口内。
+- 只有 claude 的 `Agent` 且结果正文可读才标得出来；孙代理、结果 `pending` 或正文已回收的调用无标记，其余 harness 一律无标记。
+
 ## Magpie operation 会话准入（真实生产，2026-11-07）
 
 前提：首版 `feat/operation-admission` 合并为 master `e98ac72`（`PURPOSE_VERSION` 12）；生产验收暴露 retained 边界后 `fix/operation-retained-boundary` 合并为 `dd298ae`（`PURPOSE_VERSION` 13）。schema 仍 v14，无迁移。验收期间 PowerContext 持续产生 embedding 流量，计数是验收时点读数，不是冻结总量。

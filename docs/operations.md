@@ -650,7 +650,11 @@ sqlite3 "$HOME/Library/Application Support/tracery/trace.db" \
 
 ## schema 版本
 
-当前 `user_version=14`。空数据目录首次启动直接建到 v14；v6 到 v13 库打开时在单个事务里原地升到 v14，更早版本报 `schema_rebuild_required`（错误信息带 db 与 code 的版本号），高版本报 `schema_version_unsupported`。可恢复 bundle 的结构版本白名单是 v6 到 v14，旧版本包恢复后首次打开同样原地升级。部署或恢复前可先跑 `maintain precheck` 只读预判同一套判据，不必等服务启动失败（见[维护命令](#维护命令)）。
+当前 `user_version=16`。空数据目录首次启动直接建到 v16；v6 到 v15 库打开时在单个事务里原地升到 v16，更早版本报 `schema_rebuild_required`（错误信息带 db 与 code 的版本号），高版本报 `schema_version_unsupported`。可恢复 bundle 的结构版本白名单是 v6 到 v16，旧版本包恢复后首次打开同样原地升级。部署或恢复前可先跑 `maintain precheck` 只读预判同一套判据，不必等服务启动失败（见[维护命令](#维护命令)）。
+
+v16 在 v15 之上给 `tool_call`、`derive_tool_result` 与 `derive_result_work` 各加一列 `agent_ref`，按 `PRAGMA table_info` 判存在，不扫描正文、不回填。升级后旧派生行的 `agent_ref` 为 NULL，页面不显示子代理标记；要回填需对会话显式跑 `rebuild`，见[工具配对](architecture-design.md#工具配对)。
+
+v15 在 v14 之上加覆盖索引 `i_req_session_visible(conv_key, purpose_chain, agent, started_ms DESC)`，`IF NOT EXISTS`，不扫描正文，停顿毫秒级。
 
 v14 在 v13 之上建 `capacity_meter` 与 12 个触发器，并从 `block`、`request`、`raw_hook`、`raw_session_event` 回填四行计数。建表、建触发器、回填、核对与 `user_version` 推进在同一个事务里，失败整体回滚；已有计数只核对不覆盖。初始化要扫描四张来源表，耗时随逻辑载荷和缓存变化，部署时按停机窗口处理。不能直接换回 v13 二进制：旧代码会把 v14 库判成高版本并拒绝启动，回滚要先恢复 v13 的 bundle。计数器不是页分配或文件回收量，物理容量判断仍看[两个预算](architecture-design.md#两个预算)。
 
