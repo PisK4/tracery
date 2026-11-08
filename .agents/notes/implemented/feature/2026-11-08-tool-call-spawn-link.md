@@ -6,7 +6,7 @@ Status: implemented
 
 [子代理阅读视图](2026-11-08-subagent-actor-views.md) 让中栏默认只看主链，代价是子代理的来路被滤掉了：读者看到 `Agent` 调用行，却不知道它启动了哪一段子代理过程，也没有入口跳过去。S 编号与左缘标记只回答「这一行属于哪个子代理」，回答不了「主链的哪一句把它启动了」。
 
-判定「哪一句启动了哪个子代理」不能靠猜。Claude Code 的异步 `Agent` 结果正文里有启动回执，第一行是 `Async agent launched successfully.`，随后一行是 `agentId: <17 位十六进制>`。本机生产库实测：169 笔可读的 `Agent` 结果全部带 id，与折叠子代理的 id 1:1 命中，没有一笔出现多个 id，也没有可读但缺 id 的情况；启动到子代理首笔请求的间隔最小 9.9 秒、中位 25 秒。其余 harness 的形态里没有这种回执——codex 120 个子代理、dsh 33 个、zcode 25 个，零命中。
+判定「哪一句启动了哪个子代理」不能靠猜。页面形态的后续定稿见[Lucide 图标迁移与启动点 chip 定稿](2026-11-08-lucide-icon-migration.md)。Claude Code 的异步 `Agent` 结果正文里有启动回执，第一行是 `Async agent launched successfully.`，随后一行是 `agentId: <17 位十六进制>`。本机生产库实测：169 笔可读的 `Agent` 结果全部带 id，与折叠子代理的 id 1:1 命中，没有一笔出现多个 id，也没有可读但缺 id 的情况；启动到子代理首笔请求的间隔最小 9.9 秒、中位 25 秒。其余 harness 的形态里没有这种回执——codex 120 个子代理、dsh 33 个、zcode 25 个，零命中。
 
 覆盖缺口是真实存在的：claude 有 35 个子代理（10 个会话）根本没有主链 `Agent` 调用（孙代理），30 个子代理（18 个会话）的 `Agent` 结果全是 `pending: derive_not_current`，另有 15 个部分命中。这些行就是标不出来，页面不能装作标出来了。
 

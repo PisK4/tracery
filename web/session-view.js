@@ -487,7 +487,7 @@ function sessionBoard(s, status, rows, hidden, sessionKey, hiddenFoldOpen) {
  *    missingReqId: number | null, offPageReqId: number | null, windowError: string | null,
  *    summary: SessionSummary | null, summaryStatus?: 'idle' | 'loading' | 'ready' | 'absent',
  *    hiddenRows?: RequestRow[], hiddenFoldOpen?: boolean,
- *    view?: 'all' | 'main' | number,
+ *    view?: 'all' | 'main' | number, spawnFrom?: number | null,
  *    viewOptions?: Array<{value: 'all' | 'main' | number, label: string, count: number}> | null,
  *    windowAnchor: 'start' | 'latest'}} input */
 export function sessionHead(input) {
@@ -525,6 +525,7 @@ export function sessionHead(input) {
         ${viewOptions.map(option => `<button data-view="${option.value}" aria-pressed="${option.value === input.view}">${esc(option.label)}<span class="ct">${option.count}</span></button>`).join('')}
       </div>`}
     </div>
+    ${input.spawnFrom != null && typeof input.view === 'number' ? `<div class="session-note"><span>${t('子代理 S{no} 由请求 {id} 启动', { no: input.view, id: input.spawnFrom })}</span><button class="chip-btn" id="spawn-back">${icon('back', 14)}<span>${t('返回启动点')}</span></button></div>` : ''}
     ${summary !== null && summary.dirty ? `<div class="session-note warn"><span>${t('部分组的派生还没追上输入：这里是上一次完成的结果。')}</span></div>` : ''}
     ${sessionBoard(summary, summaryStatus, rows, hidden, sessionKey, input.hiddenFoldOpen === true)}
     ${unknown ? `<div class="session-note warn"><span>↳</span><span>${t('链接里的会话 key 不在已加载的会话里：可能是已淘汰、从未记录，或者还在后面的会话页。下面没有用别的会话顶替。')}</span></div>` : ''}

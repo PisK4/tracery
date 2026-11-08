@@ -1114,11 +1114,13 @@ test('构建点标记只挂在启动子代理的调用行，带可点的 S 编�
   const steps = projectSteps(r, read(d, entries, null), null, [], () => ({ reasoningMs: null, calls }));
   expect(steps.filter(s => s.kind === 'tool').map(s => s.agentNo ?? null)).toEqual([1, null]);
   const html = renderTraceRows(r, steps, 1, null);
-  expect(html.match(/class="row-agent"/g)?.length).toBe(1);
+  // 启动点落在工具名 chip 上：只有带启动回执的 Agent 变可跳，并带 ↗ 图标。
+  expect(html.match(/class="row-tint is-spawn"/g)?.length).toBe(1);
   expect(html).toContain('data-agent-no="1"');
-  expect(html).toContain('→ S1');
   expect(html).toContain('aria-label="跳转到子代理 S1"');
-  // 没有启动回执的调用行不给标记，也不写一个空的 S0。
+  expect(html).toContain('row-tint-arrow');
+  expect(html).not.toContain('row-agent');
+  // 没有启动回执的调用行，工具名保持普通 chip，也不写一个空的 S0。
   const noRef = projectSteps(r, read(d, entries, null), null, [], () => ({ reasoningMs: null, calls: calls.map(c => ({ ...c, agent_ref: null, agent_no: null })) }));
-  expect(renderTraceRows(r, noRef, 1, null)).not.toContain('row-agent');
+  expect(renderTraceRows(r, noRef, 1, null)).not.toContain('is-spawn');
 });

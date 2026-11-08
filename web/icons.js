@@ -1,82 +1,58 @@
 // @ts-check
 /**
- * 界面图标：一份 16 网格几何，`stroke-width` 恒定 1.5，按控件尺寸整枚缩放
- * （16→1.5、20→1.875、24→2.25），光学密度不随档位变化。
+ * 界面图标：Lucide 图标集的路径数据，bake 进本文件，不引运行时依赖。
  *
- * 约束：单枚 ≤4 段路径、相邻笔画净空 ≥2 网格、不画同心双轮廓、不在图形里放字。
- * 深色下由调用方的 `--text-2` / 角色色决定对比度，图形本身只用 currentColor。
+ * 来源 lucide-static@0.468.0（ISC），映射表见 .agents/notes/implemented/feature/2026-11-08-lucide-icon-migration.md。
+ * 路径保留 Lucide 原生 24 网格；stroke-width 取 2.25，使 16px 渲染时的光学线宽
+ * 与原先 16 网格 / 1.5 描边一致，size 语义与 .ico 选择器不变。
  *
  * SVG 一律 `aria-hidden`：可访问名由外层的 `aria-label` / 可见文字承担。
+ * 图形只用 currentColor；TINY 两枚是 8px 网格特例，保持原样。
  */
 
 /** @type {Record<string, string>} */
 const BODY = {
-  /* 顶栏：面板折叠与主题 */
-  'panel-left': '<rect x="2" y="3" width="12" height="10" rx="1.6"/><path d="M6.2 3.4v9.2"/>',
-  'panel-right': '<rect x="2" y="3" width="12" height="10" rx="1.6"/><path d="M9.8 3.4v9.2"/>',
-  sun: '<circle cx="8" cy="8" r="3.1"/><path d="M8 1.2v1.6M8 13.2v1.6M1.2 8h1.6M13.2 8h1.6M3.3 3.3l1.1 1.1M11.6 11.6l1.1 1.1M12.7 3.3l-1.1 1.1M4.4 11.6l-1.1 1.1"/>',
-  moon: '<path d="M14 8.53A6 6 0 1 1 7.47 2 4.67 4.67 0 0 0 14 8.53Z" fill="currentColor" stroke="none"/>',
-
-  /* 中栏读数：推理段 / 执行段 */
-  reason: '<circle cx="4" cy="8" r="1.25" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.25" fill="currentColor" stroke="none"/><circle cx="12" cy="8" r="1.25" fill="currentColor" stroke="none"/>',
-  exec: '<rect x="2" y="3" width="12" height="10" rx="1.8"/><path d="M5 6.2l1.8 1.8-1.8 1.8M8.6 10.2h2.6"/>',
-
-  /* 状态：失败 X / 缺口三角（同一族，只换轮廓） */
-  failure: '<path d="M4.8 4.8l6.4 6.4M11.2 4.8l-6.4 6.4"/>',
-  gap: '<path d="M8 2.6l5.4 10H2.6L8 2.6Z"/>',
-
-  /* 控件：整块重取（闭环圆环 + 切向箭头） / 只重来这一笔（圆点 + 开口回钩） */
-  refresh: '<path d="M11.7 3.9a5.2 5.2 0 1 0 1.7 5.4"/><path d="M13.4 2.2v3h-3"/>',
-  retry: '<circle cx="5.4" cy="11.2" r="1.5" fill="currentColor" stroke="none"/><path d="M12.8 4.3c.5 3.6-.5 5.9-2.3 6.7-1.2.5-2.7.5-3.6.2"/><path d="M9.4 9.9L7.3 11.2l1.6 1.8"/>',
-
-  /* 控件：复制、读取、关闭、加载更多 */
-  copy: '<rect x="2.6" y="4.8" width="8.8" height="8.8" rx="1.6"/><path d="M5.2 4.8V3.4a1.2 1.2 0 0 1 1.2-1.2h6a1.2 1.2 0 0 1 1.2 1.2v6a1.2 1.2 0 0 1-1.2 1.2h-1.4"/>',
-  read: '<rect x="3.4" y="2.4" width="9.2" height="11.2" rx="1.6"/><path d="M8 5.6v4.4M5.9 8l2.1 2.1 2.1-2.1"/>',
-  close: '<path d="M4.8 4.8l6.4 6.4M11.2 4.8l-6.4 6.4"/>',
-  'load-more': '<path d="M8 3.4v6.8M5.4 7.6L8 10.2l2.6-2.6M3.8 12.6h8.4"/>',
-
-  /* 折叠：单 chevron */
-  'caret-down': '<path d="M4.6 6.2L8 9.6l3.4-3.4"/>',
-  'caret-up': '<path d="M4.6 9.8L8 6.4l3.4 3.4"/>',
-
-  /* 跳转：首尾、返回、配对 */
-  'jump-start': '<path d="M4.4 7.6l3.6-3.6 3.6 3.6M4.4 11.6l3.6-3.6 3.6 3.6"/>',
-  'jump-end': '<path d="M4.4 4.4l3.6 3.6 3.6-3.6M4.4 8.4l3.6 3.6 3.6-3.6"/>',
-  back: '<path d="M12.6 8H3.6M6.8 4.8L3.6 8l3.2 3.2"/>',
-  pair: '<rect x="8.8" y="3.2" width="4.8" height="9.6" rx="1.4"/><path d="M2.6 8h5.4M5.6 5.4L8 8l-2.4 2.6"/>',
-
-  /* 证据三态 */
-  check: '<path d="M3.2 8.4l3 3 6.6-6.8"/>',
-  question: '<path d="M5.4 6.1a2.6 2.6 0 1 1 3.7 2.5c-.7.3-1.1.8-1.1 1.7"/><circle cx="8" cy="12.4" r=".9" fill="currentColor" stroke="none"/>',
-
-  /* 角色（六种 pill 全部图标化，共享同一栅格） */
-  'role-user': '<circle cx="8" cy="5.4" r="2"/><path d="M3.6 12.4c0-2.4 1.9-3.9 4.4-3.9s4.4 1.5 4.4 3.9"/>',
-  'role-assistant': '<rect x="2.6" y="3.3" width="10.8" height="9.4" rx="2.8"/><circle cx="6" cy="8" r=".95" fill="currentColor" stroke="none"/><circle cx="10" cy="8" r=".95" fill="currentColor" stroke="none"/>',
-  'role-tool': '<path d="M12.3 4.1v4.5a2.2 2.2 0 0 1-2.2 2.2H4.3"/><path d="M6.9 8.3L4.3 10.8l2.6 2.5"/>',
-  'role-system': '<rect x="2.6" y="6" width="10.8" height="7.4" rx="1.4"/><path d="M4.6 6V4.2A1.2 1.2 0 0 1 5.8 3h4.4a1.2 1.2 0 0 1 1.2 1.2V6"/>',
-  'role-aux': '<path d="M8 13.2V8M8 8l-3.4-3.4M8 8l3.4-3.4"/><circle cx="4.6" cy="4.6" r="1" fill="currentColor" stroke="none"/><circle cx="11.4" cy="4.6" r="1" fill="currentColor" stroke="none"/>',
-  'role-event': '<path d="M2.6 8h2.8l1.6-3.6 2.4 7.2 1.4-3.6h2.6"/>',
-
-  /* 指标标识：只替换标签，数值不动 */
-  stopwatch: '<circle cx="8" cy="8.8" r="4.8"/><path d="M8 1.6v1.8M6.6 1.6h2.8M8 8.8V5.8"/>',
-  /* 已用上下文：半圆表盘 + 指针，读「容量用了多少」；半弧与整圆秒表拉开轮廓 */
-  'ctx-gauge': '<path d="M2.8 11.4a5.2 5.2 0 0 1 10.4 0"/><path d="M8 11.4L10.4 6.8"/><circle cx="8" cy="11.4" r=".9" fill="currentColor" stroke="none"/>',
-  /* 固定开销：图钉，读「每笔请求都钉在那里」的那部分，不随对话变化 */
-  'ctx-pin': '<path d="M5 3.6h6l-1.3 4H6.3L5 3.6Z"/><path d="M8 7.6v5.6"/>',
-  /* 提示词缓存：圆柱存储体，读「已存下来的前缀」；和刷新闭环箭头区分开 */
-  'ctx-cache': '<ellipse cx="8" cy="4.4" rx="4.2" ry="1.9"/><path d="M3.8 4.4v7.2c0 1 1.8 1.9 4.2 1.9s4.2-.9 4.2-1.9V4.4"/>',
-
-  /* 空状态：4 枚成套，24px，只描边不填色 */
-  'empty-select': '<rect x="2.6" y="3.4" width="10.8" height="9.2" rx="1.6"/><path d="M9.4 8H4.6M6.6 6l-2 2 2 2"/>',
-  'empty-tray': '<path d="M2.8 9.2h2.8l1.1 1.8h2.6l1.1-1.8h2.8"/><path d="M2.8 9.2V12a1.4 1.4 0 0 0 1.4 1.4h7.6a1.4 1.4 0 0 0 1.4-1.4V9.2"/>',
-  'empty-page': '<path d="M4.2 2.4h5.2l3.4 3.4v7.4a1.2 1.2 0 0 1-1.2 1.2H4.2A1.2 1.2 0 0 1 3 13.2V3.6A1.2 1.2 0 0 1 4.2 2.4Z"/><path d="M9.2 2.6v3.4h3.4"/>',
-  'empty-broken': '<path d="M6.2 4.6H5.1a3.2 3.2 0 0 0 0 6.4h1.1M9.8 4.6h1.1a3.2 3.2 0 0 1 0 6.4h-1.1"/><path d="M8 6.2v1.2M8 9v1.2"/>',
-
-  /* 搜索 */
-  search: '<circle cx="7" cy="7" r="4.2"/><path d="M10.2 10.2l3 3"/>',
+  'panel-left': '<rect width="18" height="18" x="3" y="3" rx="2" /><path d="M9 3v18" />',
+  'panel-right': '<rect width="18" height="18" x="3" y="3" rx="2" /><path d="M15 3v18" />',
+  'sun': '<circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" />',
+  'moon': '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />',
+  'reason': '<circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /><circle cx="5" cy="12" r="1" />',
+  'exec': '<path d="m7 11 2-2-2-2" /><path d="M11 13h4" /><rect width="18" height="18" x="3" y="3" rx="2" ry="2" />',
+  'failure': '<path d="M18 6 6 18" /><path d="m6 6 12 12" />',
+  'gap': '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" /><path d="M12 9v4" /><path d="M12 17h.01" />',
+  'refresh': '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /><path d="M8 16H3v5" />',
+  'retry': '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" />',
+  'copy': '<rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />',
+  'read': '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" /><path d="M12 18v-6" /><path d="m9 15 3 3 3-3" />',
+  'close': '<path d="M18 6 6 18" /><path d="m6 6 12 12" />',
+  'load-more': '<path d="M12 17V3" /><path d="m6 11 6 6 6-6" /><path d="M19 21H5" />',
+  'caret-down': '<path d="m6 9 6 6 6-6" />',
+  'caret-up': '<path d="m18 15-6-6-6 6" />',
+  'jump-start': '<path d="m17 11-5-5-5 5" /><path d="m17 18-5-5-5 5" />',
+  'jump-end': '<path d="m7 6 5 5 5-5" /><path d="m7 13 5 5 5-5" />',
+  'back': '<path d="m12 19-7-7 7-7" /><path d="M19 12H5" />',
+  'pair': '<path d="M17 12H3" /><path d="m11 18 6-6-6-6" /><path d="M21 5v14" />',
+  'check': '<path d="M20 6 9 17l-5-5" />',
+  'question': '<circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><path d="M12 17h.01" />',
+  'role-user': '<circle cx="12" cy="8" r="5" /><path d="M20 21a8 8 0 0 0-16 0" />',
+  'role-assistant': '<path d="M12 8V4H8" /><rect width="16" height="12" x="4" y="8" rx="2" /><path d="M2 14h2" /><path d="M20 14h2" /><path d="M15 13v2" /><path d="M9 13v2" />',
+  'role-tool': '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />',
+  'role-system': '<rect width="20" height="14" x="2" y="3" rx="2" /><line x1="8" x2="16" y1="21" y2="21" /><line x1="12" x2="12" y1="17" y2="21" />',
+  'role-aux': '<line x1="6" x2="6" y1="3" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" />',
+  'role-event': '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" />',
+  'stopwatch': '<line x1="10" x2="14" y1="2" y2="2" /><line x1="12" x2="15" y1="14" y2="11" /><circle cx="12" cy="14" r="8" />',
+  'ctx-gauge': '<path d="m12 14 4-4" /><path d="M3.34 19a10 10 0 1 1 17.32 0" />',
+  'ctx-pin': '<path d="M12 17v5" /><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />',
+  'ctx-cache': '<ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M3 5V19A9 3 0 0 0 21 19V5" /><path d="M3 12A9 3 0 0 0 21 12" />',
+  'empty-select': '<path d="M12.034 12.681a.498.498 0 0 1 .647-.647l9 3.5a.5.5 0 0 1-.033.943l-3.444 1.068a1 1 0 0 0-.66.66l-1.067 3.443a.5.5 0 0 1-.943.033z" /><path d="M5 3a2 2 0 0 0-2 2" /><path d="M19 3a2 2 0 0 1 2 2" /><path d="M5 21a2 2 0 0 1-2-2" /><path d="M9 3h1" /><path d="M9 21h2" /><path d="M14 3h1" /><path d="M3 9v1" /><path d="M21 9v2" /><path d="M3 14v1" />',
+  'empty-tray': '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />',
+  'empty-page': '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" /><path d="M10 9H8" /><path d="M16 13H8" /><path d="M16 17H8" />',
+  'empty-broken': '<path d="m18.84 12.25 1.72-1.71h-.02a5.004 5.004 0 0 0-.12-7.07 5.006 5.006 0 0 0-6.95 0l-1.72 1.71" /><path d="m5.17 11.75-1.71 1.71a5.004 5.004 0 0 0 .12 7.07 5.006 5.006 0 0 0 6.95 0l1.71-1.71" /><line x1="8" x2="8" y1="2" y2="5" /><line x1="2" x2="5" y1="8" y2="8" /><line x1="16" x2="16" y1="19" y2="22" /><line x1="19" x2="22" y1="16" y2="16" />',
+  'search': '<circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />',
+  'spawn-arrow': '<path d="M7 7h10v10" /><path d="M7 17 17 7" />',
 };
 
-/** 8px 网格的两枚特例：按 8px 实际渲染给线宽，不套 16px 的 1.5。 */
+/** 8px 网格的两枚特例：按 8px 实际渲染给线宽，不套 24px 的 2.25。 */
 /** @type {Record<string, string>} */
 const TINY = {
   'fail-solid': '<path d="M2 2l4 4M6 2L2 6" stroke-width="1.7"/>',
@@ -84,7 +60,9 @@ const TINY = {
 };
 
 /** @type {Record<string, string>} */
-const VIEWBOX = { 'fail-solid': '0 0 8 8', 'missing-body': '0 0 8 8' };
+const VIEWBOX = {
+  'fail-solid': '0 0 8 8', 'missing-body': '0 0 8 8',
+};
 
 /**
  * @param {string} name 图标名
@@ -95,8 +73,8 @@ const VIEWBOX = { 'fail-solid': '0 0 8 8', 'missing-body': '0 0 8 8' };
 export function icon(name, size = 16, cls = '') {
   const body = BODY[name] ?? TINY[name];
   if (body === undefined) throw new Error(`unknown_icon:${name}`);
-  const viewBox = VIEWBOX[name] ?? '0 0 16 16';
-  const stroke = name in TINY ? '' : ' stroke-width="1.5"';
+  const viewBox = VIEWBOX[name] ?? '0 0 24 24';
+  const stroke = name in TINY ? '' : ' stroke-width="2.25"';
   return `<svg class="ico${cls === '' ? '' : ` ${cls}`}" width="${size}" height="${size}" viewBox="${viewBox}"`
     + ` fill="none" stroke="currentColor"${stroke} stroke-linecap="round" stroke-linejoin="round"`
     + ` aria-hidden="true" focusable="false">${body}</svg>`;
