@@ -121,6 +121,12 @@
 
 ## 方案与回填
 
+**改标题/摘要这类「挑一行代表整组」的候选顺序前，先在生产副本上按发布代口径重算前后差异，逐条看新值是否更有信息量。**
+
+- 证据：2026-11-08 子代理身份收口时给会话标题加了一级「本会话自身任一」候选，合成测试全绿；按真实库重算发现 17 个会话换名，其中 6 个换成「Tool loaded.」「## Page contract…」这类首条 user 碎片——比它替换掉的子代理委派提示更没信息量。改回「只插一级自身主链」后只影响 2 个会话。同一轮还有一处口径错：先用同步旧列 `r.chain_role` 重算，读路径实际走 `published_generation` 的代际列，两者结论不同（17 vs 2）。
+- 防护：候选顺序类改动一律在 `sqlite3 -readonly` 副本上用读路径同款列（`CASE WHEN q.published_generation IS NOT NULL THEN e.* ELSE r.* END`）跑「改前 vs 改后」对照表，统计换名数、变短数、退到兜底数；合成测试只能证明顺序被实现，不能证明新顺序更好。
+- Seen 1× (2026-11-08).
+
 **预测重派生/判据变更的效果前，先查存量行的 `body_state` 与 `purpose_version` 分布。**
 - 证据：2026-11-03 WebSearch 子事件方案立项时推断「version bump 后 64 张 conv 卡会被新判据收走（bypass）」；落地时只读核查发现 69 个 conv 行全部 `body_state='pending'` 且已存 `purpose_version=10`，正文不可读走 `unavailableDecision` 的 retained 保留，新判据根本执行不到，69 键 rebuild 是无效果写库。新判据只对 `purpose_version` 为空的新行生效。
 - 防护：任何「bump/重派生会翻转存量行」的结论，先用只读 SQL 按 `(body_state, purpose_version, purpose_status)` 分组数一遍；retained 优先于新判据是设计行为，不是 bug。
