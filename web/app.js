@@ -50,7 +50,7 @@ import { createMainView } from './trace-dom.js';
 import { createTracePreparation } from './trace-preparation.js';
 import { createTraceModel } from './trace-model.js';
 import { renderTracePair } from './trace-pair.js';
-import { isEmptyGroup, projectSteps, projectTailReply, renderTraceRow } from './trace-view.js';
+import { effectiveView, isAuxRow, isEmptyGroup, projectSteps, projectTailReply, renderTraceRow, viewMatches, viewOfRow } from './trace-view.js';
 import { renderTurnBand, renderTurnRail, renderTurnRailHead } from './turn-band.js';
 import { demoFromParam, expandFromParam, railTabFromParam, railTabParam, resolveTraceTarget, summaryKindFromParam, traceIdFromParam } from './url-route.js';
 import { RAIL_TABS } from './rail-tabs.js';
@@ -129,6 +129,11 @@ if (typeof document !== 'undefined') {
      * 最新一页（「回到最新」的追尾模式）。刷新按当前锚点重建，换会话复位。
      */
     windowAnchor: /** @type {'start' | 'latest'} */ ('start'),
+    /**
+     * 阅读视图：all 含全部请求，main 只看主链（默认），数字只看对应 S 编号的子代理。
+     * 只在已加载窗口内筛选，不改变序号；换会话复位。
+     */
+    view: /** @type {'all' | 'main' | number} */ ('main'),
     /** 窗口切换在跑：按钮落禁用态，避免重复点击把自己排成两轮重建。 */
     windowJumping: false,
     /** 选中的轮次（会话内已结算轮序号）；null 表示请求态。 */
@@ -270,14 +275,46 @@ if (typeof document !== 'undefined') {
     return currentRows().find(row => row.req_id === state.reqId) ?? null;
   }
   /**
-   * 窗口里第一笔或最后一笔有内容的请求：默认锚点与「回到开头/最新」跳过空组。
+   * 窗口里当前视图下第一笔或最后一笔有内容的请求：默认锚点与「回到开头/最新」跳过空组。
    * 准备未完成时判不出空组，会先落在首行，备齐后由 settleAnchor 再挪。
    * @param {'first' | 'last'} side
    */
   function contentAnchorId(side) {
     const rows = currentRows();
-    const ordered = side === 'first' ? rows : [...rows].reverse();
+    const view = effectiveView(rows, state.view);
+    const ordered = (side === 'first' ? rows : [...rows].reverse()).filter(row => viewMatches(row, view));
     return ordered.find(row => !isEmptyGroup(stepsOf(row)))?.req_id ?? null;
+  }
+  /**
+   * 目标行被当前视图筛掉时切到它归属的视图（辅助请求回「全部」）。只改视图，
+   * 重绘由调用方的既有渲染路径负责。
+   * @param {import('../src/queries/projection').RequestRow} row
+   */
+  function revealViewOf(row) {
+    if (viewMatches(row, effectiveView(currentRows(), state.view))) return;
+    state.view = viewOfRow(row);
+  }
+  /**
+   * 视图切换控件与各视图笔数：窗口里没有可过滤的行时不给控件，不摆一个按不出差别的开关。
+   * @param {import('../src/queries/projection').RequestRow[]} rows
+   */
+  function viewOptionsOf(rows) {
+    const numbers = new Set();
+    let aux = 0;
+    for (const row of rows) {
+      if (isAuxRow(row)) aux += 1;
+      else if (row.subagent_no !== null) numbers.add(row.subagent_no);
+    }
+    if (numbers.size === 0 && aux === 0) return null;
+    const countOf = (/** @type {'all' | 'main' | number} */ view) => rows.filter(row => viewMatches(row, view)).length;
+    const options = /** @type {{value: 'all' | 'main' | number, label: string, count: number}[]} */ ([
+      { value: 'all', label: t('全部'), count: rows.length },
+      { value: 'main', label: t('主链'), count: countOf('main') },
+    ]);
+    for (const no of [...numbers].sort((a, b) => a - b)) {
+      options.push({ value: no, label: t('子代理 S{no}', { no }), count: countOf(no) });
+    }
+    return options;
   }
   /**
    * 锚点落在空组上时，等准备完成再挪到有内容的一笔：默认选中发生在准备之前。
@@ -638,16 +675,18 @@ if (typeof document !== 'undefined') {
    *  @type {(() => string) | null} */
   let lazyHiddenItems = null;
   /** 会话头装配：store 与选择状态在此读齐，纯展示在 session-view。
-   *  @param {import('../src/queries/projection').RequestRow[]} hiddenRows 默认时间线省略的空组 */
-  function sessionHead(hiddenRows) {
+   *  @param {import('../src/queries/projection').RequestRow[]} hiddenRows 默认时间线省略的空组
+   *  @param {'all' | 'main' | number} view 当前有效视图 */
+  function sessionHead(hiddenRows, view) {
     const summary = store.peekSummary();
     const snap = store.getSessions();
-    lazyHiddenItems = () => sessionHiddenItems(currentRows(), hiddenRows);
+    const rows = currentRows();
+    lazyHiddenItems = () => sessionHiddenItems(rows, hiddenRows);
     return sessionHeadView({
       sessionKey: state.session,
       row: state.session === null ? null : sessionRow(state.session),
       titleLoading: snap.titleLoading || snap.retrying,
-      rows: currentRows(),
+      rows,
       refreshedAt: state.refreshedAt,
       missingReqId: state.missingReqId,
       offPageReqId: state.offPageReqId,
@@ -657,6 +696,8 @@ if (typeof document !== 'undefined') {
       hiddenRows,
       hiddenFoldOpen: folds.get(`hidden:${state.session ?? ''}`) === true,
       windowAnchor: state.windowAnchor,
+      view,
+      viewOptions: viewOptionsOf(rows),
     });
   }
 
@@ -845,23 +886,42 @@ if (typeof document !== 'undefined') {
     const tails = traceModel.tailEligibleIds();
     // 轮次带点得到被省略的起点时，中栏也要有这一行：选中态之外再放行轮次起点。
     const turnStart = state.turn === null ? null : turnOf(state.turn)?.start_req ?? null;
+    const view = effectiveView(rows, state.view);
+    // 全视图里每个子代理只在窗口内首次出现的组首写全「子代理 S1」，之后用短标；
+    // 单一角色视图不标：视图本身就是身份。
+    /** @type {Set<number>} */
+    const seenSubagents = new Set();
     /** 没有可读正文的请求：请求记录入口在会话头，选中时这一组临时显示也不移出列表。
      *  @type {import('../src/queries/projection').RequestRow[]} */
     const hiddenRows = [];
     /** @type {import('./trace-dom.js').GroupModel[]} */
     const groups = [];
+    /** 当前视图内的请求笔数：视图筛空与「都没有正文」是两种空列。 */
+    let viewRows = 0;
     for (const r of rows) {
+      if (!viewMatches(r, view)) continue;
+      viewRows += 1;
       const projection = stepsOf(r);
       const { steps, stale, placeholder } = projection;
       const ordinal = ordinalOf(r.req_id);
       const callOf = callOfFor(steps, stale === null);
       const status = r.status === null ? 'unknown' : r.status >= 400 ? 'failed' : 'success';
-      // 短标只标折叠进本会话的子代理；主链行与独立子代理会话（droid）不标。
-      const subagentTag = r.subagent_no === null ? '' : `S${r.subagent_no}`;
       const empty = isEmptyGroup(projection);
       if (empty) hiddenRows.push(r);
       // 空组不占默认时间线；显式选中的请求与轮次起点临时留下状态行，选择不悬空。
       const hidden = empty && r.req_id !== state.reqId && r.req_id !== turnStart;
+      // 末尾组不挂请求级 aria-current：它是同一请求的回复，不是第二笔请求。
+      const tail = tails.has(r.req_id) ? tailOf(r) : null;
+      // 标记落在实际出现的组首行：承载组被省略时由末尾组承接，整组不出现就不占首现。
+      // 辅助请求不标：它不属于任何角色的阅读视图，也不进 S 编号的笔数。
+      let subagentTag = '';
+      if ((!hidden || tail !== null) && r.subagent_no !== null && !isAuxRow(r) && view === 'all') {
+        if (seenSubagents.has(r.subagent_no)) subagentTag = `S${r.subagent_no}`;
+        else {
+          seenSubagents.add(r.subagent_no);
+          subagentTag = t('子代理 S{no}', { no: r.subagent_no });
+        }
+      }
       /** @type {import('./trace-dom.js').CommitItem[]} */
       const items = [];
       if (!hidden) {
@@ -880,10 +940,8 @@ if (typeof document !== 'undefined') {
           rows: items,
         });
       }
-      // 末尾组不挂请求级 aria-current：它是同一请求的回复，不是第二笔请求。
-      const tail = tails.has(r.req_id) ? tailOf(r) : null;
       if (tail === null) continue;
-      // 承载组被省略时短标落到末尾组首行，同一请求只出现一次。
+      // 承载组被省略时标记落到末尾组首行，同一请求只出现一次。
       const tailHtmls = rowHtmls(r, tail.steps, ordinal, stale === null, hidden ? subagentTag : '');
       groups.push({
         key: `tail:${r.req_id}`,
@@ -899,7 +957,7 @@ if (typeof document !== 'undefined') {
     // 没有已记录请求时给的是插画居中的空列；读取中仍是紧凑单行，不给插画。
     const noRequests = rows.length === 0 && state.pendingSession === null;
     return {
-      headHtml: sessionHead(hiddenRows),
+      headHtml: sessionHead(hiddenRows, view),
       bandHtml: band,
       listClass: `step-list${band !== '' ? ' band-above' : ''}${noRequests ? ' art-empty' : ''}`,
       ordDigits,
@@ -909,7 +967,9 @@ if (typeof document !== 'undefined') {
           ? `<p class="sess-empty pulse">${t('正在读取请求…')}</p>`
           : `<p class="sess-empty sess-empty-art">${spiderArt(200)}<span>${t('这个会话没有已记录的请求。')}</span></p>`)
         : groups.length === 0
-          ? `<p class="sess-empty">${icon('empty-page', 24)}${t('当前窗口的请求都没有可读正文，不在对话时间线里；请求记录在会话头。')}</p>`
+          ? viewRows === 0
+            ? `<p class="sess-empty">${icon('empty-page', 24)}${t('当前视图在这个窗口里没有请求；切到「全部」查看其他请求。')}</p>`
+            : `<p class="sess-empty">${icon('empty-page', 24)}${t('当前窗口的请求都没有可读正文，不在对话时间线里；请求记录在会话头。')}</p>`
           : '',
       // 「已是最新记录」只在后续游标耗尽后出现：还有更晚记录时不冒充结尾。
       endHtml: window.loading || window.newerCursor !== null ? ''
@@ -1823,10 +1883,11 @@ if (typeof document !== 'undefined') {
     else dispatch({ kind: 'open-offpage', reqId: target });
   }
 
-  /** 定位窗口内请求：选中并滚动进入可见区域（路由随导航完成读取、定点补读都走效果）。 @param {number} id */
+  /** 定位窗口内请求：先换到能看见它的视图，再选中并滚动进入可见区域（路由随导航完成读取、定点补读都走效果）。 @param {number} id */
   function locateRequest(id) {
-    const rows = currentRows();
-    if (!rows.some(row => row.req_id === id)) return;
+    const row = currentRows().find(item => item.req_id === id);
+    if (row === undefined) return;
+    revealViewOf(row);
     dispatch({ kind: 'locate', reqId: id });
   }
 
@@ -1936,6 +1997,8 @@ if (typeof document !== 'undefined') {
     const row = turnOf(pendingTurn);
     pendingTurn = null;
     if (row === null) return;
+    const start = currentRows().find(item => item.req_id === row.start_req);
+    if (start !== undefined) revealViewOf(start);
     dispatch({ kind: 'locate', reqId: row.start_req });
     dispatch({ kind: 'select-turn', row });
   }
@@ -2098,6 +2161,8 @@ if (typeof document !== 'undefined') {
     state.revealed = false;
     // 换会话回默认头锚点：进入会话即从头阅读，追尾模式不跨会话继承。
     state.windowAnchor = 'start';
+    // 阅读视图同理：默认主链，进入会话不继承上一场的视角。
+    state.view = 'main';
     // 换会话不复用上一场的准备结论与保留投影：它们只服务当场阅读。
     resetReading();
     if (hold) beginSwitchHold();
@@ -2143,6 +2208,9 @@ if (typeof document !== 'undefined') {
     }
     await resolveInitialTrace();
     if (myNav !== navEpoch) return;
+    // 直达的请求落在被筛掉的视图里时（子代理、辅助请求），先换到它归属的视图再提交。
+    const traced = state.reqId === null ? null : currentRows().find(row => row.req_id === state.reqId) ?? null;
+    if (traced !== null) revealViewOf(traced);
     // 默认选第一笔有内容的请求；窗口外 trace 保留其语义，不用第一笔顶替。
     const rows = currentRows();
     const before = state.reqId;
@@ -2228,11 +2296,25 @@ if (typeof document !== 'undefined') {
       return;
     }
     if (target.closest('#switch-window')) { void switchWindowFor(state.offPageReqId); return; }
+    // 阅读视图切换：控件随会话头重建，走委托；只筛已加载窗口，序号与选择身份都不变。
+    const viewBtn = /** @type {HTMLElement | null} */ (target.closest('[data-view]'));
+    if (viewBtn !== null) {
+      const raw = viewBtn.dataset.view ?? '';
+      state.view = raw === 'all' || raw === 'main' ? raw : Number(raw);
+      renderMain();
+      ensureSelectedVisible();
+      return;
+    }
     // 轮次带点选：轮次行随意图带入，转换层不做查找。
     const turnChip = /** @type {HTMLElement | null} */ (target.closest('[data-turn]'));
     if (turnChip !== null) {
       const turn = turnOf(Number(turnChip.dataset.turn));
-      if (turn !== null) dispatch({ kind: 'select-turn', row: turn });
+      if (turn !== null) {
+        // 轮次起点可能在别的视图里：先换视图，选中后中栏不指空。
+        const start = currentRows().find(row => row.req_id === turn.start_req);
+        if (start !== undefined) revealViewOf(start);
+        dispatch({ kind: 'select-turn', row: turn });
+      }
       return;
     }
     const structureMore = /** @type {HTMLElement | null} */ (target.closest('[data-structure-more]'));
@@ -2288,8 +2370,8 @@ if (typeof document !== 'undefined') {
     if (summaryReq !== null) {
       summaryList = null;
       const id = Number(summaryReq.dataset.summaryReq);
-      const inWindow = currentRows().some(row => row.req_id === id);
-      dispatch(inWindow ? { kind: 'locate', reqId: id } : { kind: 'open-offpage', reqId: id });
+      if (currentRows().some(row => row.req_id === id)) locateRequest(id);
+      else dispatch({ kind: 'open-offpage', reqId: id });
       return;
     }
     const bodyLoad = /** @type {HTMLElement | null} */ (target.closest('[data-body-load]'));

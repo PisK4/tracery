@@ -147,7 +147,8 @@ _Avoid_: 与推理段、执行段混用；把速度分母当成整笔时长
 | 旁路 | bypass | `sessions.ts` 的 bypass 标志同名 |
 | 辅助请求 | auxiliary request | 「辅助请求，不在主链上」的行级称呼；汇总字段 `aux` |
 | 探针 | probe | `probe_kind` 同名 |
-| 子代理 | subagent | `subagent_actors` 同名 |
+| 子代理 | subagent | `subagent_actors` 同名；会话内编号写作 S1、S2 |
+| 阅读视图 | reading view | 取值「全部」「主链」与子代理 S 编号；「主链」复用上行 main chain，辅助请求只出现在「全部」 |
 | 采集 | ingest | `/hook/ingest` 同名；「采集暂停」作 ingestion paused |
 | 尝试 / 尝试链 | attempt / attempt chain | `attempts` 同名 |
 | 账本 / 路由 | ledger / routing | `raw_ledger` 与路由记录同名 |

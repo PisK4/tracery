@@ -299,6 +299,11 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .seg button{font-size:11px;padding:4px 9px;color:var(--text-2);border-right:1px solid var(--line)}
 .seg button:last-child{border-right:0}
 .seg button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);font-weight:550}
+/* 会话头阅读视图：贴 facts 行右端，计数用 mono 小字，选中时计数随文字转 accent。 */
+.view-switch{margin-left:auto}
+.view-switch button{font-size:10.5px;padding:3px 8px}
+.view-switch .ct{font:500 10px var(--mono);color:var(--muted);margin-left:3px}
+.view-switch button[aria-pressed="true"] .ct{color:var(--accent)}
 
 /* ---------- 对话视图：按请求分组，USER / ASSISTANT 交替 ---------- */
 .conv{padding:16px 20px 48px;max-width:940px;position:relative}
@@ -338,18 +343,19 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 /* 选中高亮只落在当前步骤；请求组只留轻微边界，不再与步骤共用底色。 */
 .trace-group[aria-current="true"]{box-shadow:inset 2px 0 0 var(--line-strong)}
 .trace-group[data-status="failed"]{box-shadow:inset 2px 0 0 var(--bad)}
-/* 折叠子代理的整组左缘点线：与选中（实线 strong）、失败（实线 bad）区分开。
-   两者同时出现时点线右移 2px，和实线并排而不是叠在一起。子代理身份只在组首行
-   给短标，后续行由这条线延续；整组统一右移 8px 表示它挂在主链之下。 */
-.trace-group[data-subagent]{position:relative}
+/* 折叠子代理的整组左缘实线：与选中（实线 strong）、失败（实线 bad）区分开，
+   组底铺一档 inset。两者同时出现时实线右移 2px，和选中/失败的实线并排而不是叠在一起。
+   子代理身份只在组首行给标记，后续行由这条线与组底延续；整组统一右移 8px 表示它
+   挂在主链之下。单一角色视图里这些标记全都不画：视图本身就是身份。 */
+.trace-group[data-subagent]{position:relative;background:var(--inset)}
 .trace-group[data-subagent]::before{
-  content:"";position:absolute;inset:0 auto 0 0;border-left:2px dotted var(--line-strong);pointer-events:none;
+  content:"";position:absolute;inset:0 auto 0 0;border-left:2px solid var(--muted);pointer-events:none;
 }
 .trace-group[data-subagent][aria-current="true"]::before,
 .trace-group[data-subagent][data-status="failed"]::before{left:2px}
 .trace-group[data-subagent] .compact-select{padding-left:8px}
-/* 组首行短标：与序号同排的等宽小字，正常态不铺底色。 */
-.row-sub-tag{flex:none;font:9px var(--mono);font-weight:600;letter-spacing:-.01em;color:var(--text-2);cursor:help}
+/* 组首标记：正文级字号，全视图首现写「子代理 S1」，其后只写 S1。 */
+.row-sub-tag{flex:none;font:10px/1.5 var(--ui);font-weight:500;letter-spacing:0;color:var(--text-2);cursor:help}
 /* 版本恢复期间显示的是上一版投影：标记绝对定位、不占高度，出现与消失都不移行；
    组内首行右侧留出让位，文字不钻到标记下面。 */
 .trace-group[data-stale]{position:relative}
@@ -889,6 +895,8 @@ button.tool-link:hover{background:var(--hover);border-radius:4px}
   .msg-head{grid-template-columns:64px minmax(0,1fr);gap:6px}
   .msg-ord{display:none}
   .conv-tools .mini-search{width:100%}
+  /* facts 行换行后视图控件另起一行，不再向右顶 */
+  .view-switch{margin-left:0}
 }
 /* 主题切换保持当帧完成；交互过渡集中在文件末尾的动效区，
    由 body.theme-switching 两帧抑制保证切主题不带旧色残影。 */

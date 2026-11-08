@@ -274,6 +274,9 @@ export const dict = {
   '子代理 {tag} · 前驱正文不可读': 'Subagent {tag} · predecessor body unreadable',
   '子代理 {tag}': 'Subagent {tag}',
   '子代理 S{no}': 'Subagent S{no}',
+  '全部': 'All',
+  '主链': 'Main chain',
+  '阅读视图': 'Reading view',
 
   /* app.js:路由页 */
   '。路由信息尚未读到：正在读取或上次读取失败；再次进入路由页签可重试。': '. Routing info not read yet: reading in progress or last read failed; re-enter the route tab to retry.',
@@ -291,6 +294,7 @@ export const dict = {
   '正在读取后续记录…': 'Reading later records…',
   '加载后续记录': 'Load later records',
   '这个会话没有已记录的请求。': 'This session has no recorded requests.',
+  '当前视图在这个窗口里没有请求；切到「全部」查看其他请求。': 'This view has no requests in the loaded window; switch to All to see the others.',
   '当前窗口的请求都没有可读正文，不在对话时间线里；请求记录在会话头。': 'No request in the loaded window has a readable body, so none appear on the conversation timeline; request records are in the session header.',
   '已是最新记录': 'This is the latest record',
   '正在读取{session}的请求…': 'Reading requests of {session}…',

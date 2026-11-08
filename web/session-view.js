@@ -487,6 +487,8 @@ function sessionBoard(s, status, rows, hidden, sessionKey, hiddenFoldOpen) {
  *    missingReqId: number | null, offPageReqId: number | null, windowError: string | null,
  *    summary: SessionSummary | null, summaryStatus?: 'idle' | 'loading' | 'ready' | 'absent',
  *    hiddenRows?: RequestRow[], hiddenFoldOpen?: boolean,
+ *    view?: 'all' | 'main' | number,
+ *    viewOptions?: Array<{value: 'all' | 'main' | number, label: string, count: number}> | null,
  *    windowAnchor: 'start' | 'latest'}} input */
 export function sessionHead(input) {
   const {
@@ -494,6 +496,7 @@ export function sessionHead(input) {
     summary, summaryStatus = 'idle', windowAnchor,
   } = input;
   const hidden = input.hiddenRows ?? [];
+  const viewOptions = input.viewOptions ?? null;
   const unknown = sessionKey !== null && row === null;
   const first = rows[0] ?? null;
   const latest = rows[rows.length - 1] ?? null;
@@ -518,6 +521,9 @@ export function sessionHead(input) {
       ${sessionKey !== null ? `<button class="fact-copy" id="copy-session" aria-label="${t('复制当前会话 ID')}" title="${t('复制当前会话 ID')}">${icon('copy', 14)}</button>` : ''}
       <span>${t('已加载 <b>{n}</b> 笔 Request', { n: rows.length })}</span>
       ${first && latest ? `<span>${esc(dayTime(first.started_ms))}–${esc(clock(latest.started_ms))}</span>` : ''}
+      ${viewOptions === null ? '' : `<div class="seg view-switch" role="group" aria-label="${t('阅读视图')}">
+        ${viewOptions.map(option => `<button data-view="${option.value}" aria-pressed="${option.value === input.view}">${esc(option.label)}<span class="ct">${option.count}</span></button>`).join('')}
+      </div>`}
     </div>
     ${summary !== null && summary.dirty ? `<div class="session-note warn"><span>${t('部分组的派生还没追上输入：这里是上一次完成的结果。')}</span></div>` : ''}
     ${sessionBoard(summary, summaryStatus, rows, hidden, sessionKey, input.hiddenFoldOpen === true)}
