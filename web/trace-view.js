@@ -596,14 +596,22 @@ const KIND_CLASS = { user: 'user', assistant: 'reply', tool: 'reply', tool_resul
  * 不在缓存时只给 `→ 结果正文`；未配对保持中性 `Tool result`，不猜归属。
  * @param {TraceStep} step
  * @param {((ownerReq: number, callOrd: number) => {name: string, inputText: string} | null) | null} callOf
+ * @param {number | null} [agentNo] 该调用启动的子代理编号；null 表示没有启动回执
  * @returns {{chip: string, args: string, arrow: boolean, more: string[]}}
  */
-function toolRowParts(step, callOf) {
+function toolRowParts(step, callOf, agentNo = null) {
+  // 工具名 chip 是这条调用的身份；只有带启动回执的调用才把它变成可跳的入口。
+  // ↗ 同时承担「点这里去别处」与「这条有启动点」两件事，无回执的 Agent 保持纯展示。
+  const spawnArrow = agentNo === null ? ''
+    : `<span class="row-tint-arrow" aria-hidden="true">${icon('spawn-arrow', 11)}</span>`;
+  const spawnChip = (/** @type {string} */ name) => agentNo === null
+    ? `<span class="row-tint">${esc(name)}</span>`
+    : `<span class="row-tint is-spawn" data-agent-no="${agentNo}" role="link" tabindex="0" aria-label="${t('跳转到子代理 S{no}', { no: agentNo })}" title="${t('跳转到子代理 S{no}', { no: agentNo })}"><span class="row-tint-name">${esc(name)}</span>${spawnArrow}</span>`;
   // 无名工具没有名字可写：身份 chip 用一个形状表示，原名仍进 aria-label 与 title。
   const unnamed = (/** @type {string} */ label) => `<span class="row-tint ico" role="img" aria-label="${label}" title="${label}">${icon('role-tool', 16)}</span>`;
   if (step.kind === 'tool') {
     const name = step.toolName ?? '';
-    const chip = name !== '' ? `<span class="row-tint">${esc(name)}</span>` : unnamed(t('未命名工具'));
+    const chip = name !== '' ? spawnChip(name) : unnamed(t('未命名工具'));
     // 一次调用带多个文件：第一个常显，其余计数交给 +N，完整清单按需展开。
     const targets = summaryTargets(step.toolInput ?? '');
     if (targets !== null) return { chip, args: targets[0], arrow: false, more: targets.slice(1) };
@@ -664,7 +672,7 @@ export function renderTraceRow(row, step, ordinal, callOf = null, selected = fal
   const labelHtml = step.kind === 'flag'
     ? `<span class="row-label flag" role="img" aria-label="${step.status === 'failed' ? t('失败') : t('缺口')}" title="${step.status === 'failed' ? t('失败') : t('缺口')}">${icon(step.status === 'failed' ? 'failure' : 'gap')}</span>`
     : rolePill(label, KIND_CLASS[step.kind] ?? 'aux');
-  const { chip, args, arrow, more } = toolRowParts(step, callOf);
+  const { chip, args, arrow, more } = toolRowParts(step, callOf, step.agentNo ?? null);
   const isTool = step.kind === 'tool' || step.kind === 'tool_result';
   // 多目标只出计数：清单不落 DOM，悬浮或聚焦行时由 app 层按 key 现取现渲染。
   const moreHtml = more.length > 0
@@ -686,11 +694,6 @@ export function renderTraceRow(row, step, ordinal, callOf = null, selected = fal
   // 背景作业配对读数跟在行尾；发起行与通知事件行各有自己的内容，不重复正文。
   const bgNoteHtml = step.bgNote === undefined || step.bgNote === null
     ? '' : ` <span class="bg-note" title="${esc(step.bgNote)}">${esc(step.bgNote)}</span>`;
-  // 构建点标记：启动子代理的调用行给一个可点的 S 编号，点它切到该子代理的视图。
-  // 与 +N 计数同款内联入口：不另占一行，也不把行选择让给嵌套按钮。
-  const agentHtml = step.agentNo === undefined || step.agentNo === null
-    ? ''
-    : ` <span class="row-agent" data-agent-no="${step.agentNo}" aria-label="${t('跳转到子代理 S{no}', { no: step.agentNo })}" title="${t('跳转到子代理 S{no}', { no: step.agentNo })}">→ S${step.agentNo}</span>`;
   // 读数槽定宽右对齐：有读数才出标签，没读数的行留空，列宽与右边缘不跳。
   const readingHtml = step.reading === undefined || step.reading === null ? '' : readingChip(step.reading, step);
   // 组级状态行只表达缺口，不伪装成一条内容：标签位是警示标记，整行按缺口强度着色。
@@ -707,7 +710,7 @@ export function renderTraceRow(row, step, ordinal, callOf = null, selected = fal
     <span class="compact-meta" title="${t('序号表示当前窗口内的请求 · 请求 {ordinal}', { ordinal })}"><b>${ordinal}</b></span>${subTagHtml}
     ${labelHtml}
     ${chip}
-    <span class="compact-preview"${titleAttr}>${previewHtml}</span>${agentHtml}${bgNoteHtml}<span class="compact-reading">${readingHtml}</span>
+    <span class="compact-preview"${titleAttr}>${previewHtml}</span>${bgNoteHtml}<span class="compact-reading">${readingHtml}</span>
   </button>
 </div>
 </div>`;

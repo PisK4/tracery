@@ -134,6 +134,8 @@ if (typeof document !== 'undefined') {
      * 只在已加载窗口内筛选，不改变序号；换会话复位。
      */
     view: /** @type {'all' | 'main' | number} */ ('main'),
+    /** 从主链哪笔调用跳进当前 S 视图；null 表示不是从启动点进来的。换会话清除。 */
+    spawnFrom: /** @type {number | null} */ (null),
     /** 窗口切换在跑：按钮落禁用态，避免重复点击把自己排成两轮重建。 */
     windowJumping: false,
     /** 选中的轮次（会话内已结算轮序号）；null 表示请求态。 */
@@ -697,6 +699,7 @@ if (typeof document !== 'undefined') {
       hiddenFoldOpen: folds.get(`hidden:${state.session ?? ''}`) === true,
       windowAnchor: state.windowAnchor,
       view,
+      spawnFrom: typeof view === 'number' ? state.spawnFrom : null,
       viewOptions: viewOptionsOf(rows),
     });
   }
@@ -1894,9 +1897,11 @@ if (typeof document !== 'undefined') {
   /**
    * 构建点跳转：切到子代理 S{n} 的阅读视图，选中它在当前窗口里的第一笔。
    * 只在这个窗口里找；窗口内没有该子代理的行时不假装到达，说明原因后停在原处。
+   * 来源启动点记进 state.spawnFrom，S 视图据此给返回入口。
    * @param {number} no
+   * @param {number | null} [fromReqId] 启动调用行的 req_id
    */
-  function jumpToSubagent(no) {
+  function jumpToSubagent(no, fromReqId = null) {
     if (!Number.isSafeInteger(no) || no <= 0) return;
     const first = currentRows().find(row => viewMatches(row, no)) ?? null;
     if (first === null) {
@@ -1904,6 +1909,7 @@ if (typeof document !== 'undefined') {
       return;
     }
     state.view = no;
+    state.spawnFrom = fromReqId;
     locateRequest(first.req_id);
   }
 
@@ -2179,6 +2185,7 @@ if (typeof document !== 'undefined') {
     state.windowAnchor = 'start';
     // 阅读视图同理：默认主链，进入会话不继承上一场的视角。
     state.view = 'main';
+    state.spawnFrom = null;
     // 换会话不复用上一场的准备结论与保留投影：它们只服务当场阅读。
     resetReading();
     if (hold) beginSwitchHold();
@@ -2312,15 +2319,30 @@ if (typeof document !== 'undefined') {
       return;
     }
     if (target.closest('#switch-window')) { void switchWindowFor(state.offPageReqId); return; }
-    // 构建点跳转：调用行上的 → S1 切到该子代理的视图并选中窗口内它的第一笔。
-    // 标记是行内的 span（按钮里不能再嵌按钮），键盘入口是同名的视图切换钮。
+    // 构建点跳转：工具名 chip 是行内入口（按钮里不能再嵌按钮），键盘由下方 keydown 代理。
+    // 来源启动点取该行 req_id，S 视图据此给返回入口。
     const agentJump = /** @type {HTMLElement | null} */ (target.closest('[data-agent-no]'));
-    if (agentJump !== null) { jumpToSubagent(Number(agentJump.dataset.agentNo)); return; }
+    if (agentJump !== null) {
+      const group = agentJump.closest('[data-req-id]');
+      const raw = group === null ? null : Number(group.getAttribute('data-req-id'));
+      jumpToSubagent(Number(agentJump.dataset.agentNo), raw !== null && Number.isSafeInteger(raw) ? raw : null);
+      return;
+    }
+    // 反向入口：回到主链并选中来源启动调用行。
+    if (target.closest('#spawn-back') !== null) {
+      const backTo = state.spawnFrom;
+      state.spawnFrom = null;
+      state.view = 'main';
+      if (backTo !== null) locateRequest(backTo);
+      else renderMain();
+      return;
+    }
     // 阅读视图切换：控件随会话头重建，走委托；只筛已加载窗口，序号与选择身份都不变。
     const viewBtn = /** @type {HTMLElement | null} */ (target.closest('[data-view]'));
     if (viewBtn !== null) {
       const raw = viewBtn.dataset.view ?? '';
       state.view = raw === 'all' || raw === 'main' ? raw : Number(raw);
+      state.spawnFrom = null;
       renderMain();
       ensureSelectedVisible();
       return;
@@ -2702,6 +2724,18 @@ if (typeof document !== 'undefined') {
   document.addEventListener('keydown', (e) => {
     const target = /** @type {HTMLElement} */ (e.target);
     if (target.matches('input, textarea, summary')) return;
+    // 行内启动点 chip 是 span（按钮里不能再嵌按钮），键盘入口由这里代理。
+    if (e.key === 'Enter' || e.key === ' ') {
+      const chip = /** @type {HTMLElement | null} */ (target.closest('[data-agent-no]'));
+      if (chip !== null) {
+        e.preventDefault();
+        e.stopPropagation();
+        const group = chip.closest('[data-req-id]');
+        const raw = group === null ? null : Number(group.getAttribute('data-req-id'));
+        jumpToSubagent(Number(chip.dataset.agentNo), raw !== null && Number.isSafeInteger(raw) ? raw : null);
+        return;
+      }
+    }
     if (e.key === 'Escape') {
       // +N 弹层是最轻的覆盖层：先关它，再退到明细弹窗与页内视图。
       if (moreAnchor !== null) { hideMore(); return; }

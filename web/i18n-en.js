@@ -279,6 +279,8 @@ export const dict = {
   '阅读视图': 'Reading view',
   '跳转到子代理 S{no}': 'Jump to subagent S{no}',
   '子代理 S{no} 不在当前窗口；先切窗再试': 'Subagent S{no} is not in the loaded window; switch windows and try again',
+  '子代理 S{no} 由请求 {id} 启动': 'Subagent S{no} was launched by request {id}',
+  '返回启动点': 'Back to launch point',
 
   /* app.js:路由页 */
   '。路由信息尚未读到：正在读取或上次读取失败；再次进入路由页签可重试。': '. Routing info not read yet: reading in progress or last read failed; re-enter the route tab to retry.',
