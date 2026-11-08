@@ -137,6 +137,47 @@ function execReading(pair) {
 }
 
 /**
+ * 辅助请求：分类器、标题生成这类 harness 自身的调用，不属于任何一个角色的阅读视图。
+ * @param {import('../src/queries/projection').RequestRow} row
+ */
+export function isAuxRow(row) {
+  return row.purpose_chain === 'exclude' || row.chain_role === 'aux';
+}
+
+/**
+ * 阅读视图筛选：all 看全窗口；main 只看主链（不含辅助请求与折叠子代理）；
+ * 数字只看对应 S 编号的子代理。辅助请求没有自己的视图。
+ * @param {import('../src/queries/projection').RequestRow} row
+ * @param {'all' | 'main' | number} view
+ */
+export function viewMatches(row, view) {
+  if (view === 'all') return true;
+  if (isAuxRow(row)) return false;
+  return view === 'main' ? row.subagent_no === null : row.subagent_no === view;
+}
+
+/**
+ * 行归属的视图：辅助请求归 all，折叠子代理归自己的 S 编号，其余走主链。
+ * @param {import('../src/queries/projection').RequestRow} row
+ * @returns {'all' | 'main' | number}
+ */
+export function viewOfRow(row) {
+  if (isAuxRow(row)) return 'all';
+  return row.subagent_no === null ? 'main' : row.subagent_no;
+}
+
+/**
+ * 窗口变化后 S 编号可能一笔都不剩：有效视图退回主链，不把空列表当结果交给读者。
+ * @param {import('../src/queries/projection').RequestRow[]} rows
+ * @param {'all' | 'main' | number} view
+ * @returns {'all' | 'main' | number}
+ */
+export function effectiveView(rows, view) {
+  if (typeof view !== 'number') return view;
+  return rows.some(row => viewMatches(row, view)) ? view : 'main';
+}
+
+/**
  * 承载请求的组投影：组是这一笔请求结构新增部分的可读投影。delta 里的用户消息、
  * 消息级 System、assistant 文本与调用块、工具结果各出行；顶层 System 与请求级
  * 记录是请求自己的事实。回复对象不在本组出内容行，它作为下一笔承载请求的
@@ -183,7 +224,7 @@ export function projectSteps(row, read, systemContext = null, bgJobs = [], prevI
     if (status !== null && (gapStatus === null || GAP_RANK[status] > GAP_RANK[gapStatus])) gapStatus = status;
   };
   // 辅助请求一笔一条辅助记录：分类器输入不画成用户消息。
-  if (row.purpose_chain === 'exclude' || row.chain_role === 'aux') {
+  if (isAuxRow(row)) {
     steps.push({ key:`${row.req_id}:aux`, reqId: row.req_id, kind: 'aux',
       text: `${t('辅助请求')} · ${row.req_kind === 'title' ? t('标题生成') : row.req_kind}`,
       messageOrd: null, callOrd: null, source: null, raw: null, unrecognized: false,
@@ -612,7 +653,7 @@ function readingChip(reading, step) {
  * @param {((ownerReq: number, callOrd: number) => {name: string, inputText: string} | null) | null} [callOf]
  *   调用方正文在窗口缓存内时由装配层提供；查不到或未传时结果行降级为只工具名。
  * @param {boolean} [selected] 该步骤是否为当前选择
- * @param {string} [subTag] 折叠子代理的短标（S1/S2）；空串表示主链行
+ * @param {string} [subTag] 折叠子代理的组首标记：全视图首现给「子代理 S1」，其后给 S1；空串表示不标
  * @returns {string}
  */
 export function renderTraceRow(row, step, ordinal, callOf = null, selected = false, subTag = '') {
@@ -648,10 +689,11 @@ export function renderTraceRow(row, step, ordinal, callOf = null, selected = fal
   // 组级状态行只表达缺口，不伪装成一条内容：标签位是警示标记，整行按缺口强度着色。
   // 行类与状态是稳定键的一部分之外的可变信息，缺口变化时这一行本来就该换内容。
   const statusAttr = step.kind === 'flag' ? ` data-flag="${esc(step.status ?? 'unknown')}"` : '';
-  // 子代理短标只出现在组首行：同组后续行靠左缘点线延续身份。
+  // 子代理标记只出现在组首行：同组后续行靠左缘实线延续身份。读屏文案按 S 编号生成，
+  // 与显示用的「子代理 S1 / S1」无关。
   const subTagHtml = subTag === ''
     ? ''
-    : `<span class="row-sub-tag" title="${esc(row.subagent ?? '')}" aria-label="${t('子代理 {tag}', { tag: subTag })}">${subTag}</span>`;
+    : `<span class="row-sub-tag" title="${esc(row.subagent ?? '')}" aria-label="${t('子代理 S{no}', { no: row.subagent_no })}">${subTag}</span>`;
   return `<div class="compact-step" data-request-ordinal="${ordinal}" data-req-id="${row.req_id}">
 <div class="compact-row${step.isError === true ? ' step-error' : ''}${step.kind === 'flag' ? ' step-flag' : ''}"${statusAttr}>
   <button class="compact-select" data-step-key="${esc(step.key)}" data-kind="${step.kind}"${step.callOrd === null ? '' : ` data-call-ord="${step.callOrd}"`} aria-current="${selected}">

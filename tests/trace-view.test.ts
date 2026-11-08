@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { evidenceFoldHtml, resolveSelectedSource } from '../web/rail-facts.js';
-import { isEmptyGroup, projectSteps, projectTailReply, renderTraceRows, tailEligibleIds, toolSummary } from '../web/trace-view.js';
+import { effectiveView, isEmptyGroup, isAuxRow, projectSteps, projectTailReply, renderTraceRows, tailEligibleIds, toolSummary, viewMatches, viewOfRow } from '../web/trace-view.js';
 import { summaryTargets } from '../web/tool-summary.js';
 
 const TOKEN = 'r1-' + 'a'.repeat(64);
@@ -1062,15 +1062,40 @@ test('空组判定：投影备齐且只剩状态行才离开默认时间线', ()
   expect(isEmptyGroup({ steps: [], stale: null, placeholder: false })).toBe(true);
 });
 
-test('子代理短标只挂在组首行，完整 id 进悬停说明', () => {
+test('子代理标记只挂在组首行，读屏文案与显示文案分开', () => {
   const r = row({ subagent: 'aedb2cec955a06a4b', subagent_no: 2 });
   const steps = projectSteps(r, read(detail(),
     [entry(2, { state: 'text', text: 'q', original: 'q' }, true)], null));
   const html = renderTraceRows(r, steps, 1, null, null, 'S2');
-  // 三行步骤只出一次短标，且落在首行。
+  // 三行步骤只出一次标记，且落在首行。
   expect(html.match(/class="row-sub-tag"/g)?.length).toBe(1);
   expect(html.indexOf('class="row-sub-tag"')).toBeLessThan(html.indexOf('data-step-key', html.indexOf('data-step-key') + 1));
   expect(html).toContain('title="aedb2cec955a06a4b"');
-  // 主链行与独立子代理会话不传短标时不出标记。
+  // 读屏文案按 S 编号生成，不受显示文案（首现全名或短标）影响。
+  expect(html).toContain('aria-label="子代理 S2"');
+  expect(renderTraceRows(r, steps, 1, null, null, '子代理 S2')).toContain('>子代理 S2</span>');
+  // 主链行与独立子代理会话不传标记时不出标记。
   expect(renderTraceRows(r, steps, 1, null, null, '')).not.toContain('row-sub-tag');
+});
+
+test('阅读视图筛选：主链排除辅助请求与折叠子代理，编号视图只留该子代理', () => {
+  const main = row({ req_id: 1, subagent: null, subagent_no: null });
+  const aux = row({ req_id: 2, subagent: null, subagent_no: null, purpose_chain: 'exclude' });
+  const subAux = row({ req_id: 3, subagent: 'a', subagent_no: 1, chain_role: 'aux' });
+  const sub = row({ req_id: 4, subagent: 'a', subagent_no: 1 });
+  // 独立子代理会话（droid）：整场就是子代理，不编号，归主链视图。
+  const standalone = row({ req_id: 5, subagent: 's', subagent_no: null });
+  const rows = [main, aux, subAux, sub, standalone];
+  expect(rows.filter(r => viewMatches(r, 'all')).length).toBe(5);
+  expect(rows.filter(r => viewMatches(r, 'main')).map(r => r.req_id)).toEqual([1, 5]);
+  expect(rows.filter(r => viewMatches(r, 1)).map(r => r.req_id)).toEqual([4]);
+  expect(isAuxRow(aux)).toBe(true);
+  expect(isAuxRow(subAux)).toBe(true);
+  expect(viewOfRow(aux)).toBe('all');
+  expect(viewOfRow(sub)).toBe(1);
+  expect(viewOfRow(main)).toBe('main');
+  // 窗口重建后编号视图一笔不剩：有效视图退回主链，不给空列表。
+  expect(effectiveView(rows, 2)).toBe('main');
+  expect(effectiveView(rows, 1)).toBe(1);
+  expect(effectiveView(rows, 'all')).toBe('all');
 });

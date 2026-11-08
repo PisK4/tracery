@@ -866,6 +866,28 @@ test('会话头：会话文件累计用量单独成行并标「会话累计」',
   expect(html).not.toContain('已加载窗口');
 });
 
+test('会话头：阅读视图切换只在有可过滤行时出现，计数按视图给出', () => {
+  // 窗口里没有辅助请求也没有折叠子代理：主链与全部同形，不给开关。
+  const plain = sessionHead({ ...headBase, rows: [requestRow()] as never });
+  expect(plain).not.toContain('view-switch');
+  const html = sessionHead({
+    ...headBase,
+    rows: [requestRow(), requestRow({ req_id: 2, subagent: 'a', subagent_no: 1 })] as never,
+    view: 'main',
+    viewOptions: [
+      { value: 'all', label: '全部', count: 2 },
+      { value: 'main', label: '主链', count: 1 },
+      { value: 1, label: '子代理 S1', count: 1 },
+    ],
+  });
+  expect(html).toContain('class="seg view-switch"');
+  expect(html).toContain('aria-label="阅读视图"');
+  expect(html).toContain('data-view="all" aria-pressed="false"');
+  expect(html).toContain('data-view="main" aria-pressed="true"');
+  expect(html).toContain('data-view="1" aria-pressed="false"');
+  expect(html).toContain('子代理 S1<span class="ct">1</span>');
+});
+
 test('会话头双列：左右分组、副标题删除与身份行', () => {
   const html = sessionHead({
     ...headBase, rows: [requestRow({ req_id: 2, in_tok: 10, out_tok: 5, ms: 2000, ttft_ms: 500 })] as never,
