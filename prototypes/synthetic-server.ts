@@ -646,7 +646,8 @@ function fullMessages(r: SynthRequest): SynthMessage[] {
 /** 列表行：与生产 RequestRow 同形，状态语义来自派生结果。 */
 function rowOf(r: SynthRequest): RequestRow {
   return {
-    req_id: r.id, conv_key: convOf(r), actor: 'actor-main', actor_state: 'known',
+    req_id: r.id, conv_key: convOf(r), actor: 'actor-main', subagent: null, subagent_no: null,
+    actor_state: 'known',
     agent: agentOf(r), started_ms: startOf(r), title: r.title, title_source: titleSourceOf(r),
     via: 'through',
     status: r.status, model_requested: 'synth-group', model_served: r.protocol === 'chat' ? 'synth-c' : 'synth-a',
@@ -756,7 +757,8 @@ function detailOf(r: SynthRequest): ReadingDetail {
   const prompt = promptOf(r);
   const readingToken = readingTokenOf(r);
   return {
-    req_id:r.id, conv_key:convOf(r), actor:'actor-main', actor_state:'known', agent:agentOf(r),
+    req_id:r.id, conv_key:convOf(r), actor:'actor-main', subagent:null, subagent_no:null,
+    actor_state:'known', agent:agentOf(r),
     started_ms:startOf(r), title:r.title, title_source:titleSourceOf(r), status:r.status,
     via:'through',
     model_requested:'synth-group', model_served:r.protocol === 'chat' ? 'synth-c' : 'synth-a',

@@ -612,9 +612,10 @@ function readingChip(reading, step) {
  * @param {((ownerReq: number, callOrd: number) => {name: string, inputText: string} | null) | null} [callOf]
  *   调用方正文在窗口缓存内时由装配层提供；查不到或未传时结果行降级为只工具名。
  * @param {boolean} [selected] 该步骤是否为当前选择
+ * @param {string} [subTag] 折叠子代理的短标（S1/S2）；空串表示主链行
  * @returns {string}
  */
-export function renderTraceRow(row, step, ordinal, callOf = null, selected = false) {
+export function renderTraceRow(row, step, ordinal, callOf = null, selected = false, subTag = '') {
   const label = KIND_LABEL[step.kind] ?? 'Event';
   // 组级状态行的标签位只放形状：失败是裸 X、其余缺口是三角；事实句子仍在行内说明。
   const labelHtml = step.kind === 'flag'
@@ -647,10 +648,14 @@ export function renderTraceRow(row, step, ordinal, callOf = null, selected = fal
   // 组级状态行只表达缺口，不伪装成一条内容：标签位是警示标记，整行按缺口强度着色。
   // 行类与状态是稳定键的一部分之外的可变信息，缺口变化时这一行本来就该换内容。
   const statusAttr = step.kind === 'flag' ? ` data-flag="${esc(step.status ?? 'unknown')}"` : '';
+  // 子代理短标只出现在组首行：同组后续行靠左缘点线延续身份。
+  const subTagHtml = subTag === ''
+    ? ''
+    : `<span class="row-sub-tag" title="${esc(row.subagent ?? '')}" aria-label="${t('子代理 {tag}', { tag: subTag })}">${subTag}</span>`;
   return `<div class="compact-step" data-request-ordinal="${ordinal}" data-req-id="${row.req_id}">
 <div class="compact-row${step.isError === true ? ' step-error' : ''}${step.kind === 'flag' ? ' step-flag' : ''}"${statusAttr}>
   <button class="compact-select" data-step-key="${esc(step.key)}" data-kind="${step.kind}"${step.callOrd === null ? '' : ` data-call-ord="${step.callOrd}"`} aria-current="${selected}">
-    <span class="compact-meta" title="${t('序号表示当前窗口内的请求 · 请求 {ordinal}', { ordinal })}"><b>${ordinal}</b></span>
+    <span class="compact-meta" title="${t('序号表示当前窗口内的请求 · 请求 {ordinal}', { ordinal })}"><b>${ordinal}</b></span>${subTagHtml}
     ${labelHtml}
     ${chip}
     <span class="compact-preview"${titleAttr}>${previewHtml}</span>${bgNoteHtml}<span class="compact-reading">${readingHtml}</span>
@@ -666,12 +671,14 @@ export function renderTraceRow(row, step, ordinal, callOf = null, selected = fal
  * @param {number} ordinal
  * @param {string|null} selected
  * @param {((ownerReq: number, callOrd: number) => {name: string, inputText: string} | null) | null} [callOf]
+ * @param {string} [subTag] 折叠子代理的短标，只挂在首行
  * @returns {string}
  */
-export function renderTraceRows(row, steps, ordinal, selected, callOf = null) {
+export function renderTraceRows(row, steps, ordinal, selected, callOf = null, subTag = '') {
   const pieces = [];
-  for (const step of steps) {
-    pieces.push(renderTraceRow(row, step, ordinal, callOf, step.key === selected));
+  for (let index = 0; index < steps.length; index += 1) {
+    pieces.push(renderTraceRow(row, steps[index], ordinal, callOf, steps[index].key === selected,
+      index === 0 ? subTag : ''));
   }
   return pieces.join('');
 }

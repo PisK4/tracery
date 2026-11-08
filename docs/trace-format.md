@@ -37,6 +37,7 @@ magpie 另有 OTLP 导出，不作为证据源。它只发 `gen_ai.*`、`magpie.
 | `session` | 客户端声明的会话 id，magpie 原样记录 | — |
 | `conv_key` | 归属键，JSON 数组形状，来源见 `conv_source` | 优先 `session`，缺失时依次退到 `conv`、hook 自身或账本行引用 |
 | `actor` | 组身份：`subagent` 优先，否则等于会话 | 同一 `conv_key` 下的子代理按 actor 各自成组 |
+| `subagent` | 产生这一笔的子代理 id；自身即子代理的独立会话（droid 子会话）里等于 `session` | 与 `session` 比较才能区分「折叠进父会话的子代理」和「整场就是子代理的会话」 |
 | `actor_state` | `known` / `unknown` | 未知归属的请求不进派生队列，不产生关系结论 |
 | `via` | 出生通路：`through` / `hook` / `rejected` / `otlp` / `session` | 回答这一行从哪条通路生出来，不是流量种类；账本 `direct` 行的摄入当前未启用。`otlp` 与 `session` 行各有自己的证据位，账本晚到可认领已建行 |
 

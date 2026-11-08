@@ -611,6 +611,19 @@ if (typeof document !== 'undefined') {
       return t('关系待重建或为旧结果，不标记新增');
     }
     if (detail.purpose_chain === 'exclude' || detail.chain_role === 'aux') return t('辅助请求，不在主链上');
+    // 子代理组内的关系换词：它的「首笔」是子代理首笔，不是会话首笔。
+    if (detail.subagent_no !== null) {
+      const tag = `S${detail.subagent_no}`;
+      if (detail.prev_relation === 'first') return t('子代理 {tag} · 首笔', { tag });
+      if (detail.prev_relation === 'confirmed') return t('子代理 {tag} · 续自上一笔', { tag });
+      if (detail.prev_relation === 'branch') {
+        return detail.context_event === 'omp_compaction'
+          ? t('子代理 {tag} · 另起一支（压缩归档改写了上下文前缀）', { tag })
+          : t('子代理 {tag} · 另起一支', { tag });
+      }
+      if (detail.prev_relation === 'unknown') return t('子代理 {tag} · 前驱正文不可读', { tag });
+      return '';
+    }
     if (detail.prev_relation === 'first') return t('会话首笔');
     if (detail.prev_relation === 'confirmed') return t('续自上一笔');
     if (detail.prev_relation === 'branch') {
@@ -786,19 +799,21 @@ if (typeof document !== 'undefined') {
    *  生命周期见 createMoreTargets：跟随当前会话的渲染行，换会话整表重置。 */
   const moreTargets = createMoreTargets();
   /** @param {RequestRow} r @param {import('./trace-view.js').TraceStep[]} steps
-   *  @param {number} ordinal @param {boolean} fallback @returns {string[]} */
-  function rowHtmls(r, steps, ordinal, fallback) {
+   *  @param {number} ordinal @param {boolean} fallback @param {string} [subTag] @returns {string[]} */
+  function rowHtmls(r, steps, ordinal, fallback, subTag = '') {
     const cached = rowHtmlCache.get(steps);
-    if (cached !== undefined && cached.ordinal === ordinal && cached.fallback === fallback) return cached.htmls;
+    if (cached !== undefined && cached.ordinal === ordinal && cached.fallback === fallback
+      && cached.subTag === subTag) return cached.htmls;
     const callOf = callOfFor(steps, fallback);
-    const htmls = steps.map(step => renderTraceRow(r, step, ordinal, callOf));
+    const htmls = steps.map((step, index) =>
+      renderTraceRow(r, step, ordinal, callOf, false, index === 0 ? subTag : ''));
     for (const step of steps) {
       if (step.kind !== 'tool') continue;
       const targets = summaryTargets(step.toolInput ?? '');
       if (targets === null) continue;
       moreTargets.remember(step.key, targets);
     }
-    rowHtmlCache.set(steps, { ordinal, fallback, htmls });
+    rowHtmlCache.set(steps, { ordinal, fallback, subTag, htmls });
     return htmls;
   }
 
@@ -841,6 +856,8 @@ if (typeof document !== 'undefined') {
       const ordinal = ordinalOf(r.req_id);
       const callOf = callOfFor(steps, stale === null);
       const status = r.status === null ? 'unknown' : r.status >= 400 ? 'failed' : 'success';
+      // 短标只标折叠进本会话的子代理；主链行与独立子代理会话（droid）不标。
+      const subagentTag = r.subagent_no === null ? '' : `S${r.subagent_no}`;
       const empty = isEmptyGroup(projection);
       if (empty) hiddenRows.push(r);
       // 空组不占默认时间线；显式选中的请求与轮次起点临时留下状态行，选择不悬空。
@@ -848,7 +865,7 @@ if (typeof document !== 'undefined') {
       /** @type {import('./trace-dom.js').CommitItem[]} */
       const items = [];
       if (!hidden) {
-        const htmls = rowHtmls(r, steps, ordinal, stale === null);
+        const htmls = rowHtmls(r, steps, ordinal, stale === null, subagentTag);
         for (let index = 0; index < steps.length; index += 1) {
           items.push({ key: steps[index].key, html: htmls[index] });
         }
@@ -859,13 +876,15 @@ if (typeof document !== 'undefined') {
           current: r.req_id === state.reqId,
           stale,
           placeholder,
+          subagentTag,
           rows: items,
         });
       }
       // 末尾组不挂请求级 aria-current：它是同一请求的回复，不是第二笔请求。
       const tail = tails.has(r.req_id) ? tailOf(r) : null;
       if (tail === null) continue;
-      const tailHtmls = rowHtmls(r, tail.steps, ordinal, stale === null);
+      // 承载组被省略时短标落到末尾组首行，同一请求只出现一次。
+      const tailHtmls = rowHtmls(r, tail.steps, ordinal, stale === null, hidden ? subagentTag : '');
       groups.push({
         key: `tail:${r.req_id}`,
         reqId: r.req_id,
@@ -873,6 +892,7 @@ if (typeof document !== 'undefined') {
         current: false,
         stale: tail.stale,
         placeholder: false,
+        subagentTag,
         rows: tail.steps.map((step, index) => ({ key: step.key, html: tailHtmls[index] })),
       });
     }
@@ -1111,10 +1131,14 @@ if (typeof document !== 'undefined') {
     const sourceTag = r.via === 'session'
       ? `<span class="muted" title="${esc(sessionFileTitle(r))}">${sessionFileText(r)}</span>`
       : '';
+    // 子代理行在头部带身份：短标与会话内编号一致，悬停给完整 id。
+    const subagentTag = r.subagent_no === null
+      ? ''
+      : `<span class="muted" title="${esc(r.subagent ?? '')}">${t('子代理 S{no}', { no: r.subagent_no })}</span>`;
     const title = contentTitle(r);
     const firstLine = title === ''
-      ? `<div class="rail-id"><span class="grow"></span>${sourceTag}<span class="rail-state">${statusDot(r)}${statusChip(r)}</span></div>`
-      : `<div class="rail-title-row">${title}${sourceTag}<span class="rail-state">${statusDot(r)}${statusChip(r)}</span></div>`;
+      ? `<div class="rail-id"><span class="grow"></span>${subagentTag}${sourceTag}<span class="rail-state">${statusDot(r)}${statusChip(r)}</span></div>`
+      : `<div class="rail-title-row">${title}${subagentTag}${sourceTag}<span class="rail-state">${statusDot(r)}${statusChip(r)}</span></div>`;
     return `${firstLine}${tabs}`;
   }
 

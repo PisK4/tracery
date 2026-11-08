@@ -385,6 +385,8 @@ CREATE TABLE source_cursor (
 
 所以读模型保留 `subagent` 与 `parent_agent` 两列。会话导航仍按 `conv_key` 统一，但前驱计算与工具配对按 `(conv_key, actor)` 做，`actor` 取 `subagent` 优先、否则是会话本身。身份不足以判定归属时明确标不确定，不按名称或时间猜。
 
+读契约把这层身份带到页面：列表行透出 `subagent`，并在会话内按首笔时间给出 `subagent_no`（S1、S2…），翻页与窗口变化都不换号。`subagent = session` 的独立子代理会话不编号——它的整场会话就是子代理，再标一次只会把每一笔都写成子代理调用。中栏据此给子代理组加左缘点线与组首行短标，右栏关系文案换成「子代理 Sn · 首笔」这类口径，会话标题先取本会话自身候选、只有子代理标题时才降级使用。
+
 空串是上游对"没有会话"的写法。会话身份在入口按缺失处理：`session`、`actor` 都留 NULL，组键回退到该条证据自己的前缀（hook 用 `["hook", id]`），`raw_hook.session` 保留上游原值。非空会话 id 在入口去掉可与 UUID 对上的 `session_`/`sess_` 前缀，账本、路由、hook 与本地适配器落在同一个组键上。账本与路由的映射层在映射时归一；hook envelope 保留原值，规范化在 `insertHookRequest` 读取时完成。旧行落在 `["session",""]` 空桶，只能用显式身份迁移拆回各自的 hook 回退键，见[运维手册](operations.md#migrate-hook-identity)。
 
 ### 会话文件来源（droid）

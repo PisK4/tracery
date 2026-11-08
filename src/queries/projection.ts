@@ -18,6 +18,10 @@ export type DerivedState = 'dirty' | 'current' | 'retained' | 'legacy';
 
 export type RequestRow = {
   req_id: number; conv_key: string; actor: string | null;
+  /** 原样透出的子代理身份；自身即子代理的独立会话（droid）里它与 session 相同。 */
+  subagent: string | null;
+  /** 折叠进本会话的子代理编号（按首笔时间）；主链行与独立子代理会话为 null。 */
+  subagent_no: number | null;
   /** magpie 给的客户端标签（claude / omp 等）；与 actor（会话/子代理身份）不是一回事。 */
   agent: string | null;
   actor_state: 'known' | 'unknown'; started_ms: number;
@@ -166,6 +170,8 @@ type StateColumns = {
  */
 export type ProjectableRow = StateColumns & DerivedColumns & {
   req_id: number; conv_key: string | null; actor: string | null; agent: string | null;
+  /** 与 subagent 比较可区分「折叠进本会话的子代理」与「自身即子代理的会话」。 */
+  session: string | null; subagent: string | null;
   actor_state: string; started_ms: number; status: number | null;
   via: string;
   model_requested: string | null; model_served: string | null;
@@ -224,7 +230,7 @@ export function prefixValid(row: ProjectableRow): boolean {
  * 前缀行是例外：组还没算完，但本行不受这一版输入影响，行级列按原值返回，
  * `derived_prefix` 说明它还没等到整组完成。链角色仍是 `unknown`。
  */
-export function projectRow(row: ProjectableRow): {
+export function projectRow(row: ProjectableRow, subagentNo: number | null = null): {
   safe: RequestRow; state: DerivedState; historical: HistoricalResult | null;
 } {
   const state = derivedStateOf(row);
@@ -251,6 +257,8 @@ export function projectRow(row: ProjectableRow): {
     req_id: row.req_id,
     conv_key: row.conv_key ?? '',
     actor: row.actor,
+    subagent: row.subagent,
+    subagent_no: subagentNo,
     agent: row.agent,
     actor_state: row.actor_state === 'known' ? 'known' : 'unknown',
     started_ms: row.started_ms,

@@ -267,6 +267,13 @@ export const dict = {
   '另起一支 · 压缩归档改写了上下文前缀': 'Branched · compaction archive rewrote the context prefix',
   '另起一支': 'Branched',
   '前驱正文不可读，无法比对': 'Predecessor body unreadable; cannot compare',
+  '子代理 {tag} · 首笔': 'Subagent {tag} · first request',
+  '子代理 {tag} · 续自上一笔': 'Subagent {tag} · continues the previous request',
+  '子代理 {tag} · 另起一支': 'Subagent {tag} · branched',
+  '子代理 {tag} · 另起一支（压缩归档改写了上下文前缀）': 'Subagent {tag} · branched (compaction archive rewrote the context prefix)',
+  '子代理 {tag} · 前驱正文不可读': 'Subagent {tag} · predecessor body unreadable',
+  '子代理 {tag}': 'Subagent {tag}',
+  '子代理 S{no}': 'Subagent S{no}',
 
   /* app.js:路由页 */
   '。路由信息尚未读到：正在读取或上次读取失败；再次进入路由页签可重试。': '. Routing info not read yet: reading in progress or last read failed; re-enter the route tab to retry.',

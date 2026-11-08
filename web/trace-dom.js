@@ -18,7 +18,7 @@ import { t } from './i18n.js';
  *
  * @typedef {{key: string, html: string}} CommitItem
  * @typedef {{key: string, reqId: number, status: string, current: boolean, stale: 'reading' | 'failed' | null,
- *   placeholder: boolean, rows: CommitItem[]}} GroupModel
+ *   placeholder: boolean, subagentTag: string, rows: CommitItem[]}} GroupModel
  *   组身份是字符串键：承载请求的组是 `req:<id>`，末尾回复组是 `tail:<id>`，同号可以相邻。
  *   `reqId` 仍是数字请求号，写进 DOM 的 `data-req` 供定位与读取；节点复用与锚点按字符串键工作。
  * @typedef {{headHtml: string, bandHtml: string, listClass: string, ordDigits: number,
@@ -26,7 +26,7 @@ import { t } from './i18n.js';
  *   selectedStep: string | null}} MainModel
  * @typedef {{node: Element, html: string}} Shown
  * @typedef {{key: string, node: HTMLElement, rows: Map<string, Shown>, order: string[], status: string, current: boolean,
- *   stale: 'reading' | 'failed' | null, placeholder: boolean}} GroupState
+ *   stale: 'reading' | 'failed' | null, placeholder: boolean, subagentTag: string}} GroupState
  * @typedef {{kind: 'step' | 'group', key: string, top: number}} Anchor 提交前首条可见稳定步骤（或目标组）及其视口偏移
  */
 
@@ -231,7 +231,7 @@ export function createMainView(main, options = {}) {
     node.setAttribute('aria-current', 'false');
     /** @type {Map<string, Shown>} */
     const rows = new Map();
-    return { key: model.key, node, rows, order: [], status: '', current: false, stale: null, placeholder: false };
+    return { key: model.key, node, rows, order: [], status: '', current: false, stale: null, placeholder: false, subagentTag: '' };
   }
 
   /** 选择是独立 UI 状态：只改高亮，不参与可见结果比较。 @param {string | null} stepKey */
@@ -339,6 +339,12 @@ export function createMainView(main, options = {}) {
     if (state.current !== model.current) {
       state.current = model.current;
       state.node.setAttribute('aria-current', String(model.current));
+    }
+    // 子代理组身份只改左缘与组首行短标，组内容照旧由行级计划维护。
+    if (state.subagentTag !== model.subagentTag) {
+      state.subagentTag = model.subagentTag;
+      if (model.subagentTag === '') state.node.removeAttribute('data-subagent');
+      else state.node.setAttribute('data-subagent', model.subagentTag);
     }
     // 旧版本标记只在这组显示的不是当前读取结果时出现；不占高度，由样式让位。
     if (state.stale !== model.stale) {

@@ -145,13 +145,53 @@ const HAS_USER_FINGERPRINT_SQL = `EXISTS (SELECT 1 FROM request x
 /**
  * 会话标题只取已经结算的当前结果：排除用途提供模型标题，参与链提供用户标题。
  *
- * 四个候选都要求请求用途已判定且所属组已完成；dirty 组或待判定用途的旧标题
+ * 所有候选都要求请求用途已判定且所属组已完成；dirty 组或待判定用途的旧标题
  * 不是当前结论，不能拿来命名会话。用户标题不再按 `req_kind='chat'` 过滤：
  * 未知来源类别只要参与链，就可以提供用户首句。
+ *
+ * 用户标题按身份分级：先取本会话自身（非折叠子代理）的候选，主链优先、
+ * 其次任一用户标题；主会话一个都没有时才退到子代理行。子代理收到的委派提示
+ * 不能拿来命名会话，但直接排除会让只有子代理标题的会话退到无信息兜底，
+ * 所以是降级顺序，不是过滤。
  *
  * 跨组绑定标题插在同会话模型标题之后、用户标题之前：标题请求本身仍是
  * bypass 卡，主会话只是在读侧借用它已经算出的模型标题。
  */
+/** 用户标题的四个候选：本会话自身主链 → 自身任一 → 任一 actor 主链 → 任一 actor。 */
+const USER_TITLE_SQL = `(SELECT ${derivedColSql('q2', 'e2', 'r2', 'title')} FROM request r2
+   JOIN derive_queue q2 ON q2.conv_key = r2.conv_key AND q2.actor = r2.actor
+   LEFT JOIN derive_request_result e2 ON e2.generation = q2.published_generation AND e2.req_id = r2.req_id
+   WHERE r2.conv_key = request.conv_key AND ${derivedColSql('q2', 'e2', 'r2', 'title_source')} = 'user_delta'
+     AND r2.purpose_chain = 'participate' AND ${derivedColSql('q2', 'e2', 'r2', 'chain_role')} = 'main'
+     AND (r2.subagent IS NULL OR r2.subagent = r2.session)
+     AND ${derivedColSql('q2', 'e2', 'r2', 'title')} IS NOT NULL AND r2.purpose_pending = 0
+     AND ${groupCurrentSql('q2')}
+   ORDER BY r2.started_ms ASC, r2.req_id ASC LIMIT 1),
+  (SELECT ${derivedColSql('q3', 'e3', 'r3', 'title')} FROM request r3
+   JOIN derive_queue q3 ON q3.conv_key = r3.conv_key AND q3.actor = r3.actor
+   LEFT JOIN derive_request_result e3 ON e3.generation = q3.published_generation AND e3.req_id = r3.req_id
+   WHERE r3.conv_key = request.conv_key AND ${derivedColSql('q3', 'e3', 'r3', 'title_source')} = 'user_delta'
+     AND r3.purpose_chain = 'participate' AND (r3.subagent IS NULL OR r3.subagent = r3.session)
+     AND ${derivedColSql('q3', 'e3', 'r3', 'title')} IS NOT NULL
+     AND r3.purpose_pending = 0
+     AND ${groupCurrentSql('q3')}
+   ORDER BY r3.started_ms ASC, r3.req_id ASC LIMIT 1),
+  (SELECT ${derivedColSql('q4', 'e4', 'r4', 'title')} FROM request r4
+   JOIN derive_queue q4 ON q4.conv_key = r4.conv_key AND q4.actor = r4.actor
+   LEFT JOIN derive_request_result e4 ON e4.generation = q4.published_generation AND e4.req_id = r4.req_id
+   WHERE r4.conv_key = request.conv_key AND ${derivedColSql('q4', 'e4', 'r4', 'title_source')} = 'user_delta'
+     AND r4.purpose_chain = 'participate' AND ${derivedColSql('q4', 'e4', 'r4', 'chain_role')} = 'main'
+     AND ${derivedColSql('q4', 'e4', 'r4', 'title')} IS NOT NULL AND r4.purpose_pending = 0
+     AND ${groupCurrentSql('q4')}
+   ORDER BY r4.started_ms ASC, r4.req_id ASC LIMIT 1),
+  (SELECT ${derivedColSql('q5', 'e5', 'r5', 'title')} FROM request r5
+   JOIN derive_queue q5 ON q5.conv_key = r5.conv_key AND q5.actor = r5.actor
+   LEFT JOIN derive_request_result e5 ON e5.generation = q5.published_generation AND e5.req_id = r5.req_id
+   WHERE r5.conv_key = request.conv_key AND r5.purpose_chain = 'participate'
+     AND ${derivedColSql('q5', 'e5', 'r5', 'title')} IS NOT NULL AND r5.purpose_pending = 0
+     AND ${groupCurrentSql('q5')}
+   ORDER BY r5.started_ms ASC, r5.req_id ASC LIMIT 1)`;
+
 const SESSION_TITLE_SQL = `COALESCE(
   (SELECT r1.model_title FROM request r1
    JOIN derive_queue q1 ON q1.conv_key = r1.conv_key AND q1.actor = r1.actor
@@ -160,29 +200,7 @@ const SESSION_TITLE_SQL = `COALESCE(
      AND ${groupCurrentSql('q1')}
    ORDER BY r1.started_ms DESC, r1.req_id DESC LIMIT 1),
   CASE WHEN ${HAS_USER_FINGERPRINT_SQL} THEN ${CROSS_GROUP_TITLE_SQL} END,
-  (SELECT ${derivedColSql('q2', 'e2', 'r2', 'title')} FROM request r2
-   JOIN derive_queue q2 ON q2.conv_key = r2.conv_key AND q2.actor = r2.actor
-   LEFT JOIN derive_request_result e2 ON e2.generation = q2.published_generation AND e2.req_id = r2.req_id
-   WHERE r2.conv_key = request.conv_key AND ${derivedColSql('q2', 'e2', 'r2', 'title_source')} = 'user_delta'
-     AND r2.purpose_chain = 'participate' AND ${derivedColSql('q2', 'e2', 'r2', 'chain_role')} = 'main'
-     AND ${derivedColSql('q2', 'e2', 'r2', 'title')} IS NOT NULL AND r2.purpose_pending = 0
-     AND ${groupCurrentSql('q2')}
-   ORDER BY r2.started_ms ASC, r2.req_id ASC LIMIT 1),
-  (SELECT ${derivedColSql('q3', 'e3', 'r3', 'title')} FROM request r3
-   JOIN derive_queue q3 ON q3.conv_key = r3.conv_key AND q3.actor = r3.actor
-   LEFT JOIN derive_request_result e3 ON e3.generation = q3.published_generation AND e3.req_id = r3.req_id
-   WHERE r3.conv_key = request.conv_key AND ${derivedColSql('q3', 'e3', 'r3', 'title_source')} = 'user_delta'
-     AND r3.purpose_chain = 'participate' AND ${derivedColSql('q3', 'e3', 'r3', 'title')} IS NOT NULL
-     AND r3.purpose_pending = 0
-     AND ${groupCurrentSql('q3')}
-   ORDER BY r3.started_ms ASC, r3.req_id ASC LIMIT 1),
-  (SELECT ${derivedColSql('q4', 'e4', 'r4', 'title')} FROM request r4
-   JOIN derive_queue q4 ON q4.conv_key = r4.conv_key AND q4.actor = r4.actor
-   LEFT JOIN derive_request_result e4 ON e4.generation = q4.published_generation AND e4.req_id = r4.req_id
-   WHERE r4.conv_key = request.conv_key AND r4.purpose_chain = 'participate'
-     AND ${derivedColSql('q4', 'e4', 'r4', 'title')} IS NOT NULL AND r4.purpose_pending = 0
-     AND ${groupCurrentSql('q4')}
-   ORDER BY r4.started_ms ASC, r4.req_id ASC LIMIT 1)
+  ${USER_TITLE_SQL}
 )`;
 
 /**
@@ -214,29 +232,7 @@ export function getSessionTitles(store: Store, keys: string[]): SessionTitleMap 
          AND r1.model_title IS NOT NULL AND r1.purpose_pending = 0
          AND ${groupCurrentSql('q1')}
        ORDER BY r1.started_ms DESC, r1.req_id DESC LIMIT 1),
-      (SELECT ${derivedColSql('q2', 'e2', 'r2', 'title')} FROM request r2
-       JOIN derive_queue q2 ON q2.conv_key = r2.conv_key AND q2.actor = r2.actor
-       LEFT JOIN derive_request_result e2 ON e2.generation = q2.published_generation AND e2.req_id = r2.req_id
-       WHERE r2.conv_key = request.conv_key AND ${derivedColSql('q2', 'e2', 'r2', 'title_source')} = 'user_delta'
-         AND r2.purpose_chain = 'participate' AND ${derivedColSql('q2', 'e2', 'r2', 'chain_role')} = 'main'
-         AND ${derivedColSql('q2', 'e2', 'r2', 'title')} IS NOT NULL AND r2.purpose_pending = 0
-         AND ${groupCurrentSql('q2')}
-       ORDER BY r2.started_ms ASC, r2.req_id ASC LIMIT 1),
-      (SELECT ${derivedColSql('q3', 'e3', 'r3', 'title')} FROM request r3
-       JOIN derive_queue q3 ON q3.conv_key = r3.conv_key AND q3.actor = r3.actor
-       LEFT JOIN derive_request_result e3 ON e3.generation = q3.published_generation AND e3.req_id = r3.req_id
-       WHERE r3.conv_key = request.conv_key AND ${derivedColSql('q3', 'e3', 'r3', 'title_source')} = 'user_delta'
-         AND r3.purpose_chain = 'participate' AND ${derivedColSql('q3', 'e3', 'r3', 'title')} IS NOT NULL
-         AND r3.purpose_pending = 0
-         AND ${groupCurrentSql('q3')}
-       ORDER BY r3.started_ms ASC, r3.req_id ASC LIMIT 1),
-      (SELECT ${derivedColSql('q4', 'e4', 'r4', 'title')} FROM request r4
-       JOIN derive_queue q4 ON q4.conv_key = r4.conv_key AND q4.actor = r4.actor
-       LEFT JOIN derive_request_result e4 ON e4.generation = q4.published_generation AND e4.req_id = r4.req_id
-       WHERE r4.conv_key = request.conv_key AND r4.purpose_chain = 'participate'
-         AND ${derivedColSql('q4', 'e4', 'r4', 'title')} IS NOT NULL AND r4.purpose_pending = 0
-         AND ${groupCurrentSql('q4')}
-       ORDER BY r4.started_ms ASC, r4.req_id ASC LIMIT 1)
+      ${USER_TITLE_SQL}
     ) AS title
      FROM request
      WHERE conv_key IN (${keys.map(() => '?').join(',')})

@@ -1701,3 +1701,85 @@ test('getStats 复用同写世代的缓存，写入后重算（F06）', () => {
     expect(second.requests).toBe(first.requests + 1);
   } finally { f.close(); }
 });
+
+/** 折叠子代理的列表行：主链与子代理共用 conv_key，靠 session/subagent 区分。 */
+function insertSubagentRows(
+  store: ReturnType<typeof fixture>['store'], convKey: string,
+  rows: { reqId: number; session: string; subagent: string | null; startedMs: number }[],
+): void {
+  store.write(db => {
+    const insert = db.prepare(`INSERT INTO request(req_id,conv_key,conv_source,actor,agent,session,subagent,actor_state,started_ms,day,via,body_state,derive_version,have,created_at,updated_at,title,title_source)
+      VALUES (?,?,'session',?, 'claude',?,?, 'known',?,'2026-11-08','through','available',1,7,1,1,'t','user_delta')`);
+    for (const row of rows) {
+      insert.run(row.reqId, convKey, row.subagent ?? row.session, row.session, row.subagent, row.startedMs);
+    }
+  });
+}
+
+test('列表透出子代理身份，编号按会话内首笔时间稳定，独立子代理会话不编号', () => {
+  const f = fixture();
+  try {
+    const key = JSON.stringify(['session', 'sub-ids']);
+    insertSubagentRows(f.store, key, [
+      // 第二个子代理先出现，编号必须按首笔时间而不是行序或 id。
+      { reqId: 11, session: 's-main', subagent: 'sub-b', startedMs: 3000 },
+      { reqId: 12, session: 's-main', subagent: 'sub-a', startedMs: 1000 },
+      { reqId: 13, session: 's-main', subagent: null, startedMs: 2000 },
+      { reqId: 14, session: 's-main', subagent: 'sub-a', startedMs: 4000 },
+    ]);
+    const page = listRequests(f.store, key, 10, null);
+    const byId = new Map(page.items.map(row => [row.req_id, row]));
+    expect([byId.get(12)?.subagent, byId.get(12)?.subagent_no]).toEqual(['sub-a', 1]);
+    expect([byId.get(14)?.subagent, byId.get(14)?.subagent_no]).toEqual(['sub-a', 1]);
+    expect([byId.get(11)?.subagent, byId.get(11)?.subagent_no]).toEqual(['sub-b', 2]);
+    // 主链行没有子代理身份，也不参与编号。
+    expect([byId.get(13)?.subagent, byId.get(13)?.subagent_no]).toEqual([null, null]);
+
+    // 自身即子代理的独立会话（droid）：每一笔都带 subagent=session，不能全标成子代理行。
+    const ownKey = JSON.stringify(['session', 'sub-own']);
+    insertSubagentRows(f.store, ownKey, [
+      { reqId: 21, session: 's-child', subagent: 's-child', startedMs: 1000 },
+      { reqId: 22, session: 's-child', subagent: 's-child', startedMs: 2000 },
+    ]);
+    const own = listRequests(f.store, ownKey, 10, null).items;
+    expect(own.map(row => row.subagent_no)).toEqual([null, null]);
+    expect(own.map(row => row.subagent)).toEqual(['s-child', 's-child']);
+  } finally {
+    f.close();
+  }
+});
+
+test('会话标题先取本会话自身候选，只有子代理标题时才降级使用', () => {
+  const f = fixture();
+  try {
+    const settle = (convKey: string, actor: string) => f.store.write(db => {
+      db.run(`UPDATE request SET purpose_pending=0 WHERE conv_key=? AND actor=?`, [convKey, actor]);
+      db.run(`INSERT INTO derive_queue(conv_key,actor,from_sort,input_revision,published_revision,target_algorithm,published_algorithm,state)
+        VALUES (?,?,'',1,1,3,3,'clean')`, [convKey, actor]);
+    });
+    // 子代理先开始、主会话后开始：按时间排会把子代理的委派提示当标题。
+    const mixed = 'sub-title-mixed';
+    insertSubagentRows(f.store, mixed, [
+      { reqId: 31, session: 's-main', subagent: 'sub-a', startedMs: 1000 },
+      { reqId: 32, session: 's-main', subagent: null, startedMs: 2000 },
+    ]);
+    f.store.write(db => {
+      db.run(`UPDATE request SET title='子代理收到的任务简报' WHERE req_id=31`);
+      db.run(`UPDATE request SET title='用户真正问的问题' WHERE req_id=32`);
+    });
+    settle(mixed, 'sub-a');
+    settle(mixed, 's-main');
+    expect(getSessionTitles(f.store, [mixed])[0]?.title).toBe('用户真正问的问题');
+
+    // 只有子代理标题时不退回空标题：降级使用，不是过滤。
+    const onlySub = 'sub-title-only';
+    insertSubagentRows(f.store, onlySub, [
+      { reqId: 41, session: 's-main', subagent: 'sub-a', startedMs: 1000 },
+    ]);
+    f.store.write(db => db.run(`UPDATE request SET title='子代理收到的任务简报' WHERE req_id=41`));
+    settle(onlySub, 'sub-a');
+    expect(getSessionTitles(f.store, [onlySub])[0]?.title).toBe('子代理收到的任务简报');
+  } finally {
+    f.close();
+  }
+});
