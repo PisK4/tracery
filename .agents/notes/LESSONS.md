@@ -129,6 +129,16 @@
 - 防护：web 模块 import t 前 `grep -n "const t = \|(t) =>" web/<file>.js`；对事件委托区额外核对裸 `t`（无点、无括号）引用，typecheck 不兜底这个坑。
 - Seen 1× (2026-11-04).
 
+**换图标库时先列全四处的图形来源，别只改 `icons.js`。**
+- 证据：2026-11-08 Lucide 迁移首版只换了 `web/icons.js` 的 39 枚 BODY，忽略另外三处——`web/app.css` 的 `--chev-right` data URI mask、`web/index.html` 的 7 枚内联首屏占位 SVG（都是 16 网格自绘）、以及 `web/agent-logos.js` 品牌 logo 与 `web/empty-state.js` 蜘蛛插画。前两处仍露出旧几何，后两处按 UIUX-DESIGN.md 的品牌色例外应保留。
+- 防护：动图标前 `grep -rn "viewBox\|data:image/svg+xml\|<svg" web/`；区分功能图标、品牌标识与插画三类，只有第一类进映射表。换完按 `grep -rn "0 0 16 16" web/` 确认零残留。
+- Seen 1× (2026-11-08).
+
+**验 `:focus-visible` 不能用程序化 `.focus()` 读计算样式。**
+- 证据：2026-11-08 启动点 chip 三件套验收，CDP 里 `element.focus()` 后 `getComputedStyle(el).outlineStyle` 恒为 `none`、`:focus-visible` 为 false，看似缺少焦点描边；实际是浏览器只在键盘 modality 下给该伪类。先派发一次真实键盘事件再 focus，读数为 `solid 2px` accent 色。
+- 防护：验焦点态用 CDP `Input.dispatchKeyEvent` 发一次键让浏览器进入键盘 modality，再 `focus()` 并读 `el.matches(':focus-visible')` 与 `outlineStyle`/`outlineWidth`；程序化 focus 的读数既不能当通过也不能当失败。
+- Seen 1× (2026-11-08).
+
 ## 方案与回填
 
 **改标题/摘要这类「挑一行代表整组」的候选顺序前，先在生产副本上按发布代口径重算前后差异，逐条看新值是否更有信息量。**
