@@ -131,6 +131,17 @@ function hasRejectedResponsesCall(output: readonly unknown[]): boolean {
 export function replyShapeOf(protocol: string, reply: unknown): ReplyShape {
   if (reply === null || typeof reply !== 'object' || Array.isArray(reply)) return 'unknown';
   const record = reply as Record<string, unknown>;
+  if (protocol === 'genai-semconv') {
+    // semconv 回复信封是 { messages, stop_reason? }：消息落在 messages 而非
+    // content/choices，收尾原因由摄入从 span 的 finish_reasons 写进 stop_reason。
+    if (!Array.isArray(record.messages)) return 'unknown';
+    const finish = typeof record.stop_reason === 'string' && record.stop_reason !== '' ? record.stop_reason : null;
+    const calls = replyCallsOf(protocol, reply);
+    if (calls.length > 0) return finish !== null && REPLY_FINISH_TRUNCATED.has(finish) ? 'unknown' : 'tools';
+    if (finish === null) return 'unknown';
+    if (REPLY_FINISH_TRUNCATED.has(finish)) return 'unknown';
+    return REPLY_FINISH_FINAL.has(finish) ? 'final' : 'unknown';
+  }
   if (protocol === 'responses') {
     const output = record.output;
     // 没有 output 数组就没有可读回复；空数组是"已完成但没有正文"，仍按状态判。
