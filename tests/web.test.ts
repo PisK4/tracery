@@ -17,6 +17,7 @@ import {
   railTabFromParam, railTabParam, resolveTraceTarget, routeReadTarget,
 } from '../web/url-route.js';
 import { agentLabel, railSummaryListHtml, sessionHead, sessionHiddenFold, sessionsListFoldHtml } from '../web/session-view.js';
+import { hostOf } from '../web/host.js';
 
 test('后端降级只出两种标签，正常与未知模式不占顶栏', () => {
   expect(backendStateText(null)).toBeNull();
@@ -1362,4 +1363,16 @@ test('汇总列表打开与左栏列表换内容都补一次淡入', () => {
   expect(app.split(fade).length - 1).toBe(4);
   // 中栏切会话的两段换场不因推广被改动。
   expect(app).toContain('const SWITCH_MIN_HOLD_MS = 200');
+});
+
+test('宿主接缝只认 host=desktop，路由同步保留宿主', () => {
+  expect(hostOf('')).toBe('browser');
+  expect(hostOf('?host=desktop')).toBe('desktop');
+  expect(hostOf('?session=x&host=desktop&tab=body')).toBe('desktop');
+  // 其他值一律按浏览器处理，不猜别名。
+  expect(hostOf('?host=app')).toBe('browser');
+  expect(hostOf('?host=DESKTOP')).toBe('browser');
+  // 页签与选择路由重写 URL 时不能把外壳退回浏览器样式。
+  const app = readFileSync('web/app.js', 'utf8');
+  expect(app).toContain("if (host === 'desktop') p.set('host', 'desktop')");
 });
