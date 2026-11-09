@@ -45,8 +45,9 @@
 **用生产库副本起本地预览时，先 rebase 到 master、用 `sqlite3 .backup` 拷贝，并带上 `redaction.salt`。**
 - 证据：2026-11-04 会话切换预览，分支基点 schema v10、生产库 v11，启动报 `schema_version_unsupported`；`bun run maintain backup` 报 `backup_failed:source_must_be_stopped`（备份要求源采集器停止）；数据目录缺 `redaction.salt` 时启动报 `redaction_salt_missing`。3.9GB 库用 `sqlite3 .backup` 约 3 分钟。
 - 防护：预览前 `git rebase master`；`sqlite3 <prod>/trace.db ".backup '<tmp>/trace.db'"`；复制生产目录的 `redaction.salt`（0600）到 `ATC_DATA_DIR`；用独立 `ATC_PORT` 起，不碰生产 8320。验收完成后删掉整个临时目录（含库与 salt），保留生产原件。
-- Seen 1× (2026-11-04).
+- Seen 2× (2026-11-04, 2026-11-09).
 - 变体（2026-11-04）：临时实例要把会话源与路由目录一起指到临时目录。证据：第 6 轮已把 `ATC_DATA_DIR` 改到 `/tmp`，临时库仍混入 107 条真实 session 请求，因为会话源与 `ATC_ROUTING_DIR` 还指向默认位置。
+- 再次复现（2026-11-09）：用 `bun run start` 加临时 `ATC_DATA_DIR` / `ATC_PORT` 起设置页预览，`/api/stats` 出现真实 `~/.claude/projects/...jsonl` 游标，浏览器混进 3 个真实会话。只改数据目录并不关闭会话适配器；这次改用注入 `sessionAdapters: []`、`communityPlugins: false` 的临时入口脚本才得到干净实例，第一次结果作废、不写成合成验收。
 
 ## 验证
 
@@ -227,6 +228,18 @@
 - 证据：2026-11-06 生产派生单轮 100–150 s，日志只到 compute 段，看上去像算法回归。同一组、同一份库、同一二进制在普通 QoS 下只读复算 34 s；同一条命令套 `taskpolicy -b` 后 149.3 s。生产由 launchd 托管，plist 写着 `ProcessType=Background`。此前还把「改前 66 s」当基线，实际部署前已是 85–88 s 且随组增大单调上涨，两个数不可比。
 - 防护：报生产单次耗时的趋势前，先钉三件事——口径（是否同一段计时）、同期基线、调度类型（`ProcessType`/`taskpolicy`）。要复现「生产比本机慢几倍」时，用 `taskpolicy -b` 起同一脚本做对照，能一次分清算法与环境。见[派生链前驱匹配的三次方开销与 launchd 后台调度](implemented/bug-fix/2026-11-06-derive-chain-match-cubic.md)。
 - Seen 1× (2026-11-06).
+
+## 设置与前端状态
+
+**旧 localStorage 偏好迁移只在服务端全新文件时采用一次，每次启动都清旧键，别让浏览器存储反复覆盖新选择。**
+- 证据：2026-11-09 设置层第一阶段，浏览器合成验收发现刷新后服务端保存的 `dark/zh` 被旧的 `tc.theme=light` / `tc.lang=en` 覆盖回 `light/en`。原因是迁移条件按「服务端该项没有 overrides」逐字段判定，而 appearance/lang 恰好没被单独存成 overrides；每次启动都把浏览器残留值写回服务端。修法见 `142c40b`：`legacyOverrides()` 读完即删键，`initSettings()` 只在 `settings.json` 的 overrides 为空时采用，`changeLocale()` 不再写 `tc.lang`。
+- 防护：迁移一次性数据源时，条件绑在整份服务端文件是否为空，不绑单个字段；清旧键与「是否采用」分开，服务端已有任何 overrides 时只清不采用。浏览器验收必须包含一次「保存 → 写入旧键 → 刷新」与一次「全新服务端采用旧键」两条路径；`tests/web.test.ts` 用静态断言钉住空 overrides 条件与删键动作。
+- Seen 1× (2026-11-09).
+
+**面板骨架只生成一次时，语言切换要连静态文案一起重画，别只重建内容区。**
+- 证据：2026-11-09 面板切到英文后 `set-body` 里的 Theme 变了，页签仍是「外观」「采集来源」，页脚仍是中文；面板 DOM 由 `initSettingsPanel()` 注入一次，`paint()` 只重写 `set-body`，`data-i18n` 缺失。修法：骨架节点标 `data-i18n` / `data-i18n-aria`，`paint()` 按当前 `t()` 就地换文案，事件绑定与开合状态不动。
+- 防护：语言切换验收同时查内容区、页签、页头、页脚与 aria；`tests/web.test.ts` 钉住骨架标记存在。启动时按服务端语言只重画静态 chrome（读取 store 还没加载），用户主动切换才走含 `renderAll()` 的全量重绘，两条回调别混用。
+- Seen 1× (2026-11-09).
 
 ## 功能评估
 

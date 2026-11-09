@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createMoreTargets } from '../web/selection.js';
 import { restoreScroll } from '../web/scroll.js';
 import { backendStateHtml, backendStateText } from '../web/backend-state.js';
@@ -1144,7 +1145,7 @@ test('换会话的换场钉住最短驻留，减少动态时不等', () => {
   expect(app).toMatch(/const SWITCH_MIN_HOLD_MS = 200;/);
   expect(app).toMatch(/function switchReady\(loading, minDeadline, deadline, reduce\)/);
   expect(app).toMatch(/if \(!reduce\) await sleep\(Math\.max\(0, minDeadline - performance\.now\(\)\)\);/);
-  expect(app).toMatch(/const reduce = matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches;/);
+  expect(app).toMatch(/const reduce = prefersReducedMotion\(\);/);
   // 两段动画时长与 JS 的驻留/清理定时器对齐；扫描线不再用 1s 无限循环。
   expect(css).toContain('animation:switch-leave 200ms var(--ease-out) both');
   expect(css).toContain('animation:switch-sweep 200ms var(--ease-out) both');
@@ -1153,6 +1154,51 @@ test('换会话的换场钉住最短驻留，减少动态时不等', () => {
   expect(app).toContain('}, 260);');
   // 减少动态时清掉关键帧末帧的位移，旧画面不留在偏移位。
   expect(css).toContain('.col-main[data-switch-state] .session-head,');
+});
+
+test('设置层是外观与语言的唯一权威，面板不摆未接线开关', () => {
+  const settingsJs = readFileSync('web/settings.js', 'utf8');
+  const panel = readFileSync('web/settings-panel.js', 'utf8');
+  const i18n = readFileSync('web/i18n.js', 'utf8');
+  expect(settingsJs).toContain("reader.execute('settings'");
+  expect(settingsJs).toContain("transport.execute('saveSettings'");
+  expect(i18n).not.toContain("localStorage.getItem('tc.lang')");
+  expect(i18n).not.toContain("localStorage.setItem('tc.lang'");
+  expect(settingsJs).not.toContain("localStorage.setItem('tc.theme'");
+  expect(settingsJs).not.toContain("localStorage.setItem('tc.lang'");
+  // 旧键每次启动都清，但只有全新的服务端文件才采用浏览器残留值。
+  expect(settingsJs).toContain('Object.keys(payload.overrides).length === 0');
+  expect(settingsJs).toContain("localStorage.removeItem('tc.theme')");
+  expect(settingsJs).toContain("localStorage.removeItem('tc.lang')");
+  expect(settingsJs).toContain('apply(current, true)');
+  // 未接线分类只给事实，不摆开关也不写「已生效」。
+  expect(panel).toContain('data-panel="sources" hidden');
+  expect(panel).toContain('data-panel="history" hidden');
+  expect(panel).not.toContain('data-source=');
+  expect(panel).not.toContain('data-ret=');
+  expect(panel).not.toContain('data-field="notify"');
+  expect(panel).not.toContain('data-field="fullBody"');
+  // 骨架只生成一次，语言切换时按标记就地换文案，页签与页脚不能僵在初始语言。
+  expect(panel).toContain('data-i18n=');
+  expect(panel).toContain('data-i18n-aria=');
+  expect(panel).toContain("querySelectorAll('[data-i18n]')");
+});
+
+test('reduced-motion 判定只有 motion.js 一个来源，CSS 与设置开关同口径', () => {
+  const css = readFileSync('web/app.css', 'utf8');
+  const motionJs = readFileSync('web/motion.js', 'utf8');
+  const files = readdirSync('web').filter(name => name.endsWith('.js') && name !== 'motion.js');
+  const readers: string[] = [];
+  for (const name of files) {
+    const source = readFileSync(join('web', name), 'utf8');
+    if (source.includes('prefers-reduced-motion: reduce')) readers.push(name);
+  }
+  expect(readers).toEqual([]);
+  expect(motionJs).toContain('export function prefersReducedMotion()');
+  expect(motionJs).toContain('document.documentElement.dataset.reduceMotion');
+  expect(css).toContain('@media (prefers-reduced-motion:reduce)');
+  expect(css).toContain(':root[data-reduce-motion="true"]');
+  expect(css).toContain('--fs-scale:1');
 });
 
 test('分段控件弹起匹配真实类名，不留死选择器', () => {

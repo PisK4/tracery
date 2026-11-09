@@ -20,11 +20,13 @@ import { agentLogoHtml, setAgentLogoFetcher } from './agent-logos.js';
 import { backendStateHtml } from './backend-state.js';
 import { esc } from './html.js';
 import { icon } from './icons.js';
-import { motion, settled } from './motion.js';
+import { motion, settled, prefersReducedMotion } from './motion.js';
 import { partLabel } from './parts.js';
 import { createReaderStore } from './reader-store.js';
 import { createHttpReadTransport } from './read-http.js';
 import { initLayout, openRail, applyTheme, syncPanelButtons } from './layout.js';
+import { initSettings } from './settings.js';
+import { initSettingsPanel, refreshSettingsPanel } from './settings-panel.js';
 import { t, initLocale, htmlLang } from './i18n.js';
 import { fillContextMap, iidOf, itemLabel } from './context-map.js';
 import { createContextMenu, iidParse } from './context-detail.js';
@@ -62,6 +64,8 @@ if (typeof document !== 'undefined') {
   // 同一 fetcher 交给 logo 懒加载，装配点以外不接触全局 fetch。
   const fetcher = fetch;
   setAgentLogoFetcher(fetcher);
+  // 设置读写与会话读取共用同一个 HTTP adapter 工厂：不新增第二个 fetch 调用点。
+  const settingsTransport = createHttpReadTransport({ fetcher });
   const store = createReaderStore(createHttpReadTransport({ fetcher }),
     // 记录快照异步变化（409 作废、自动重读换新或失败）按影响面响应；迟到响应不进来。
     (/** @type {number} */ id) => { onStoreChange(id); },
@@ -233,7 +237,7 @@ if (typeof document !== 'undefined') {
             const group = /** @type {HTMLElement | null} */ (document.querySelector(`.trace-group[data-group-key="req:${CSS.escape(String(fx.reqId))}"]`));
             // 落点确认：目标组呼吸一次淡出，让定位滚动有「到了」的反馈。
             if (group !== null) markFresh(group, 'landed', 760);
-            group?.scrollIntoView({ block: 'center', behavior: state.revealed && !matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'instant' });
+            group?.scrollIntoView({ block: 'center', behavior: state.revealed && !prefersReducedMotion() ? 'smooth' : 'instant' });
           });
           break;
         }
@@ -1773,6 +1777,8 @@ if (typeof document !== 'undefined') {
     setAttr('rail-col', 'aria-label', t('请求读数与正文'));
     setAttr('refresh-sessions', 'aria-label', t('刷新会话列表'));
     setAttr('refresh-sessions', 'title', t('重新读取会话列表第一页'));
+    setAttr('set-settings-toggle', 'aria-label', t('设置'));
+    setAttr('set-settings-toggle', 'title', t('设置'));
     const title = document.querySelector('.sessions-title h2');
     if (title) title.textContent = t('会话');
     const listPulse = document.querySelector('#sessions-list > p.sess-empty.pulse');
@@ -1789,6 +1795,14 @@ if (typeof document !== 'undefined') {
     }
   }
 
+  /** 服务端语言就位时只重画静态 chrome；动态区域之后按正常加载路径渲染。 */
+  function applySettingsLocale() {
+    document.documentElement.lang = htmlLang();
+    applyStaticTexts();
+    applyTheme();
+    refreshSettingsPanel();
+  }
+
   /** 语言切换的界面侧：静态 chrome 换文案，动态区域走既有渲染路径全量重绘。
    * 投影与准备结论缓存里存着上一语言的步骤短语，切换时一并重置，重绘按当前语言重投影。 */
   function applyLocaleChrome() {
@@ -1796,6 +1810,7 @@ if (typeof document !== 'undefined') {
     applyStaticTexts();
     applyTheme();
     syncPanelButtons();
+    refreshSettingsPanel();
     applyBackendState(lastAdmission);
     resetReading();
     renderAll();
@@ -2196,7 +2211,7 @@ if (typeof document !== 'undefined') {
       const now = performance.now();
       const deadline = now + SWITCH_HOLD_MS;
       const minDeadline = now + SWITCH_MIN_HOLD_MS;
-      const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const reduce = prefersReducedMotion();
       // 刚换过场又点下一个：先等点击停稳，被下一次点击取代就整次放弃。
       if (!reduce && now - lastSwapAt < SWITCH_BURST_MS) {
         await sleep(Math.min(SWITCH_SETTLE_MS, SWITCH_HOLD_MS));
@@ -2843,6 +2858,10 @@ if (typeof document !== 'undefined') {
   // 骨架先出：会话列表请求在飞时左栏与主栏显示骨架条，不再黑屏等待。
   el('sessions-list').innerHTML = skeletonSessionsHtml();
   void (async () => {
+    // 设置层服务端权威先就位：它决定主题、语言、字号与动效，再装面板。
+    // 服务端不可写时 initSettings 退回降级缓存，页面照常渲染。
+    await initSettings(settingsTransport, applySettingsLocale, applyLocaleChrome, toast);
+    initSettingsPanel(toast);
     let listError = null;
     try {
       await store.loadSessions();

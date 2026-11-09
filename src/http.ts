@@ -30,9 +30,15 @@ import { decodeLogsBody, decodeTracesBody } from './sources/otlp/decode';
 import { acceptOtlpLogs, acceptOtlpTraces } from './sources/otlp/ingest';
 import { createIngestMetrics, type CapacityMetrics, type IngestMetrics } from './capacity';
 import type { DiagnosticLog } from './monitoring';
+import { loadSettings, saveSettings } from './settings';
+import type { SettingsPayload } from './settings';
 
 const WEB_ROOT = new URL('../web/', import.meta.url);
 const MAX_ENVELOPE_BYTES = 64 * 1024 * 1024;
+/** 设置写入的体积上限：固定字段的 JSON 远小于此，超限不读进内存。 */
+const MAX_SETTINGS_BYTES = 4096;
+/** 写入端点只认这一个固定路径，不接受任意路径内容。 */
+const SETTINGS_PATH = '/api/settings';
 /** 同时只接收一份大 envelope；模块级计数在单进程 collector 内有效。 */
 let ingesting = false;
 
@@ -41,6 +47,7 @@ export function routeTemplate(pathname: string): string {
   if (pathname === '/hook/ingest') return 'hook.ingest';
   if (pathname === '/v1/traces') return 'otlp.traces';
   if (pathname === '/v1/logs') return 'otlp.logs';
+  if (pathname === '/api/settings') return '/api/settings';
   if (pathname === '/api/ingest-metrics' || pathname === '/api/metrics'
     || pathname === '/api/stats' || pathname === '/api/sessions' || pathname === '/api/agents') return pathname;
   if (pathname.startsWith('/api/sessions/')) {
@@ -109,6 +116,8 @@ export const STATIC_FILES: Record<string, { file: string; type: string }> = {
   '/turn-band.js': { file: 'turn-band.js', type: 'text/javascript; charset=utf-8' },
   '/i18n.js': { file: 'i18n.js', type: 'text/javascript; charset=utf-8' },
   '/i18n-en.js': { file: 'i18n-en.js', type: 'text/javascript; charset=utf-8' },
+  '/settings.js': { file: 'settings.js', type: 'text/javascript; charset=utf-8' },
+  '/settings-panel.js': { file: 'settings-panel.js', type: 'text/javascript; charset=utf-8' },
 };
 
 export function loadReadToken(dataDir: string): string {
@@ -515,9 +524,13 @@ export function createHandler(
   otlp?: { token: string; salt: Uint8Array; admission?: () => HookAdmission },
   diagnostics?: DiagnosticLog,
   live?: LiveActivity,
+  /** 启动装配处加载好的用户设置；未注入时按请求懒加载（测试与隔离实例）。 */
+  settings?: SettingsPayload,
   /** 社区轨折叠入口；未注入时只有内置 Parser。 */
   community?: readonly CommunityTodoSource[],
 ): (req: Request) => Promise<Response> {
+  let current = settings;
+  const getSettings = () => current ?? (current = loadSettings(config.dataDir, diagnostics));
   // hook 计数在未注入观测运行时也保留，只是没有对外入口。
   const ingestMetrics = metrics?.ingest ?? createIngestMetrics();
   // 同 key 的并发会话列表共享一次计算（F27）：SQLite 同步查询在事件循环里
@@ -541,14 +554,35 @@ export function createHandler(
     if (verdict !== 'ok') {
       return json({ error: verdict === 'unauthorized' ? 'unauthorized' : verdict }, verdict === 'unauthorized' ? 401 : 403);
     }
+    // 页面第一次拿到写能力：POST 与 GET 共用同一份 Host/Origin/同源校验，
+    // 不新增跨域白名单。设置写只认固定路径、固定字段与有限体积。
+    if (url.pathname === SETTINGS_PATH && req.method === 'POST') {
+      const declared = Number(req.headers.get('content-length') ?? '0');
+      if (Number.isFinite(declared) && declared > MAX_SETTINGS_BYTES) {
+        return json({ error: 'settings_too_large' }, 413);
+      }
+      const text = await readBounded(req, MAX_SETTINGS_BYTES);
+      if (text === null) return json({ error: 'settings_too_large' }, 413);
+      let input: unknown;
+      try { input = JSON.parse(text); } catch { return json({ error: 'invalid_json' }, 400); }
+      try {
+        current = saveSettings(config.dataDir, input);
+        return json(current);
+      } catch (error) {
+        const code = error instanceof Error ? /^settings_/.test(error.message) ? error.message : 'settings_write_failed'
+          : 'settings_write_failed';
+        return json({ error: code }, code === 'settings_write_failed' ? 500 : 400);
+      }
+    }
     if (req.method !== 'GET' && req.method !== 'HEAD') {
-      return json({ error: 'method_not_allowed' }, 405, { allow: 'GET, HEAD' });
+      return json({ error: 'method_not_allowed' }, 405, { allow: 'GET, HEAD, POST' });
     }
 
     const path = url.pathname;
     if (!path.startsWith('/api/')) return await serveStatic(path);
 
     try {
+      if (path === SETTINGS_PATH) return json(getSettings());
       if (path === '/api/metrics') {
         if (metrics === undefined) return json({ error: 'metrics_unavailable' }, 404);
         return json(metrics.lightSnapshot());

@@ -542,6 +542,12 @@ v7 在 v6 之上加的是 OTLP 三张表：`raw_otlp_span`（span 原始层，�
 
 可恢复快照是 bundle，不是裸数据库：`trace.db`、`redaction.salt` 与 `manifest.json` 三件，清单记 `{format:1, schema, salt_id, database_sha256}`。可接受的结构版本只有一份导出常量 `RESTORABLE_SCHEMA_VERSIONS`，备份与恢复都查它；恢复还要求包内数据库自身的 `user_version` 与清单相等。发布用同父目录的 0700 staging 加 `rename`，目标已存在就拒绝，不覆盖任何已有目录。认证令牌不随包走，恢复后按首次启动规则重新生成。
 
+### 用户设置文件
+
+`src/config.ts` 读环境变量与 plist，负责 `dataDir`、端口与容量预算等进程装配，保持不 import 仓库内其他模块。用户可决定的选择单独放 `src/settings.ts`：默认值与白名单校验在代码里，`<dataDir>/config/settings.json` 只写与默认值不同的项，`<dataDir>/config/themes/` 预留给自定义主题。目录 0700、文件 0600，写文件走同目录临时文件加 `rename`。
+
+`settings.json` 的形状是一份扁平对象，键取 `preset`、`appearance`、`accent`、`accentSoft`、`fontSize`、`reduceMotion`、`lang`；取值枚举、颜色正则与字段完整性在 `src/settings.ts` 校验。启动时未知键、类型不符、越界取值或非法 JSON 都回退默认值并记诊断 issue，原文件不改写不删除。保存端点只收完整且固定的字段形状，拒绝未知键、缺字段与超过 4 KiB 的正文。密钥、令牌与脱敏盐不进这个文件，也不进恢复 bundle；备份与迁移见[运维手册](operations.md#用户设置文件)。
+
 ### 原始层
 
 magpie 三张表，互不覆盖。`payload_json` 保留整行原文，应对 magpie 改字段：不用提前把所有字段解析成列，出现新字段时先从原始载荷补，再改表。
@@ -1269,6 +1275,10 @@ droid 行在落库时由转录重建正文，正常为 `available`；行建好�
 | `GET /api/requests/:id/context-item?kind=&name=&if_reading=&cursor=` | 上下文类别的条目目录：已保存正文中的承载块与配对结果位置；token 必填 | 上限 80 条；keyset 游标绑定请求与类别 |
 | `GET /api/requests/:id/route` | 路由决策与尝试链，来自 `route_summary` | 无 |
 | `GET /api/stats` | 体积、覆盖位统计、健康状态、探针结果、存储准入 | 无 |
+| `GET /api/settings` | 读用户设置的生效值与 overrides | 无 |
+| `POST /api/settings` | 保存一份完整用户设置，只认固定字段，体积上限 4 KiB | 无 |
+
+设置读写共用 `src/read-contract.ts` 的具名 `settings` / `saveSettings` 与 `web/read-http.js` 一条传输 seam；写路径走 `checkAccess` 的 Host、Origin、同源三道门，与 GET 共用，不新增跨域白名单。响应只含 `settings` 与 `overrides`，不含令牌、盐、路径内容或环境变量原文。存储形状见[用户设置文件](#用户设置文件)。
 
 stats 在同一个只读事务内通过窄索引计总请求数，通过 `i_req_body` 覆盖索引分组统计非 available 状态；available 数量由两者相减得到，只输出非零状态并按状态名排序。缓存按进程内写世代失效，进程外写入由 5 秒 TTL 约束陈旧时间。
 
@@ -1444,6 +1454,7 @@ raw 清理候选每次只准备一次、每表最多 2,000 个键；会话代际
 | 监听地址 | 写死 `127.0.0.1`，不读环境变量覆盖 |
 | Host 校验 | 只接受 `127.0.0.1:<port>` 与 `localhost:<port>`，其余 403；hook 与 OTLP 端点共用 |
 | 页面 API 来源 | 限同源；拒绝跨站与 `Origin: null`；无 Origin 的非浏览器访问走独立规则 |
+| 设置写入 | `POST /api/settings` 是页面唯一的写路径，与 GET 共用 Host、Origin、同源三道门；固定字段、4 KiB 上限、拒绝未知键，响应不回令牌、盐或路径内容 |
 | hook 认证 | 薄 hook 持本地随机令牌，写在 `plugins.json` 的 options 里，不暴露给前端 |
 | OTLP 认证 | Bearer 独立 `otlp.token`，与 `hook.token` 分开；content-type 非白名单的简单请求 415，不给跨站浏览器留下无预检写入口 |
 | `origin` 过滤 | 在认证之后执行，`origin=local` 只是来源标签，不是认证 |
