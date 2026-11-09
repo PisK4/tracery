@@ -71,6 +71,11 @@
 - 防护：事务内断言用回调传入的 writer `db`；`store.read` 只在 `store.write` 返回（事务提交）后读。`fixture()` 返回 `{store,dir,close}`，播种是 `store.store.write`，不是 `store.write`。
 - Seen 1× (2026-11-09).
 
+**改对外描述与 topics 前，先拿 README 非目标核对能力边界，别把高流量标签当成能力承诺。**
+- 证据：2026-11-09 定 GitHub description 与 topics 时，曾提出写 performance evaluation 并挂 `evaluation`（9810 个仓库）、`agent-evaluation`（1622）；README 第 162、170 行把评分、数据集、版本比较划给平台，`docs/session-trace-summary-review.md` 第 5、25、31 行只支持辅助人工评估与评价材料，定稿改成 evidence to iterate。`gh api search/repositories` 另查得 `trajectory` 仅 498 个仓库、`agent-trajectory` 15 个，精准词与高流量词要分开选。
+- 防护：动 description 或 topics 前 grep 两份 README 的 Scope and non-goals 与对应评审记录；候选标签用 `gh api -X GET search/repositories -f 'q=topic:<name>' -f per_page=1 --jq '.total_count'` 量规模，自造组合词跳过；写完对照两份 README 首句，确认没有新增能力承诺。
+- Seen 1× (2026-11-09).
+
 **分步交付的提案，收尾那一步负责把 umbrella 提案转 implemented。**
 - 证据：2026-11-08 立前端规则文档时核对，方向 A 六步 note 全部 implemented，umbrella 提案仍滞留 proposed；蜘蛛插画代码已交付，note 也仍 proposed。规则的最新事实被迫去代码注释里找，入站链接还指着 proposed 路径。
 - 防护：分步提案的最后一步交付时，把 umbrella 转 implemented 并同批修入站链接；收尾跑 `rg -l '<提案文件名>' .agents/notes` 核对没有残留的旧路径引用。

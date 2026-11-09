@@ -46,6 +46,7 @@ Status: implemented
 - **对外承诺收在 profile 边界内。** README 写「按 GenAI semconv 导出并登记 `service.name` 即接入」，完整性契约与版本承诺归[接入规范](../../../../docs/otlp-exporter-profile.md)。真实流量验收只到 T6，native 导出与跨通道收敛的页面观感仍待补验，README 不替它背书。
 - **桌面端重构会缩短快速开始一节的保质期。** 按当前形态写，不预写桌面 APP 的安装步骤；叙事三层（不绑网关、OTLP 主位、卖点清单）与部署形态无关，桌面端落地只需替换快速开始与数据落点两节。
 - **CHANGELOG 仍停在 Unreleased。** 没有打 tag 就不编版本号，沿用[开源门面](2026-11-04-open-source-front-door.md)的约定。
+- **对外检索词后来按[仓库可发现性与 trajectory 对外口径](2026-11-09-github-discoverability-and-trajectory-positioning.md)调整。** 首句改为引入 trajectory 与开发者迭代依据；双版同构、卖点只写能给出的东西这两条约定不变。
 
 ## Testing
 

@@ -9,7 +9,7 @@
 
 **English** ｜ [简体中文](README.zh-CN.md)
 
-**Tracery keeps the full protocol object for every request any Agent sends, and lets you read the session step by step.**
+**Tracery captures every request an Agent sends, visualizes the full trajectory, and gives agent developers the evidence to debug and iterate on prompts, tools and context.**
 
 A single session fires dozens of LLM calls. Cost and latency tell you how those calls performed. They do not tell you which messages were actually assembled into the request, what project instructions such as `CLAUDE.md`, skills and memory contributed to the system prompt, or what changed between request N and request N-1. Tracery records the assembled request at the point it is sent or exported, then reads those requests back as one session you can walk through line by line.
 
