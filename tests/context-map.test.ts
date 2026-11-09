@@ -156,8 +156,8 @@ test('空闲容量不进图：有窗口、无窗口、占满与超窗都是全�
   expect(Math.abs(overTiles[0]!.w - 340)).toBeLessThan(0.01);
 });
 
-test('渲染入口的文字取舍来自实测尺寸：宽度不足整块 bare，高度不足只留名称', () => {
-  // files 只占 300/200300 的面积：在 592 宽下是一根几像素的细条 → bare。
+test('渲染入口的文字取舍来自实测尺寸：放不下名字只留色块，放不下读数只留名字', () => {
+  // files 只占 300/200300 的面积：在 592 宽下是一根几像素的细条 → 无名字。
   const thin = reading({
     tokens: 200300,
     parts: [
@@ -169,13 +169,11 @@ test('渲染入口的文字取舍来自实测尺寸：宽度不足整块 bare，
   const buttons = tileButtons(inner);
   expect(buttons.some(b => b.cls.includes('bare'))).toBe(true);
   for (const b of buttons) {
-    const bare = b.w < 47 || b.h < 24;
-    const low = !bare && b.h < 44;
-    const want = bare ? 'bare' : low ? 'low' : '';
-    if (want === '') expect(b.cls).toBe('ctx-tile');
-    else expect(b.cls).toContain(want);
+    const bare = b.w < 30 || b.h < 18;
+    expect(b.cls.includes('bare')).toBe(bare);
+    expect(b.body.includes('ctx-tname')).toBe(!bare);
   }
-  // 高度不足 44 的横条只留名称行。
+  // 放得下名字但高度不足 32 的横条不标读数。
   const squat = reading({
     tokens: 100000,
     parts: [
@@ -185,19 +183,19 @@ test('渲染入口的文字取舍来自实测尺寸：宽度不足整块 bare，
   });
   const squatInner = contextMapInnerHtml(squat, 592, 240, 7);
   for (const b of tileButtons(squatInner)) {
-    const bare = b.w < 47 || b.h < 24;
-    const low = !bare && b.h < 44;
-    expect(b.cls.includes('bare')).toBe(bare);
-    expect(b.cls.includes('low')).toBe(low);
+    const showName = b.w >= 30 && b.h >= 18;
+    const showValue = b.w >= 50 && b.h >= 32;
+    expect(b.body.includes('ctx-tname')).toBe(showName);
+    expect(b.body.includes('ctx-tval')).toBe(showValue);
   }
 });
 
-test('树图数值只给份额前四名的可见块，完整读数留在 aria 与 title', () => {
+test('树图读数按实测尺寸取舍，完整读数留在 aria 与 title', () => {
   const inner = contextMapInnerHtml(sevenKinds(), 592, 240, 7);
   const buttons = tileButtons(inner);
   const values = [...inner.matchAll(/class="ctx-tval"/g)].length;
   expect(values).toBeGreaterThan(0);
-  expect(values).toBeLessThanOrEqual(4);
+  expect(values).toBeLessThan(buttons.length);
   // 完整读数不因省略文字而丢失：每个 tile 都有 aria-label 与 title。
   expect(inner.match(/aria-label="[^"]*tokens，占提示总量/g)?.length).toBe(buttons.length);
   expect(inner.match(/title="[^"]*tokens，占提示总量/g)?.length).toBe(buttons.length);
@@ -291,7 +289,7 @@ test('无正值类时外壳与 tile 层都不渲染', () => {
   expect(contextRowsHtml(noItems, 7)).toBe('');
 });
 
-test('内容列表跨类按 token 降序，折叠摘要按已保存条目计数', () => {
+test('构成明细默认收起，展开后列出全部已保存条目', () => {
   const p = reading({
     parts: [{
       kind: 'files', tokens: 100,
@@ -300,8 +298,8 @@ test('内容列表跨类按 token 降序，折叠摘要按已保存条目计数'
   });
   const rows = contextRowsHtml(p, 7);
   expect(rows.match(/class="ctx-row"/g)?.length).toBe(11);
-  expect(rows).toContain('显示全部 11 个已保存条目');
-  expect(rows).toContain('data-fold="ctxmore:7"');
+  expect(rows).toContain('构成明细 · 全部 11 项');
+  expect(rows).toContain('<details class="ctx-more" data-fold="ctxmore:7">');
   // 行带稳定身份键，供悬停联动与点击明细定位。
   expect(rows).toContain('data-ctx-key="files\u0001read\u0001f0.txt"');
 });
@@ -357,6 +355,6 @@ test('六类旧口径照常渲染，未知类别保持原名', () => {
   });
   const inner = contextMapInnerHtml(unknown, 340, 160, 7);
   expect(inner).toContain('mystery');
-  // 单色化后未知类别与已知同口径：独占全图即最深档。
-  expect(inner).toContain('--c:var(--t1)');
+  // 未知类别落色阶最浅一档，与 parts.js 的 partColor 同一口径。
+  expect(inner).toContain('--c:var(--cat-8)');
 });

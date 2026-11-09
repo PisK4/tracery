@@ -2711,3 +2711,40 @@ Grok 的 `session_usage` 有 4 行而游标有 6 个，不是漏刷：本机 6 �
 ### 门禁
 
 合并批次已跑 `verify:notes:staged`（264 篇、8 个冻结产物）与全量 `verify:notes`，`bun test` 1464 pass，`bun run typecheck` 退 0；追加本验收记录属纯文档改动，提交信息带 `Agent-Note: none` 豁免。
+
+## 桌面 UI 重构：合成页面验收与生产只读核对（2026-11-10）
+
+前提：分支 `feat/desktop-ui`（worktree `.codex-worktrees/atc-desktop-ui`），改动是 Tauri 2 外壳、`?host=desktop` 宿主接缝、右栏密度与双圆环、概要板两级详情。规范见[桌面 UI 重构](../.agents/notes/proposed/feature/2026-11-09-desktop-ui-redesign.md)。**本轮没有部署**：生产 8320 仍是主检出的旧前端，所以下面分两段写，合成验收不能当作真实流量证据。
+
+### 合成页面验收
+
+数据来自 `bun run demo`（`prototypes/synthetic-server.ts`，8770），全部为合成值；headless Chrome 157 通过 CDP 设视口后读 DOM 与计算样式，不读生产库。
+
+| 场景 | 宿主 | 顶栏 | 应用宽 | 右栏宽 | 密度 | 横向溢出 | 右栏纵向溢出 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1440×900 | desktop | 48 | 1440 | 480 | full | 0 | 0 |
+| 1180×760 | desktop | 48 | 1180 | 480 | compact | 0 | 0 |
+| 右栏 280 | desktop | 48 | 1440 | 280 | full | 0 | 200 |
+| 右栏 640 | desktop | 48 | 1440 | 640 | full | 0 | 0 |
+| 英文界面 | desktop | 48 | 1440 | 480 | full | 0 | 0 |
+| 字号 0.92 / 1.06 | desktop | 48 | 1440 | 480 | full | 0 | 0 |
+| 无宿主参数 | browser | 44 | 1440 | 480 | full | 0 | 0 |
+| 概要板展开 | desktop | 48 | 1440 | 480 | full | 0 | 0 |
+
+- 密度断点按 `#rail-body` 的 `clientHeight`：1440×900 为 775px（full），1180×760 为 635px（compact），与 `RAIL_COMPACT_BELOW = 760` 一致。右栏 280px 时正文可滚动 200px，属于规范允许的窄栏行为。
+- 容器查询按容器宽度生效，不随视口：右栏 280px 时页签文字 `display:none`（图标模式）、`.usage-panels` 单列 231px、`.ctx-stats` 2×2；480px 时双圆环并排（211.5px × 2）、四格一行；640px 时四格 147.75px × 4。
+- 双圆环 `.donut` 在读数页为 2 个；概要板默认收起、展开后两条堆叠条与三张卡出现，`aria-expanded` 同步。
+- 三张截图（1440 展开态、1180 compact、浏览器 1440）在 `/tmp/atc-desk-1440.png`、`/tmp/atc-desk-1180.png`、`/tmp/atc-browser-1440.png`，未入库。图上可见 1440 展开态的三卡与两条堆叠条，1180 的 compact 压缩，浏览器路径的 44px 顶栏与铺满版面。
+- 未覆盖：待办页签在 demo 没有 `/api/todo` 路由，显示「读取失败」，只注入合成片段验证过卡片样式与计数；`screencapture -l <windowid>` 取外壳窗口截图失败（报「could not create image from window」，未确认是否与录屏权限有关），外壳内的实际渲染没有截图，页面层证据来自同一份页面在 headless Chrome 的渲染。
+
+### 外壳真机检查
+
+`cargo build` 后启动 `target/debug/tracery-shell`：窗口创建成功，尺寸被可见区夹取为 1412×882（请求 1440×900）；请求 `/` 带 `?host=desktop`，UA 为 WKWebView；停掉采集器后加载内嵌失败页，「重试连接」在服务恢复后可跳转。拖动区只对原生标题栏生效——远程页面不启用 IPC，`data-tauri-drag-region` 不参与。
+
+### 生产只读核对（旧前端，非本轮证据）
+
+用 CDP 打开 `http://127.0.0.1:8320/?host=desktop` 得到 `host:null`、`topbar:44`、`donuts:0`、`cueToggle:false`、`railW:640`、横向溢出 0；带 `Sec-Fetch-Site: same-origin` 请求 `/host.js` 与 `/usage-donuts.js` 都是 404，`/app.css` 为 200。原因是 launchd 采集器服务的是主检出的 `web/`，新模块只在 worktree。这条结果只能说明旧页面没有回归，不能作为新代码的验收。部署后需按验收条款在真实流量上复验 1440×900 / 1180×760 / 280px / 中英 / 三档字号，以及双圆环与概要板在真实 `SessionSummary` 上的缺失态。
+
+### 门禁
+
+`bun run typecheck` 退出 0；`bun test` 全量 1495 pass / 0 fail（新增 `tests/usage-donuts.test.ts` 9 个用例，`tests/web.test.ts` 补概要板两级折叠、堆叠条分段合计、三张卡、0 值省略与宿主接缝）；`tests/read-boundaries.test.ts` 与 `tests/http.test.ts` 通过，新模块已登记 `STATIC_FILES`。

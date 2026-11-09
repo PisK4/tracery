@@ -49,3 +49,5 @@ Status: implemented
 ## Related
 
 姊妹提案[宣传样片友好的合成明星会话与页面直达状态](../../proposed/feature/2026-11-02-promo-friendly-prototype.md)：宣传片依赖 URL 直达状态与截图稳定性，也依赖本 note 的 token 映射与徽章色值（含 treemap 单色四档与 PARTS 登记表新增 harness 行）。两份交付的色值同源于同一张 token 映射表，harness 行无色槽、份额走 partShade 四档。
+
+[桌面 UI 重构](../../proposed/feature/2026-11-09-desktop-ui-redesign.md)在本 note 的令牌上加桌面密度与 Tauri 外壳，不改色彩、字体、圆角与阴影的取值；树图从单色四档换成 `--cat-1..8` 单色阶，仍是一套色板内的明度分档。

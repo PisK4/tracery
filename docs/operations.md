@@ -66,6 +66,23 @@ ln -f "$(realpath "$(command -v bun)")" ~/.local/libexec/tracery
 
 计算线程崩溃（例如计算中抛错退出）只让在飞的那一组失败：这一轮不写库，组保持 dirty，下一次 tick 新建线程重算；已经提交的组不受影响，不会出现半发布。被拒绝的计算不动队列，重试代价就是重算这一组。
 
+## 桌面外壳
+
+`src-tauri/` 是 Tauri 2 桌面外壳，只做窗口宿主：启动时探测 `127.0.0.1:<ATC_PORT>`（默认 8320），能连上就加载 `http://127.0.0.1:<port>/?host=desktop`，连不上就显示内嵌失败页与重试按钮。**外壳不启动、不重启、不监管采集器**，生命周期仍归 launchd；服务没跑时先 `bun run service start`。
+
+```sh
+cd src-tauri
+cargo build                 # 开发构建，产物 target/debug/tracery-shell
+cargo build --release       # 分发构建
+open target/debug/tracery-shell
+```
+
+Rust 工具链不在默认 PATH 时先导出：`export PATH="$HOME/.rustup/toolchains/<版本>/bin:$PATH"`。窗口默认 1440×900、最小 1180×760，macOS 用 overlay 标题栏与原生交通灯。`target/` 与 `gen/schemas/` 是构建产物，由 `src-tauri/.gitignore` 排除，不入库。
+
+页面拿不到 fs/shell/IPC：capability 只有 `core:default`，`withGlobalTauri` 关闭，也不开 `dangerousRemoteDomainIpcAccess`。因此页面里的 `data-tauri-drag-region` 在远程页面上不生效，拖动窗口靠原生标题栏；要放开窗口控制得单独写威胁模型与最小 capability，见[桌面 UI 重构](../.agents/notes/proposed/feature/2026-11-09-desktop-ui-redesign.md)的权限边界一节。
+
+浏览器路径不需要外壳：直接打开 `http://127.0.0.1:8320` 就是现有页面，三栏铺满视口、44px 顶栏。
+
 ## 后台监控
 
 监控是独立于采集器 launchd 任务的第二个作业，label `local.tracery-monitor`，每 300 秒执行一次采样与检查。它只读接口和本地文件，不改库，也不重启采集器。

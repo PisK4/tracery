@@ -79,6 +79,10 @@ export function applyLangButton() {
 }
 
 const RAIL_MIN = 280, RAIL_MAX = 640, MAIN_MIN = 320;
+/** 默认右栏宽度：1440×900 下把中栏还回约 704px，右栏用两列承载同样信息。 */
+const RAIL_DEFAULT = 480;
+/** 密度断点：右栏正文可用高度低于此值时切 compact，只压缩纵向节奏，不隐藏信息。 */
+const RAIL_COMPACT_BELOW = 760;
 /**
  * 详情栏宽度夹取：范围 280..640，且给中栏保留至少 320px。
  * @param {number} wanted @param {number} viewport @param {number} sidebar
@@ -90,7 +94,7 @@ function sidebarWidth() {
   if (document.body.classList.contains('sidebar-collapsed')) return 0;
   return document.querySelector('.col-sessions')?.getBoundingClientRect().width ?? 0;
 }
-let preferredRailWidth = RAIL_MAX;
+let preferredRailWidth = RAIL_DEFAULT;
 /** @type {number | null} 按住中的 pointerId；move 只在按住时生效。 */
 let draggingPointer = null;
 
@@ -106,6 +110,22 @@ function resizeRail(wanted) {
 
 function fitRail() {
   if (window.innerWidth > 1000) resizeRail(preferredRailWidth);
+}
+
+/**
+ * 密度按右栏正文的可用高度判定，不按窗口高度：窗口拉宽只影响宽度断点。
+ * `data-density` 写在右栏根节点，compact 只压纵向节奏，信息不减。
+ */
+function watchDensity() {
+  const body = el('rail-body');
+  const rail = body.closest('.col-rail');
+  if (rail === null) return;
+  const sync = () => {
+    if (body.clientHeight > 0 && body.clientHeight < RAIL_COMPACT_BELOW) rail.setAttribute('data-density', 'compact');
+    else rail.removeAttribute('data-density');
+  };
+  new ResizeObserver(sync).observe(body);
+  sync();
 }
 
 /** 装配布局交互：主题按钮、语言按钮、面板折叠、详情栏拖拽与键盘调宽。启动时调用一次。
@@ -149,7 +169,7 @@ export function initLayout(onLocaleChange) {
   resizer.addEventListener('pointercancel', releasePointer);
   fitRail();
   resizer.addEventListener('dblclick', () => {
-    preferredRailWidth = RAIL_MAX;
+    preferredRailWidth = RAIL_DEFAULT;
     fitRail();
   });
   resizer.addEventListener('keydown', e => {
@@ -173,4 +193,5 @@ export function initLayout(onLocaleChange) {
 
   applyTheme();
   applyLangButton();
+  watchDensity();
 }

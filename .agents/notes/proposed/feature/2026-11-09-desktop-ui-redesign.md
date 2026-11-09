@@ -12,17 +12,19 @@ Tracery 的前端现在是一个浏览器页面：44px 顶栏，三栏，右栏 
 
 这份 note 把样张固定成可执行的规范，并写清桌面外壳的边界。视觉语言沿用方向 A，不另起一套。
 
-**取代检查。** [方向 A 前端重绘](../../implemented/feature/2026-11-02-frontend-direction-a-restyle.md)持有色彩、字体、圆角与阴影，本文只在这些令牌上增加桌面密度，不改视觉基调。[上下文窗口读数](../../implemented/feature/2026-10-30-context-window-stats.md)持有四个指标的计算口径；本文把 treemap 换成双圆环，改图形与排布，不改公式、分母与缺失态。[Lucide 图标迁移](../../implemented/feature/2026-11-08-lucide-icon-migration.md)持有生产图标体系，本文按语义补图标名，不迁到 IconPark。[会话栏与行层级](../../implemented/feature/2026-11-04-session-layout-and-row-hierarchy.md)持有三栏与右栏滚动边界，本文改变右栏默认宽度和密度，不换布局模型。[插件系统与待办](../../proposed/architecture/2026-11-04-plugin-system-and-todo-feature.md)已交付第五页签，本文只负责样式和计数，不新建 Plugin 机制，也不改待办 DTO。[右栏扁平行](../../proposed/simplification/2026-10-28-rail-flat-rows.md)提出的折叠收编仍在活动树里，本文保留四个 `rail-fold` 与用量折叠，不与其冲突。[读取架构](../../implemented/architecture/2026-11-02-read-architecture-and-client-seams.md)持有读取入口，本文只消费现有读数，不直连 HTTP。[用户设置层](../../implemented/feature/2026-11-09-user-settings-config-tier.md)持有设置面板与写权威，本文只把它接进桌面外壳。[隐私边界](../../implemented/architecture/2026-10-20-privacy-and-local-access-boundary.md)持有监听地址、令牌与脱敏，本文不改这些边界。活动树里没有记录持有桌面窗口外壳、右栏四折叠与用量卡排布、桌面密度断点、中栏概要板行序与单行规则这四件事。
+**取代检查。** [方向 A 前端重绘](../../implemented/feature/2026-11-02-frontend-direction-a-restyle.md)持有色彩、字体、圆角与阴影，本文只在这些令牌上增加桌面密度，不改视觉基调。[上下文窗口读数](../../implemented/feature/2026-10-30-context-window-stats.md)持有四个指标的计算口径；本文把 treemap 换成双圆环，改图形与排布，不改公式、分母与缺失态。[Lucide 图标迁移](../../implemented/feature/2026-11-08-lucide-icon-migration.md)持有生产图标体系，本文按语义补图标名，不迁到 IconPark。[会话栏与行层级](../../implemented/feature/2026-11-04-session-layout-and-row-hierarchy.md)持有三栏与右栏滚动边界，本文改变右栏默认宽度和密度，不换布局模型。[插件系统与待办](../../proposed/architecture/2026-11-04-plugin-system-and-todo-feature.md)已交付第五页签，本文只负责样式和计数，不新建 Plugin 机制，也不改待办 DTO。[右栏扁平行](../../proposed/simplification/2026-10-28-rail-flat-rows.md)提出的折叠收编仍在活动树里，本文保留四个 `rail-fold` 与用量折叠，不与其冲突。[读取架构](../../implemented/architecture/2026-11-02-read-architecture-and-client-seams.md)持有读取入口，本文只消费现有读数，不直连 HTTP。[用户设置层](../../implemented/feature/2026-11-09-user-settings-config-tier.md)持有设置面板与写权威，本文只把它接进桌面外壳。[隐私边界](../../implemented/architecture/2026-10-20-privacy-and-local-access-boundary.md)持有监听地址、令牌与脱敏，本文不改这些边界。[会话轨迹汇总](../../implemented/feature/2026-10-25-session-trace-summary.md)持有 `SessionSummary` 的逐条口径、指标梯队与「缺失不等于成功」的立场，本文只重排展示，不改任何公式；[方向 A 第 4 步](../../implemented/feature/2026-11-02-direction-a-step4-header-denoise.md)持有头部摘要块两栏收噪，本文改的是同一块板的展开层，两栏与单行规则沿用；[宣传片场景注入](../../proposed/feature/2026-11-03-demo-scenario-injection.md)规定汇总按生产 `SessionSummary` 含义取数，本文的 KPI 与之同源。这三篇保持活跃，本文不取代其口径。活动树里没有记录持有桌面窗口外壳、右栏四折叠与用量卡排布、桌面密度断点、中栏概要板行序与单行规则这四件事。
 
 ## Proposal
 
 Tauri 2 外壳只做窗口宿主，加载 launchd 托管的 `127.0.0.1` 服务，不自带采集器，不向页面暴露文件系统或 shell 桥。窗口默认 1440×900，最小 1180×760，可拉伸；macOS 用原生交通灯与 overlay 标题栏，顶栏 48px 兼作拖动区。
 
-页面保持现有三栏与读取架构，右栏默认宽度改为 480px，允许 280–640。读数页重排为四折叠卡片、用量卡和身份完整性三块，默认只展开用量卡；四个折叠的摘要行承担首屏读数，展开后阅读细节。桌面高度不足时进入 compact 密度：缩短折叠行、压缩双圆环、隐藏用量脚注，四格指标、圆环图例和构成明细不移除。中栏概要板固定为左右两半，左侧性能读数、右侧工具使用，每行只占一行，超出强制省略；右上角 chevron 可展开九格会话指标详情，点击卡片外或 Esc 收起；窄宽度下单列六行。
+页面保持现有三栏与读取架构，右栏默认宽度改为 480px，允许 280–640。读数页重排为四折叠卡片、用量卡和身份完整性三块，默认只展开用量卡；四个折叠的摘要行承担首屏读数，展开后阅读细节。桌面高度不足时进入 compact 密度：缩短折叠行、压缩双圆环、隐藏用量脚注，四格指标、圆环图例和构成明细不移除。中栏概要板固定为左右两半，左侧性能读数、右侧工具使用，每行只占一行，超出强制省略；底部中下方的分隔栏按钮展开指标详情：两条覆盖堆叠条、三张重点卡，以及默认收起的全部明细；点击卡片外或 Esc 收起，窄宽度下单列六行。
+
+浏览器直接打开时页面铺平整个视口：顶栏与三栏从窗口边缘起排，不留舞台底色、四周留白、圆角与投影，也不设页面级 `max-width` 或居中容器。固定尺寸、原生窗口边框与圆角只属于 Tauri 外壳；`?host=desktop` 决定有没有这层窗口，三栏网格、断点与读取路径两种宿主共用。
 
 视觉沿用方向 A 的令牌，新增桌面密度、折叠行、回复块、请求消息列表、会话概要板、双圆环、构成明细和待办卡这些组件规则。图标继续用 Lucide，样张里的 IconPark 几何只作视觉参考，不进入仓库。
 
-静态样张在仓库外 `.archify/tracery-desktop-demo-20261109.html`，已被 `.gitignore` 排除，数据全部为合成值。样张的作用是固定尺寸、层级和组件形态；数字不是生产事实，不能抄进代码、fixture 或测试。实现的唯一数据源是 `src/read-contract.ts` 与现有读数模块。
+静态样张在仓库外 `.archify/tracery-desktop-demo-20261109.html`，已被 `.gitignore` 排除，数据全部为合成值。样张的作用是固定尺寸、层级和组件形态；数字不是生产事实，不能抄进代码、fixture 或测试。样张默认渲染浏览器平铺形态，桌面窗口、舞台留白与控制条是评审用的第二种宿主形态，只在切换后出现。实现的唯一数据源是 `src/read-contract.ts` 与现有读数模块。
 
 ## 窗口与外壳
 
@@ -30,15 +32,28 @@ Tauri 2 外壳只做窗口宿主，加载 launchd 托管的 `127.0.0.1` 服务�
 
 | 项 | 值 |
 | --- | --- |
-| 默认窗口 | 1440×900 |
-| 最小窗口 | 1180×760 |
+| 默认窗口 | 仅 Tauri 外壳：1440×900；浏览器无窗口尺寸，铺满视口 |
+| 最小窗口 | 仅 Tauri 外壳：1180×760 |
 | 默认右栏宽度 | 480px |
 | 右栏可调范围 | 280–640px，沿用现有拖动条与双击恢复 |
 | 桌面顶栏 | 48px；浏览器内保持现有 44px |
 | 交通灯左侧留白 | 78px |
 | 窗口圆角与阴影 | 交给 macOS 原生窗口，不自己画外框 |
 
-窗口可拉伸，页面布局随宽度变化。高度变化只影响右栏密度，不改变三栏结构。
+窗口可拉伸，页面布局随宽度变化。高度变化只影响右栏密度，不改变三栏结构。浏览器没有窗口可拉伸，视口变化同样只影响布局与密度。
+
+### 宿主与版面
+
+浏览器与 Tauri 外壳共用同一份三栏网格与读取路径，分岔只在窗口那一层：
+
+| | 浏览器（无 `?host=desktop`） | Tauri 外壳（`?host=desktop`） |
+| --- | --- | --- |
+| 页面占宽 | 铺满视口，`100%`，不留边缘 | 铺满窗口客户区 |
+| 外框 | 无舞台底色、四周留白、圆角、投影、模拟交通灯 | macOS 原生窗口边框与交通灯 |
+| 尺寸来源 | 浏览器视口 | 初始 1440×900，最小 1180×760，可拉伸 |
+| 顶栏 | 现有 44px | 48px，左留 78px，兼作拖动区 |
+
+样张默认按浏览器口径渲染；切到桌面窗口模式才出现 1440×900 的窗口、舞台留白与控制条，`1180×760` 与 `自适应` 两档只用于窗口评审。`?host=desktop` 只切换窗口外壳与顶栏，不换页面骨架，也不新增读取；规则写入 [UIUX-DESIGN.md](../../../UIUX-DESIGN.md) 的「布局与首屏」。
 
 ### 顶部栏
 
@@ -52,7 +67,7 @@ Tauri 2 外壳只做窗口宿主，加载 launchd 托管的 `127.0.0.1` 服务�
 
 ### 加载与失败
 
-外壳加载 `http://127.0.0.1:<port>/?host=desktop`，`<port>` 从与采集器相同的 `ATC_PORT` 解析，默认 8320。页面通过 `?host=desktop` 进入桌面样式；不带参数时就是现有浏览器页面，行为不变。
+外壳加载 `http://127.0.0.1:<port>/?host=desktop`，`<port>` 从与采集器相同的 `ATC_PORT` 解析，默认 8320。页面通过 `?host=desktop` 进入桌面样式；不带参数时就是现有浏览器页面，三栏铺满视口，44px 顶栏，行为不变。
 
 服务不可达时，外壳显示最小失败页：说明采集器未运行、给出重试按钮、提示用 `bun run service start` 启动。外壳不自动启动、不拉起源码、不再起第二个采集器。采集器生命周期仍归 launchd 与 `bun run service`。
 
@@ -150,14 +165,43 @@ rail head：标题 + 来源 + 状态 + 五页签
 
 ### 指标详情
 
-概要板右上角一个 22px 的 chevron 按钮，默认指向下；点开后卡片底部出现 9 格指标详情，跨整张卡：
+详情面板回答的是「这趟会话的记录质量如何、有没有异常要追」，不是把会话汇总里的字段全列一遍。展开后默认只给图形与三张重点卡，全部明细收进第二级折叠。
 
-- 九格：请求、子代理、工具调用、失败、未判定、技能、中断、写入文件、读取文件。
-- 全部来自 `SessionSummary`，不新增读取：`structure.requests_total`、`structure.subagent_requests`、`coverage.calls_total`、`Σ tools[].errors`、`coverage.calls_total − coverage.calls_error_known`、`skills.length`、`interrupts.count`、`paths.written.length`、`paths.read.length`。
-- 只放摘要行没有的事实，不复述提示/输出/费用/缓存、首字/平均/速度、主链/旁路/峰值/重试/模型。
-- 按钮带 `aria-expanded` 与 `aria-controls`，展开后 chevron 旋转 180°；点击卡片外任意位置或按 Esc 收起，点击详情内部不收起（避免选词时被关掉）；切会话复位为收起。
-- 详情格不受单行省略规则约束：标签与数值都短，窄到单列时不折行，仍排三列；缺字段的格子整格省略，不写 0。
-- 展开有 120ms 的淡入位移，减少动效下不播；展开不触发任何读取。
+**开关位置。** 控件在卡片底部中下方，是一条跨整卡的分隔栏按钮，带可见文字「展开会话指标 / 收起会话指标」、chevron、hover 底色与 focus-visible 描边。不放右上角：22px 的透明角标不易发现，还会逼右半第一行 chip 留 `padding-right` 给它让位，等于控件跟内容抢空间。按钮留在底部，展开时详情出现在按钮上方，收起时按钮位置不变。
+
+**两条堆叠条。** 宽度按占比分段，颜色只表达判定状态，不引入新色板。分母都是 `coverage.calls_total`，条头给出总数：
+
+| 条 | 分段 | 字段 |
+| --- | --- | --- |
+| 失败位判定 | 失败（`--bad`）、已判定成功（`--accent`）、未判定（`--line-strong`） | `Σ tools[].errors`、`calls_error_known − Σ tools[].errors`、`calls_total − calls_error_known` |
+| 参数事实覆盖 | 已提取（`--accent`）、缺口（`--line-strong`） | `calls_fact_known`、`calls_total − calls_fact_known` |
+
+灰段是缺失，不是失败；不画「本地估计」这类正常态说明。段为 0 时整段不画，图例只列非零段。条用 `role="img"` 加 `aria-label`，文字等价物由图例与总数承担。
+
+**三张重点卡。** 各带语义图标、大读数与一行短注（口径进 `title`）。异常态才染 `--bad`，正常态只有图标与数字，不加装饰边。不放「结果可判定」百分比：第一条堆叠条已经把 `calls_error_known / calls_total` 画完，再做一张卡只是把同一组数换成百分比重复一次。
+
+| 卡 | 值 | 图标 | 短注 / 口径 |
+| --- | --- | --- | --- |
+| 失败调用 | `Σ tools[].errors` | `failure` | `failures_truncated` 为真时标「仅前 200 条」；失败率口径写进 `title`，分母用 `calls_error_known`，注明「未判定不等于成功」 |
+| 出现中断的请求 | `interrupts.requests.length` | `gap` | 同一标记跨请求只计一次；`interrupts.unknown` 放明细，不混入卡片 |
+| 工具调用 | `coverage.calls_total` | `role-tool` | 副行给工具种类数与技能种类数 |
+
+**可点定位。** `failures[]` 与 `interrupts.requests` 都带 `req_id`，失败调用卡与中断卡可点，复用现有 `data-summary-req`（`web/app.js` 的请求定位）跳到对应请求，不新增读取。中断已有 `summaryEntries` 的 `{kind:'interrupts'}` 查询与 `data-summary-req` 列表可复用；失败数用 `Σ tools[].errors` 避开 `failures_truncated`，定位只取 `failures[]` 里已有的 `req_id`，不要求服务端加「按失败过滤」的查询。
+
+**全部明细。** 默认是收起的一个胶囊按钮，点开才出现三组指标。这一步是面板的关键：把所有字段一次摆出来，等于把「详细」理解成「更多数字」，反而淹没了重点。图形给结论，明细给查证，两层分工。
+
+- **覆盖**：已配对 / 未配对（`calls_paired`、`calls_total − calls_paired`）、失败位已判定 / 失败位未判定、参数事实已提取 / 缺口。
+- **异常**：失败调用、失败率、失败调用定位、出现中断的请求、归属未知请求（`interrupts.unknown`）、派生未追上（`dirty`）、费用字段缺失（`totals.cost_absent`）。0 值整格省略，不写 0，也不写 `—` 占位；`dirty` 只在为真时出现。
+- **规模**：请求、子代理请求、子代理 actor（`structure.requests_total`、`subagent_requests`、`subagent_actors`）、工具种类（`tools.length`）、技能种类（`skills.length`）、写入路径 / 写入调用（`paths.written.length` / `Σ paths.written[].count`）、读取路径 / 读取调用（同 `paths.read`）。种类数与调用次数分开写：`paths.*.length` 是路径去重后的条数，chip 上的次数是同一路径的调用数，写「写入文件 16」会把两个量纲混成一个。
+
+全部字段来自首屏 `SessionSummary`（`src/queries/session-summary.ts`），**零新增读取、零字段改动**。不复述提示/输出/费用/缓存、首字/平均/速度、主链/旁路/峰值/重试/模型——这些已在概要板三行或右栏用量卡里。
+
+**交互与降级。**
+
+- 两级开关都带 `aria-expanded`、`aria-controls`；Esc 先收明细、再收整块面板。点击卡片外收起整块面板，点击详情内部不收（避免选词时被关掉）；切会话把两级状态都复位为收起。
+- 展开有 120ms 的淡入位移，减少动效下不播；两级展开都不触发任何读取。
+- 右栏 <560px 时两条堆叠条改单列、三卡仍排三列、明细三组改单列；三档字号下都不折行、不横向滚动。
+- 缺字段的指标整格省略；`session_usage` 只在单一 agent 时可读，混多 agent 为 null 时不在卡片里放数值，避免与逐笔 `totals` 相加（`session-summary.ts` 的类型注释已写明两者口径不同）。
 
 ## 视觉语言
 
@@ -415,6 +459,7 @@ rail head：标题 + 来源 + 状态 + 五页签
 | 构成明细 | `contextRowsHtml` | 无正值类别时不画 |
 | 用量脚注 | `ledgerParts` 的 usage/cost | `—`，不估算 |
 | 待办 | `todoTabHtml` 的 `TodoByTurn` | 现有 loading/failed/unavailable/absent |
+| 概要板指标详情 | `SessionSummary` 的 `coverage`、`tools`、`failures`、`interrupts`、`dirty`、`totals`、`structure`、`skills`、`paths` | 缺字段整格省略，不写 0；`session_usage` 为 null 时不放数值 |
 
 ### 规则
 
@@ -441,7 +486,9 @@ rail head：标题 + 来源 + 状态 + 五页签
 | 输出速度进圆环标题 | `timingReadingsOf` 的 `out_tok ÷ (ms − ttft)` | 直接复用。会话级速度在 `timingSummary` 里已有，按同一公式聚合，不新写公式 |
 | 中栏概要板的工具失败数 | `summary.tools[].errors` 已有，`error_known` 单独可读 | 直接复用，不新增字段；未判定的调用数用 `count − error_known` 在展示层算 |
 | 中栏概要板的写入/读取路径 | `summary.paths.written` 与 `.read` 已有，按 `arg_path` 分组 | 直接复用。`arg_path` 只覆盖 Edit/Write/Read 与 OMP 同族，其他工具的文件参数不补 |
-| 概要板指标详情九格 | `SessionSummary` 的 `structure`、`coverage`、`tools`、`skills`、`interrupts`、`paths` 已覆盖全部九项 | 直接复用，不新增字段；失败数用 `Σ tools[].errors` 避免 `failures_truncated` 截断，未判定用 `calls_total − calls_error_known` |
+| 指标详情的两条堆叠条 | `coverage.calls_total`、`calls_error_known`、`calls_fact_known` 与 `Σ tools[].errors` 已有 | 直接复用；失败位三态里「已判定成功」＝`calls_error_known − Σ errors`，灰段＝`calls_total − calls_error_known`；段为 0 不画 |
+| 指标详情的三张卡 | `Σ tools[].errors`、`interrupts.requests`、`coverage.calls_total`、`failures[]` 已有 | 直接复用，不新增字段；失败数用 `Σ tools[].errors` 避开 `failures_truncated`，定位取 `failures[]` 的 `req_id` 复用 `data-summary-req`，不要求服务端加「按失败过滤」查询 |
+| 指标详情的全部明细 | `SessionSummary` 的 `structure`、`coverage`、`tools`、`skills`、`interrupts`、`paths`、`dirty`、`totals` 已覆盖全部指标 | 直接复用，不新增字段；`dirty` 只在为真时出现，0 值整格省略 |
 | 待办卡的来源行 | `TodoSnapshot` 只有 `seq` 与 `items`，没有来源请求 | 不显示来源行；要显示得在 `TodoSnapshot` 加 `source_req`，由 Parser 在折叠时记下更新来自哪一笔请求 |
 | 待办卡的状态图标 | `TodoItem.status` 保留各家原词（`pending`、`in_progress`、`completed`、`done`、`cancelled`…） | 展示层做一份 `done` / `doing` / 其余 的归类表，不要求服务端归一；归类表在 `web/todo-tab.js` 与测试里各一处，不散落 |
 | 回复折叠的块数 | `ReplyView.blocks` 已是数组 | 直接复用 |
@@ -459,19 +506,19 @@ rail head：标题 + 来源 + 状态 + 五页签
 | `src-tauri/` | 新增 Tauri 2 工程、窗口配置、最小 capability、应用图标；不引入前端框架 |
 | `web/host.js` | 新增宿主接缝：读 `?host=desktop`、平台与窗口状态；浏览器下无操作 |
 | `web/index.html` | 顶栏拖动区与桌面宿主属性；不新增第二套导航 |
-| `web/app.css` | 桌面顶栏、右栏卡片、四折叠、回复块、请求消息列表、会话概要板、双圆环、用量卡、待办卡、容器查询、密度断点 |
+| `web/app.css` | 桌面顶栏、右栏卡片、四折叠、回复块、请求消息列表、会话概要板、双圆环、用量卡、待办卡、容器查询、密度断点；不加页面级 `max-width` 与居中容器，浏览器路径保持铺满视口 |
 | `web/app.js` | 页签图标与 `aria-selected`、读数页块序、本次回复摘要、请求结构消息列表、能力拆分、用量卡、待办计数、设置入口 |
 | `web/rail-tabs.js` | 页签登记增加 `icon` 字段；顺序与作用域不变 |
 | `web/rail-facts.js` | `railFactsHtml` 块序、`structureFoldHtml` 摘要与有序列表、`usageFoldHtml` 双圆环与构成明细、`contextStatsHtml` 断点配合 |
 | `web/context-map.js` | 矩阵树状图保留在默认读数页；瓦片改单色阶、按像素切分、响应跨图选中，交互不变 |
 | `web/usage-donuts.js` | 新增圆环、图例与时间轴渲染，以及跨图选中的映射表；纯展示，不持有读数 |
 | `web/body-view.js` | `renderMessages` 保持序号、角色、预览、新增边与选中态；不新增角色汇总表 |
-| `web/session-view.js` | `sessionBoard` 左右两半、三行指标与工具 chip、指标详情开关与九格；单行省略与 compact 单列 |
+| `web/session-view.js` | `sessionBoard` 左右两半、三行指标与工具 chip；底部分隔栏开关、两条覆盖堆叠条、三张重点卡与默认收起的全部明细；单行省略与 compact 单列 |
 | `web/icons.js` | 新增 Lucide 图标名；保持 24 网格与 2.25 描边 |
 | `web/todo-tab.js` | 待办卡样式与可选来源行；DTO 不变 |
 | `web/settings-panel.js` | 只接桌面顶栏入口；不改设置后端 |
 | `src/http.ts` | 新 web 模块登记进 `STATIC_FILES`；不新增 HTTP 路由 |
-| `tests/web.test.ts` | 顶栏、页签、概要板行序与单行、双圆环 DOM、静态文件与 DOM 断言 |
+| `tests/web.test.ts` | 顶栏、页签、概要板行序与单行、堆叠条分段合计与三卡、明细两级折叠、双圆环 DOM、静态文件与 DOM 断言 |
 | `tests/usage-donuts.test.ts` | 圆环段数与图例一一对应、时间轴刻度、缺失态不画估算段 |
 | `tests/body-view.test.ts` | 回复摘要、块索引与有序消息列表 |
 | `tests/todo-tab.test.ts` | 待办卡、计数与空态 |
@@ -489,11 +536,12 @@ rail head：标题 + 来源 + 状态 + 五页签
 
 ### P0 外壳
 
-1. 建 Tauri 2 工程，窗口 1440×900、最小 1180×760、overlay 标题栏、原生交通灯。
+1. 建 Tauri 2 工程，窗口 1440×900、最小 1180×760、overlay 标题栏、原生交通灯；尺寸只写在外壳配置，不进页面样式。
 2. 加载 loopback 服务，`?host=desktop` 接缝，失败页与重试。
 3. 最小权限配置，不暴露 fs/shell/IPC 给页面。
-4. 真实 macOS 窗口验收：拖动、缩放、交通灯、服务未启动、服务重启后重试。
-5. 浏览器页面不受影响；`bun run start` 仍可用。
+4. 浏览器路径默认铺平：无舞台底色、四周留白、圆角与投影，页面无 `max-width`；`#app` 宽度等于视口宽度，三栏边界贴齐窗口边缘。
+5. 真实 macOS 窗口验收：拖动、缩放、交通灯、服务未启动、服务重启后重试；同时验收浏览器窗口缩放时三栏跟随视口。
+6. 浏览器页面不受影响；`bun run start` 仍可用。
 
 ### P1 布局与顶栏
 
@@ -509,7 +557,7 @@ rail head：标题 + 来源 + 状态 + 五页签
 2. 本次回复摘要（finish 与块数）、内容块索引、正文入口。
 3. 请求结构保持有序消息列表：序号、角色、预览、新增边、选中态、空洞与读取控件，不新增角色汇总与列表下方补充行。
 4. 工具与技能拆分，能力状态沿用。
-5. 中栏概要板：左性能右工具、各 3 行、单行省略、右上角展开 KPI 详情；compact 单列 6 行。
+5. 中栏概要板：左性能右工具、各 3 行、单行省略、底部分隔栏开关、两条覆盖堆叠条与三张重点卡、全部明细二级折叠；compact 单列 6 行。
 6. 证据折叠位置与条件不变。
 
 ### P3 用量与待办
@@ -542,9 +590,19 @@ rail head：标题 + 来源 + 状态 + 五页签
 3. `.agents/notes/LESSONS.md` 回写本次踩到的坑。
 4. `bun run verify:notes` 通过后合并。
 
+## 实施状态（2026-11-10）
+
+保留 proposed 而不是转 implemented：代码已进 master，但真机与真实流量两段验收没做完，转过去会把未验证的部分写成已交付。
+
+**已落地。** `src-tauri/` 外壳（1440×900 / 最小 1180×760 / overlay 标题栏 / 原生交通灯 / 最小 capability / 失败页与重试）、`?host=desktop` 宿主接缝、48px 顶栏与 78px 留白、右栏默认 480px、`#rail-body` 高度密度断点、四折叠与用量卡、双圆环与时间轴与单色阶树状图及跨图联动、概要板两级详情、页签图标与待办计数、刷新旋转与折叠箭头动效、新 Lucide 图标名。合成数据下 1440×900 / 1180×760、右栏 280 / 480 / 640、三档字号、中英两种语言均无横向滚动；`data-density` 在 1440×900 为 full（`rail-body` 775px），1180×760 与 1440×700 为 compact（635 / 575px）。外壳在本机真实启动，窗口按可见区夹取为 1412×882，页面请求带 `?host=desktop` 且 UA 为 WKWebView，服务未启动时加载内嵌失败页。
+
+**未完成。** 外壳窗口内的页面渲染没有取到截图（`screencapture -l` 报错，未确认是否与录屏权限有关），只在 headless Chrome 里验收过同一份页面，真机窗口内的排版、容器查询与 `backdrop-filter` 表现待复验。待办卡在 demo 与生产都没有 `/api/todo` 路由，页签显示「读取失败」，只通过注入合成片段验证过样式与计数。生产尚未部署本分支，对 8320 的只读检查拿到的是主检出的旧前端（无宿主标记、44px 顶栏、无圆环），不能作为新代码的真实流量证据；部署后需按验收条款复验 1440×900 / 1180×760 / 280px / 中英 / 三档字号。Token 输出侧分类与会话级计时聚合没有实现，圆环按降级形态交付（输入侧只出现有 `kind` 的类别，耗时侧三段），完整形态等[服务端配合](#服务端配合)那几项单独落地。
+
 ## Alternatives considered
 
 **Electron。** 生态成熟，前端调试路径熟悉，但多一层 Chromium 与 Node，内存和体积都更大，还要处理主进程与渲染进程的权限边界。Tauri 2 用系统 WebView，壳更薄，符合本机单用户工具的体积预期。代价是 WKWebView 的兼容性与 Rust 构建链要单独验证。Pis 已选定 Tauri 2，这里只记录代价。
+
+**两种宿主都套固定窗口。** 样张早期版本把桌面窗口、舞台底色与圆角投影当成默认形态，浏览器打开时也留一圈灰边。否决：固定尺寸与窗口边框只属于 Tauri 外壳，浏览器路径铺满视口；`?host=desktop` 是唯一分岔，不换成第二套页面骨架。
 
 **让 Tauri 自带服务进程。** 外壳启动时顺手拉起采集器，看起来更自足。否决：采集器已由 launchd `KeepAlive` 托管，再起一个会双写、双扫、抢同一个 SQLite 库；同时会把进程管理权限带进页面外壳。外壳做纯客户端，服务仍归 launchd。
 
@@ -564,7 +622,13 @@ rail head：标题 + 来源 + 状态 + 五页签
 
 **把耗时统计放到中栏概要板。** 中栏已有会话性能三行，圆环能承载展开细节；但 Pis 指定嵌入右栏用量模块，且中栏每行单行的规则会与圆环高度冲突。按右栏实现，中栏只保留三行读数。
 
-**把会话指标详情做成弹层或独立页签。** 九格都是短标签与短数值，放进弹层会让读者在两处对照，也夺走了「概要板就地展开」的语境。否决：在概要板底部就地展开，点外或 Esc 收起。
+**把会话指标详情做成弹层或独立页签。** 放进弹层会让读者在两处对照，也夺走了「概要板就地展开」的语境。否决：在概要板底部就地展开，点外或 Esc 收起。
+
+**把九格平铺改成更多格。** 首轮按覆盖/异常/规模三组重排后仍有二十多个数字，一眼看去还是一整片指标，没有重点。否决：展开后默认只给两条堆叠条与三张重点卡，全部明细收进二级折叠，图形给结论、明细给查证。
+
+**保留「结果可判定」百分比卡。** 它取 `calls_error_known ÷ calls_total`，与第一条堆叠条是同一组数换成百分比，只是重复一遍。否决：删掉该卡，覆盖度由堆叠条承载。
+
+**把展开开关留在右上角。** 22px 透明角标不易发现，还逼右半第一行 chip 留 `padding-right` 让位。否决：移到卡片底部中下方，做成带文字的整条分隔栏按钮。
 
 **保留进行中请求的橙色顶边。** 顶边 2px 强调色在圆角卡片上像一条括号，Pis 明确不要这种渐隐边式装饰；进行中状态已有刷新时间与在途标记。否决：卡片四周统一 1px 细线，状态不靠边缘光带表达，规则写入 [UIUX-DESIGN.md](../../../UIUX-DESIGN.md)。
 
@@ -580,18 +644,21 @@ rail head：标题 + 来源 + 状态 + 五页签
 
 ### 外壳
 
-- 1440×900 默认打开，最小 1180×760，可四边拉伸；macOS 原生交通灯可用，顶栏空白区可拖动。
+- 1440×900 默认打开，最小 1180×760，可四边拉伸；macOS 原生交通灯可用，顶栏空白区可拖动。这组尺寸只在 `?host=desktop` 生效。浏览器直接打开时页面铺满视口：三栏边界贴齐窗口边缘，`#app` 的 `clientWidth` 等于视口宽度，没有舞台底色、四周留白、圆角、投影与页面级 `max-width`；缩放浏览器窗口时三栏跟随视口变化，44px 顶栏不变。
 - 窗口加载 loopback 服务，`?host=desktop` 生效；服务未启动时显示失败页与重试，不出现第二个采集器进程。
 - 页面拿不到 fs/shell/IPC；Tauri capability 只含窗口所需的最小项。
-- 浏览器直接打开 `http://127.0.0.1:8320` 时仍是现有页面，44px 顶栏，行为不变。
+- 浏览器直接打开 `http://127.0.0.1:8320` 时仍是现有页面，44px 顶栏，行为不变；两种宿主共用同一份三栏网格与读取路径。
 
 ### 中栏
 
 - 1440×900 下概要板左右两栏各 3 行，左右行底对齐；每行高不超过一行文字，行内 `scrollWidth` 与 `clientWidth` 相等，不出现第二行与横向滚动。
 - 1180×760 下概要板单列 6 行，仍每行一行；文件名 chip 用省略号截断，`+N` 保留。
 - 左列读数沿用现有会话聚合，缺失时不显示 0；右列失败计数只在非零时出现；卡片四周统一 1px 边界，进行中不加顶部强调边或渐隐遮罩。
-- 右上角 chevron 默认指向下；点开后九格详情出现，`aria-expanded` 同步为 `true`；点击卡片外或按 Esc 收起，点击详情内部不收起，切会话复位。
-- 九格在三档字号与 1180 单列下都不折行、不横向滚动；缺字段整格省略。
+- 展开开关在卡片底部中下方，是跨整卡的分隔栏按钮，带可见文字、hover 与 focus-visible；点开后两条堆叠条与三张重点卡出现，全部明细默认收起，`aria-expanded` 与 `aria-controls` 同步。
+- 两条堆叠条的分段合计都等于 `coverage.calls_total`，段为 0 时不画；失败位三态与参数事实两态的颜色只表达判定状态，灰段是缺失不是失败。
+- 三张卡是失败调用、出现中断的请求、工具调用，不出现「结果可判定」百分比；异常态才染状态色；失败卡与中断卡可点并复用 `data-summary-req` 定位，不新增读取。
+- 点击卡片外或按 Esc 分级收起（先明细、再整块），点击详情内部不收，切会话两级状态都复位；两级展开都不触发读取。
+- 全部明细里 0 值整格省略，种类数与调用次数分开写；三档字号与 1180 单列下不折行、不横向滚动，缺字段整格省略。
 
 ### 右栏
 

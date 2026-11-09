@@ -5,17 +5,18 @@
  *
  * scope 决定轮次态的点击语义：request 页签在轮次态点一下即回请求态，
  * turn 页签保留轮次态。新增一栏只在这里加一行，不再改五处硬编码。
+ * icon 只是图形名（web/icons.js 的注册表），不在这里放可访问名与计数。
  */
 
 /** @typedef {'request' | 'turn'} TabScope */
 
-/** @type {readonly {id: string; label: string; scope: TabScope}[]} */
+/** @type {readonly {id: string; label: string; icon: string; scope: TabScope}[]} */
 export const RAIL_TABS = [
-  { id: 'facts', label: '读数', scope: 'request' },
-  { id: 'body', label: '正文', scope: 'request' },
-  { id: 'tools', label: '工具', scope: 'request' },
-  { id: 'route', label: '路由', scope: 'request' },
-  { id: 'todo', label: '待办', scope: 'turn' },
+  { id: 'facts', label: '读数', icon: 'ctx-gauge', scope: 'request' },
+  { id: 'body', label: '正文', icon: 'read', scope: 'request' },
+  { id: 'tools', label: '工具', icon: 'role-tool', scope: 'request' },
+  { id: 'route', label: '路由', icon: 'route', scope: 'request' },
+  { id: 'todo', label: '待办', icon: 'list-todo', scope: 'turn' },
 ];
 
 export const DEFAULT_TAB = 'facts';

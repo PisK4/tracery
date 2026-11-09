@@ -166,7 +166,7 @@ zstd 压缩级别的 `level` 参数不生效。`zstdCompressSync(buf, { level: 9
 
 | 决策 | 直接后果 |
 | --- | --- |
-| TypeScript + Bun | 单进程、单语言；hook 与后端共用类型和脱敏实现；`bun:sqlite` 与 `node:zlib` 原生可用，不引第三方依赖 |
+| TypeScript + Bun | 单进程、单语言；hook 与后端共用类型和脱敏实现；SQLite 用 `bun:sqlite`，压缩用 `node:zlib` |
 | AVA 停用 | 需要先做正文并轨：新 hook 上线后 AVA 停用，切换窗口内的请求只有账本与路由 |
 | 版本锁改为区间 | 启动时探测，超区间仍启动但降级，每条记录带采集版本 |
 | 滚动 10 GB | 正文预算与总磁盘上限分开定义；元数据不参与回收 |

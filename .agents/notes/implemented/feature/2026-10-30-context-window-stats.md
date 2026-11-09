@@ -45,3 +45,5 @@ Status: implemented
 ## Testing
 
 `tests/web.test.ts` 覆盖三指标的已知/未知窗口、旧结果、缓存缺失与合法 0、`cacheHitOf` 的缺读数与零分母、pill 归属与无正值类别；`bun run typecheck` 通过。合成页面在 280px 与 640px 右栏、亮暗两主题下用浏览器核对三指标与 treemap 的排列，未发现溢出；截图见验收记录。真实数据只做只读计数，用于确认窗口与缓存字段的覆盖率，不读正文、不写生产库。这批用例在 2026-10-31 的四格重构中改写，当前覆盖见[读数页四格上下文指标](2026-10-31-context-metrics-four-cells.md)。
+
+[桌面 UI 重构](../../proposed/feature/2026-11-09-desktop-ui-redesign.md)把 treemap 换成双圆环加时间轴，四格指标、构成明细与全部缺失态规则不变；口径仍以本篇为准，本篇不重复图形排布。

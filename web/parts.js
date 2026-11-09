@@ -27,17 +27,14 @@ export function partLabel(kind) {
 }
 
 /**
- * 份额档位：占提示总量的比例落四档单色，份额越大越实。
- * 阈值是示意值（提案 Risk 已预告），用真实会话验证深浅两主题区分度后可调。
- * @param {number} tokens @param {number} sum
- * @returns {string} CSS 变量引用（--t1..t4）
+ * 类别颜色：用量模块的单一蓝灰色阶（--cat-1..8），按类别登记序取色。
+ * 同一位置在不同请求间指向同一类别；未知 kind 落最浅一档，不另造色相。
+ * @param {string} kind
+ * @returns {string} CSS 变量引用（--cat-1..8）
  */
-export function partShade(tokens, sum) {
-  const share = sum > 0 ? tokens / sum : 0;
-  if (share >= 0.15) return 'var(--t1)';
-  if (share >= 0.07) return 'var(--t2)';
-  if (share >= 0.03) return 'var(--t3)';
-  return 'var(--t4)';
+export function partColor(kind) {
+  const i = PARTS.findIndex(part => part.kind === kind);
+  return `var(--cat-${i === -1 ? PARTS.length : i + 1})`;
 }
 
 /** 类别语义次序：已知类别按登记序，未知类别返回登记数（调用方再按数据出现序稳定排序）。 @param {string} kind */

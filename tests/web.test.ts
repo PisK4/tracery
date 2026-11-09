@@ -17,6 +17,7 @@ import {
   railTabFromParam, railTabParam, resolveTraceTarget, routeReadTarget,
 } from '../web/url-route.js';
 import { agentLabel, railSummaryListHtml, sessionHead, sessionHiddenFold, sessionsListFoldHtml } from '../web/session-view.js';
+import { hostOf } from '../web/host.js';
 
 test('后端降级只出两种标签，正常与未知模式不占顶栏', () => {
   expect(backendStateText(null)).toBeNull();
@@ -543,7 +544,7 @@ test('窗口外请求传入详情保留首个文本；fold 图例只列正值类
   } as never);
   expect(fold).toContain('data-fold="prompt:7"');
   expect(fold).toContain('系统提示');
-  expect(fold).toContain('对话内容');
+  expect(fold).toContain('class="ctx-map"');
   // 零值类别不进图例；固定开销的悬停说明里出现类别名不算图例。
   expect(fold).not.toContain('data-ctx-kind="tools"');
   expect(fold).not.toContain('data-ctx-kind="memory"');
@@ -899,7 +900,8 @@ test('会话头双列：左右分组、副标题删除与身份行', () => {
   expect(html).toContain('cue-activity');
   expect(html).not.toContain('<strong>');
   // 分组读数行不带图标；头部动作（刷新、复制会话 ID）现在是图标按钮，按区域断言。
-  expect(html.slice(html.indexOf('cue-board'))).not.toContain('<svg');
+  // 详情面板的三张重点卡与开关按规范带语义图标，所以只断言读数行那一段。
+  expect(html.slice(html.indexOf('cue-board'), html.indexOf('cue-detail'))).not.toContain('<svg');
   // 七处常驻副标题不再出现，也没有换成同类副标题。
   expect(html).not.toContain('<small');
   expect(html).not.toContain('会话合计');
@@ -951,6 +953,105 @@ test('空集合的分组整组隐藏，右列全空不留空列', () => {
   expect(rightEmpty).not.toContain('cue-activity');
   expect(rightEmpty).toContain('cue-board solo');
   expect(rightEmpty).toContain('data-desc=');
+});
+
+test('会话指标：底部分隔栏开关控制详情，两级折叠默认收起', () => {
+  const html = sessionHead({
+    ...headBase, rows: [requestRow()] as never,
+    summary: summaryFixture() as never, summaryStatus: 'ready',
+  });
+  // 开关在卡片末尾，是跨整卡的按钮，带可见文字与 aria 关联。
+  expect(html).toContain('<button type="button" class="cue-toggle" data-cue-toggle aria-expanded="false" aria-controls="cue-detail">');
+  expect(html).toContain('展开会话指标');
+  expect(html).toContain('<div class="cue-detail" id="cue-detail" hidden');
+  // 详情里的全部明细是第二级，同样默认收起。
+  expect(html).toContain('data-kpi-more aria-expanded="false" aria-controls="kpi-detail"');
+  expect(html).toContain('<div class="kpi-groups" id="kpi-detail" hidden>');
+  // 展开态来自装配层，两级独立：外层开、内层关。
+  const opened = sessionHead({
+    ...headBase, rows: [requestRow()] as never,
+    summary: summaryFixture() as never, summaryStatus: 'ready', cueOpen: true,
+  });
+  expect(opened).toContain('aria-expanded="true" aria-controls="cue-detail"');
+  expect(opened).toContain('收起会话指标');
+  expect(opened).toContain('<div class="cue-detail" id="cue-detail" role="group"');
+  expect(opened).not.toContain('<div class="cue-detail" id="cue-detail" hidden');
+  expect(opened).toContain('<div class="kpi-groups" id="kpi-detail" hidden>');
+});
+
+test('两条堆叠条分段合计等于调用总数，0 值段不画', () => {
+  const html = sessionHead({
+    ...headBase, rows: [requestRow()] as never,
+    summary: summaryFixture({
+      tools: [{ name: 'Bash', count: 4, paired: 4, error_known: 3, errors: 1 }],
+      coverage: { calls_total: 4, calls_paired: 3, calls_error_known: 3, calls_fact_known: 2 },
+    }) as never,
+    summaryStatus: 'ready',
+  });
+  // 失败位：失败 1 + 已判定成功 2 + 未判定 1 = 4；参数事实：已提取 2 + 缺口 2 = 4。
+  const segs = [...html.matchAll(/<i class="kpi-seg ([a-z]+)" style="flex:(\d+)"/g)].map(m => [m[1], Number(m[2])]);
+  expect(segs).toEqual([['bad', 1], ['ok', 2], ['unknown', 1], ['ok', 2], ['unknown', 2]]);
+  // 0 值段与图例项都不出现：这里没有 0 值的分段可断言，改为验证未判定为 0 时不画灰段。
+  const allKnown = sessionHead({
+    ...headBase, rows: [requestRow()] as never,
+    summary: summaryFixture() as never, summaryStatus: 'ready',
+  });
+  expect(allKnown).not.toContain('kpi-seg unknown');
+  expect(allKnown).not.toContain('未判定<b>');
+});
+
+test('三张重点卡：异常才染红，失败卡与中断卡可点定位，工具卡给种类数', () => {
+  const html = sessionHead({
+    ...headBase, rows: [requestRow()] as never,
+    summary: summaryFixture({
+      tools: [{ name: 'Bash', count: 3, paired: 3, error_known: 3, errors: 2 }],
+      interrupts: { count: 1, requests: [9], unknown: 1 },
+      failures: [{ req_id: 5 }], failures_truncated: true,
+    }) as never,
+    summaryStatus: 'ready',
+  });
+  // 失败卡与中断卡是按钮，复用现有请求定位；工具卡只是读数。
+  expect(html).toContain('class="kpi-hero bad" data-summary-req="5"');
+  expect(html).toContain('class="kpi-hero bad" data-summary-req="9"');
+  expect(html).toContain('class="kpi-hero" title=');
+  expect(html).toContain('仅前 200 条');
+  expect(html).toContain('1 笔归属未知');
+  expect(html).toContain('1 种工具 · 1 种技能');
+  const clean = sessionHead({
+    ...headBase, rows: [requestRow()] as never,
+    summary: summaryFixture({
+      tools: [{ name: 'Bash', count: 3, paired: 3, error_known: 3, errors: 0 }],
+    }) as never, summaryStatus: 'ready',
+  });
+  // 正常态没有失败/中断的染红卡；读数仍出现，不写状态标签。
+  expect(clean).not.toContain('class="kpi-hero bad"');
+  expect(clean).not.toContain('仅前 200 条');
+});
+
+test('全部明细 0 值整格省略，dirty 只在为真时出现', () => {
+  const html = sessionHead({
+    ...headBase, rows: [requestRow()] as never,
+    summary: summaryFixture({
+      coverage: { calls_total: 3, calls_paired: 2, calls_error_known: 3, calls_fact_known: 3 },
+    }) as never,
+    summaryStatus: 'ready',
+  });
+  // 未配对 1 出现，未判定与缺口为 0 都不出现。
+  expect(html).toContain('<i>未配对</i><b>1</b>');
+  expect(html).not.toContain('<i>失败位未判定</i>');
+  expect(html).not.toContain('<i>缺口</i>');
+  expect(html).not.toContain('<i>派生未追上</i>');
+  // 0 值不写 0，也不写 — 占位。
+  expect(html).not.toContain('<i>费用字段缺失</i>');
+});
+
+test('会话指标详情在数据缺失时不渲染空壳', () => {
+  // 汇总还没就绪：概要板只有回退读数，没有指标详情与开关。
+  const loading = sessionHead({
+    ...headBase, rows: [requestRow({ req_id: 1, out_tok: 3 })] as never, summaryStatus: 'loading',
+  });
+  expect(loading).not.toContain('cue-toggle');
+  expect(loading).not.toContain('cue-detail');
 });
 
 test('工具 chip 的失败红字与中断计数按非零出现', () => {
@@ -1249,7 +1350,7 @@ test('瞬态类统一重播并定时清除，不留常驻动画声明', () => {
   expect(app).toContain("markFresh(group, 'landed', 760)");
   expect(app).toContain("markFresh(pressed, 'chip-fresh', 220)");
   expect(app).toContain("markFresh(document.querySelector('.tool-page-tabs button[aria-pressed=\"true\"]'), 'chip-fresh', 220)");
-  expect(app).toContain("markFresh(document.querySelector('.rail-tabs button[aria-pressed=\"true\"]'), 'tab-fresh', 220)");
+  expect(app).toContain("markFresh(document.querySelector('.rail-tabs button[aria-selected=\"true\"]'), 'tab-fresh', 220)");
   expect(app).not.toContain("classList.add('tab-fresh')");
   expect(app).not.toContain("classList.add('chip-fresh')");
   expect(app).not.toContain("classList.add('landed')");
@@ -1262,4 +1363,16 @@ test('汇总列表打开与左栏列表换内容都补一次淡入', () => {
   expect(app.split(fade).length - 1).toBe(4);
   // 中栏切会话的两段换场不因推广被改动。
   expect(app).toContain('const SWITCH_MIN_HOLD_MS = 200');
+});
+
+test('宿主接缝只认 host=desktop，路由同步保留宿主', () => {
+  expect(hostOf('')).toBe('browser');
+  expect(hostOf('?host=desktop')).toBe('desktop');
+  expect(hostOf('?session=x&host=desktop&tab=body')).toBe('desktop');
+  // 其他值一律按浏览器处理，不猜别名。
+  expect(hostOf('?host=app')).toBe('browser');
+  expect(hostOf('?host=DESKTOP')).toBe('browser');
+  // 页签与选择路由重写 URL 时不能把外壳退回浏览器样式。
+  const app = readFileSync('web/app.js', 'utf8');
+  expect(app).toContain("if (host === 'desktop') p.set('host', 'desktop')");
 });
