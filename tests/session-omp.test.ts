@@ -182,6 +182,55 @@ test('Pi 会话：session.id 覆盖文件名 UUID，usage 缺失缓存字段按 
   }
 });
 
+function titleChange(seq: number, title: string, source: string): string {
+  return json({
+    type: 'title_change', id: `event-${seq}`, timestamp: iso(T0 + seq * 1_000),
+    source, title, parentId: 'synthetic-parent',
+  });
+}
+
+function titleLine(title: string, updatedAt: number): string {
+  return json({ type: 'title', title, updatedAt: iso(updatedAt), v: 3, pad: 'x' });
+}
+
+test('OMP 来源标题：title_change 更新同一行，事件 id 不写进 raw 会话身份', async () => {
+  const root = makeRoot();
+  const f = fixture();
+  try {
+    writeSession(root, `2026-09-01T10-00-00.000Z_${OMP_SESSION}.jsonl`, [
+      sessionLine(T0),
+      messageLine(T0, { role: 'user', content: [{ type: 'text', text: 'prompt' }] }),
+      messageLine(T0 + 1_000, {
+        role: 'assistant', timestamp: iso(T0 + 1_000), model: 'omp-synthetic',
+        responseId: 'resp_title-1', content: [{ type: 'text', text: 'reply' }],
+        usage: { input: 10, output: 2, cacheRead: 0, cacheWrite: 0 },
+      }),
+      titleLine('初始标题', T0 + 2_000),
+      titleChange(3, '来源标题', 'provider'),
+      titleChange(4, '最终标题', 'provider'),
+    ]);
+    const result = await ingestSessionBatch(f.store, ompAdapter, [root], SALT, T0);
+    expect(result).toMatchObject({ files: 1, calls: 1, invalid: 0, blocked: 0 });
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM request').get()).toEqual({ n: 1 });
+    expect(f.store.read.query(
+      'SELECT conv_key, source, title, title_ms, manual FROM session_title').get()).toEqual({
+      conv_key: json(['session', OMP_SESSION]), source: 'omp_session',
+      title: '最终标题', title_ms: T0 + 4_000, manual: 0,
+    });
+    const raw = f.store.read.query(
+      "SELECT session_id FROM raw_session_event WHERE line_type='title_change'").all() as { session_id: string | null }[];
+    expect(raw).toEqual([
+      { session_id: OMP_SESSION }, { session_id: OMP_SESSION },
+    ]);
+    expect(f.store.read.query(
+      "SELECT COUNT(*) AS n FROM raw_session_event WHERE session_id LIKE 'event-%'").get())
+      .toEqual({ n: 0 });
+  } finally {
+    f.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('OMP/Pi 坏行停游标：坏行前的调用已落库，坏行记为 issue', async () => {
   const root = makeRoot();
   const f = fixture();

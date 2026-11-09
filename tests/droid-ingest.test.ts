@@ -125,6 +125,42 @@ test('普通会话落库：逐 assistant 建行、正文可读、证据/原始�
   }
 });
 
+test('Droid 来源标题：手动标记优先，自动标题不覆盖，子代理不写父会话', async () => {
+  const root = makeRoot();
+  const f = fixture();
+  try {
+    const manual = json({
+      type: 'session_start', id: 's-manual', title: '手动标题',
+      isSessionTitleManuallySet: true, version: 2,
+    });
+    const child = json({
+      type: 'session_start', id: 's-child-title', title: '子代理标题',
+      callingSessionId: 's-manual', version: 2,
+    });
+    writeSession(root, 's-manual.jsonl', [manual, USER_A, ASSISTANT_1]);
+    writeSession(root, 's-child-title.jsonl', [child, USER_A, ASSISTANT_1]);
+    await ingestDroidBatch(f.store, root, SALT, Date.now());
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM session_title').get()).toEqual({ n: 1 });
+    expect(f.store.read.query(
+      'SELECT conv_key, source, title, manual FROM session_title').get()).toEqual({
+      conv_key: json(['session', 's-manual']), source: 'droid_transcript',
+      title: '手动标题', manual: 1,
+    });
+
+    const automatic = json({
+      type: 'session_start', id: 's-manual', title: '自动标题',
+      isSessionTitleManuallySet: false, version: 2,
+    });
+    appendFileSync(join(root, 's-manual.jsonl'), `${automatic}\n${ASSISTANT_2}\n`);
+    await ingestDroidBatch(f.store, root, SALT, Date.now());
+    expect(f.store.read.query('SELECT title, manual FROM session_title').get())
+      .toEqual({ title: '手动标题', manual: 1 });
+  } finally {
+    f.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('重复摄入幂等：游标移除后重放不建新行，全部计重复', async () => {
   const root = makeRoot();
   const f = fixture();

@@ -101,6 +101,18 @@ export type SessionApplyResult = {
   sessionId: string | null;
 };
 
+/** 来源自带的会话标题；只写 session_title，不合成 request 行。 */
+export type SessionTitle = {
+  text: string;
+  /** 来源事件时间；来源没有给标题事件时间时为 null。 */
+  atMs: number | null;
+  /** 手动标题优先；目前只有 droid 的手动标记会置 true。 */
+  manual?: boolean;
+  /** 来源内可复核的位置：文件偏移、库行或 summary 字段。 */
+  ref: string;
+  facts?: Record<string, unknown>;
+};
+
 export type SessionAdapter = {
   /** request.agent 的取值。 */
   agent: string;
@@ -145,6 +157,8 @@ export type SessionAdapter = {
   apply(state: unknown, event: SessionParseResult & { kind: 'event' }): SessionApplyResult;
   /** 批末补发仍挂起的调用；只有延迟发调用的适配器需要。 */
   flush?(state: unknown): SessionApplyResult;
+  /** 批末读取来源标题；作用域由适配器判断，子代理/seed 前缀返回 null。 */
+  sourceTitle?(state: unknown, file: SessionFile): SessionTitle | null;
   /** 批内来源私有副作用（如 droid 的 settings 用量）；写事务内调用，返回变更数。 */
   afterFile?(db: Database, state: unknown, file: SessionFile, now: number): number;
 };

@@ -15,7 +15,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { SourceCursor, SourceRead } from '../../files';
 import type {
-  SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionParseResult,
+  SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionParseResult, SessionTitle,
 } from '../types';
 import { sessionConvKey } from '../types';
 
@@ -23,6 +23,7 @@ type SessionRow = {
   id: string;
   parent_id: string | null;
   directory: string | null;
+  title: string | null;
 };
 
 type UsageRow = {
@@ -183,7 +184,7 @@ function rootSessionOf(db: Database, sessionId: string, cache: Map<string, Sessi
   let row = cache.get(current);
   if (row === undefined) {
     row = db.query<SessionRow, [string]>(
-      'SELECT id,parent_id,directory FROM session WHERE id=?',
+      'SELECT id,parent_id,directory,title FROM session WHERE id=?',
     ).get(current) ?? null;
     cache.set(current, row);
   }
@@ -195,7 +196,7 @@ function rootSessionOf(db: Database, sessionId: string, cache: Map<string, Sessi
     let next = cache.get(current);
     if (next === undefined) {
       next = db.query<SessionRow, [string]>(
-        'SELECT id,parent_id,directory FROM session WHERE id=?',
+        'SELECT id,parent_id,directory,title FROM session WHERE id=?',
       ).get(current) ?? null;
       cache.set(current, next);
     }
@@ -243,7 +244,7 @@ export const zcodeAdapter: SessionAdapter = {
     const db = new Database(dbPath, { readonly: true });
     try {
       const sessions = db.query<SessionRow, []>(
-        'SELECT id,parent_id,directory FROM session WHERE time_deleted IS NULL',
+        'SELECT id,parent_id,directory,title FROM session WHERE time_deleted IS NULL',
       ).all();
       return sessions.map((session): SessionFile => {
         const max = db.query<{ max_rowid: number }, [string]>(`
@@ -345,7 +346,7 @@ export const zcodeAdapter: SessionAdapter = {
 
       const sessionCache = new Map<string, SessionRow | null>();
       const ownSession = sessionCache.get(sessionId) ?? db.query<SessionRow, [string]>(
-        'SELECT id,parent_id,directory FROM session WHERE id=?',
+        'SELECT id,parent_id,directory,title FROM session WHERE id=?',
       ).get(sessionId) ?? null;
       sessionCache.set(sessionId, ownSession);
       const root = rootSessionOf(db, sessionId, sessionCache) ?? ownSession;
@@ -450,5 +451,22 @@ export const zcodeAdapter: SessionAdapter = {
       error: null,
       sessionId: typeof call.sessionId === 'string' ? call.sessionId : null,
     };
+  },
+
+  sourceTitle(_state, file): SessionTitle | null {
+    const sessionId = sessionIdOfName(file.name);
+    const db = new Database(file.path, { readonly: true });
+    try {
+      const root = rootSessionOf(db, sessionId, new Map()) ?? null;
+      if (root === null || root.title === null) return null;
+      return {
+        text: root.title,
+        atMs: null,
+        ref: `${file.path}#${root.id}/session.title`,
+        facts: { requestedSession: sessionId },
+      };
+    } finally {
+      db.close();
+    }
   },
 };

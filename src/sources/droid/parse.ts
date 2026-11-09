@@ -16,6 +16,7 @@ export type DroidSessionStart = {
   parent: string | null;
   forkedAtMessageId: string | null;
   callingSessionId: string | null;
+  isSessionTitleManuallySet: boolean;
   version: number | null;
 };
 
@@ -96,6 +97,7 @@ function sessionStartOf(record: Record<string, unknown>, atMs: number | null): D
       parent: optionalText(record, 'parent'),
       forkedAtMessageId: optionalText(record, 'forkedAtMessageId'),
       callingSessionId: optionalText(record, 'callingSessionId'),
+      isSessionTitleManuallySet: record.isSessionTitleManuallySet === true,
       version: typeof record.version === 'number' && Number.isFinite(record.version)
         ? Math.trunc(record.version) : null,
     },

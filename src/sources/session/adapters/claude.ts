@@ -15,7 +15,7 @@ import { normalizeResponseId } from '../../magpie/mapping';
 import { discoverJsonl, jsonlBatch, jsonlRead } from '../read';
 import type { SourceCursor, SourceRead } from '../../files';
 import type {
-  SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionParseResult,
+  SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionParseResult, SessionTitle,
 } from '../types';
 import { canonicalSessionId, sessionConvKey } from '../types';
 
@@ -42,6 +42,9 @@ type ClaudeState = {
   pending: Pending | null;
   /** 本批有新 assistant 行才补发；重放不算，避免每批重复刷新同一笔。 */
   liveDirty: boolean;
+  title: string | null;
+  titleOffset: number | null;
+  firstMessageMs: number | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -117,6 +120,18 @@ function applyEvent(state: ClaudeState, event: SessionParseResult & { kind: 'eve
   const cwd = textOf(record.cwd);
   if (cwd !== null) state.cwd = cwd;
 
+  if (type === 'ai-title') {
+    if (record.isSidechain === true) {
+      return { state, calls: [], error: null, sessionId: state.sessionId };
+    }
+    const title = textOf(record.aiTitle) ?? textOf(record.title);
+    // 同一标题重复落 raw 时不挪证据位置，避免批末重复写 session_title。
+    if (title !== null && title !== state.title) {
+      state.title = title;
+      state.titleOffset = event.offset;
+    }
+    return { state, calls: [], error: null, sessionId: state.sessionId };
+  }
   if (type !== 'assistant' && type !== 'user') {
     return { state, calls: [], error: null, sessionId: state.sessionId };
   }
@@ -136,6 +151,7 @@ function applyEvent(state: ClaudeState, event: SessionParseResult & { kind: 'eve
   if (session === null) {
     return { state, calls: [], error: 'claude_session_missing', sessionId: null };
   }
+  if (state.firstMessageMs === null && atMs !== null) state.firstMessageMs = atMs;
 
   if (type === 'user') {
     const calls: SessionCall[] = [];
@@ -218,14 +234,14 @@ export const claudeAdapter: SessionAdapter = {
     const atMs = timestampOf(value.timestamp);
     const sessionId = textOf(value.sessionId) ?? textOf(value.session_id);
     // 只保留会进状态的行；api-request/blob、attachment 等大块不落原始层。
-    if (type !== 'assistant' && type !== 'user') return { kind: 'ignore' };
+    if (type !== 'assistant' && type !== 'user' && type !== 'ai-title') return { kind: 'ignore' };
     return { kind: 'event', lineType: type, atMs, sessionId, offset: 0, value };
   },
 
   emptyState(): ClaudeState {
     return {
       sessionId: null, cwd: null, messages: [], lastMessageMs: null,
-      pending: null, liveDirty: false,
+      pending: null, liveDirty: false, title: null, titleOffset: null, firstMessageMs: null,
     };
   },
 
@@ -241,5 +257,16 @@ export const claudeAdapter: SessionAdapter = {
     const call = finalize(current);
     current.liveDirty = false;
     return { state, calls: call === null ? [] : [call], error: null, sessionId: current.sessionId };
+  },
+
+  sourceTitle(state, file): SessionTitle | null {
+    const current = state as ClaudeState;
+    if (current.title === null || file.path.split('/').includes('subagents')) return null;
+    return {
+      text: current.title,
+      atMs: current.firstMessageMs,
+      ref: `${file.name}:${current.titleOffset ?? 0}`,
+      facts: { lineType: 'ai-title' },
+    };
   },
 };

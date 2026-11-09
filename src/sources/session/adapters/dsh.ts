@@ -19,7 +19,8 @@ import { join } from 'node:path';
 import { jsonlBatch, jsonlRead } from '../read';
 import type { SourceCursor, SourceRead } from '../../files';
 import type {
-  SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionParseResult, SessionUsage,
+  SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionParseResult, SessionTitle,
+  SessionUsage,
 } from '../types';
 import { canonicalSessionId, sessionConvKey } from '../types';
 import { expandHome } from './pi-jsonl';
@@ -39,6 +40,10 @@ type DshState = {
   seeding: boolean;
   seedDone: boolean;
   messages: DshMessage[];
+  title: string | null;
+  titleMs: number | null;
+  titleSourceKind: string | null;
+  titleSeq: number | null;
 };
 
 type DshLine = { seq: number | null; data: Record<string, unknown> };
@@ -181,6 +186,21 @@ function applyEvent(
       // 分叉的前缀到此为止；真实格式的 data 是空对象，事件本身就是边界。
       if (state.seeding) state.seedDone = true;
       return applyResult(state);
+    case 'title': {
+      if (state.subagentId !== null || (state.seeding && !state.seedDone)
+        || (state.version < 2 && line.seq !== null && line.seq < state.seedLength)) {
+        return applyResult(state);
+      }
+      const title = textOf(line.data.title);
+      if (title !== null) {
+        state.title = title;
+        state.titleMs = event.atMs;
+        const source = isRecord(line.data.source) ? line.data.source : null;
+        state.titleSourceKind = source === null ? null : textOf(source.kind);
+        state.titleSeq = line.seq;
+      }
+      return applyResult(state);
+    }
     default:
       return applyResult(state);
   }
@@ -234,13 +254,15 @@ export const dshAdapter: SessionAdapter = {
         value: { seq: null, data: value } satisfies DshLine,
       };
     }
-    if (type !== 'user/message' && type !== 'assistant/message' && type !== 'session/end-seed') {
+    if (type !== 'user/message' && type !== 'assistant/message'
+      && type !== 'session/end-seed' && type !== 'session/title') {
       return { kind: 'ignore' };
     }
     const data = isRecord(value.data) ? value.data : null;
     if (data === null) return { kind: 'invalid', reason: 'dsh_payload_invalid' };
     const lineType = type === 'user/message' ? 'user'
-      : type === 'assistant/message' ? 'assistant' : 'end-seed';
+      : type === 'assistant/message' ? 'assistant'
+        : type === 'session/title' ? 'title' : 'end-seed';
     return {
       kind: 'event',
       lineType,
@@ -255,10 +277,22 @@ export const dshAdapter: SessionAdapter = {
     return {
       sessionId: null, subagentId: null, parentSessionId: null, cwd: null, model: null,
       version: 0, isSeeded: false, seedLength: 0, seeding: false, seedDone: true, messages: [],
+      title: null, titleMs: null, titleSourceKind: null, titleSeq: null,
     };
   },
 
   apply(state, event) {
     return applyEvent(state as DshState, event);
+  },
+
+  sourceTitle(state, file): SessionTitle | null {
+    const current = state as DshState;
+    if (current.title === null || current.subagentId !== null) return null;
+    return {
+      text: current.title,
+      atMs: current.titleMs,
+      ref: `${file.name}:seq:${current.titleSeq ?? 0}`,
+      facts: { sourceKind: current.titleSourceKind },
+    };
   },
 };
