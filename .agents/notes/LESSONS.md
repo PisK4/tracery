@@ -138,6 +138,11 @@
 - 防护：脚本验收读接口时先从数据目录读 `read.token` 转 base64url 作 Bearer；查会话键用 `select distinct conv_key from request where conv_key like '%<uuid>%'`，不按裸 uuid 猜。浏览器验收不受影响，别把它的成功当成接口免认证。
 - Seen 1× (2026-11-08).
 
+**worktree 里改的前端，生产页面验不到；那条只读检查只能证明旧页面没回归。**
+- 证据：2026-11-10 桌面 UI 收尾，在 worktree 里给 `web/` 加了 `host.js` 与 `usage-donuts.js`，用 CDP 打开 `http://127.0.0.1:8320/?host=desktop` 得到 `host:null`、`top:44`、`donuts:0`、`cueToggle:false`——launchd 采集器服务的是主检出的 `web/`，新模块根本不在那个目录里。同一轮 `screencapture -l <windowid>` 取外壳窗口截图失败，新代码的实际证据只剩合成 demo（`prototypes/synthetic-server.ts`，8770）。
+- 防护：worktree 前端验收一律指向合成 demo 或从 worktree 起一份隔离实例，别拿生产 8320 当证据；要验生产就必须先部署（合并 + `bun run service restart`）。验收记录里把「生产只读检查（旧前端）」与「新代码合成验收」分开写，不合并成一句「生产已验」。
+- Seen 1× (2026-11-10).
+
 ## 依赖与命名
 
 **引入 `t` 前，先查同作用域里叫 `t` 的局部变量。**
@@ -247,6 +252,16 @@
 - Seen 1× (2026-11-09).
 
 ## 功能评估
+
+**改样张前先核对 proposed note 的否决项与读取契约，别把合成段的形态当成规格。**
+- 证据：2026-11-10 桌面 demo 评审，样张画了「工具参数」耗时段、Token 输出侧两类、写死的 5 个时间刻度、拼出来的待办来源行，并按 `aria-pressed` 做页签；同一份 proposed note 已否决前两者、要求刻度由分段累加、`TodoSnapshot` 无 `source_req`、页签改 `aria-selected`。样张又被定义为「固定组件形态」，实现会两边为难。
+- 防护：动 demo 前先列 note 的 Alternatives considered、服务端配合表与验收条款，逐项比对样张数据常量与字典；改动后跑中英字典键齐全、圆环百分比合计、`node --check` 与样张是否被 `.gitignore` 排除四项，且不要在验收条款里写死合成值（如「51 个叶子」）。
+- Seen 1× (2026-11-10).
+
+**样张的默认形态要跟生产宿主对齐，别把评审舞台当成产品默认。**
+- 证据：2026-11-10 桌面 demo 默认画成深色舞台上的浮动窗口，四周留白、圆角、投影与控制条；Pis 要求浏览器打开 Web UI 时铺平整个版面，只有打包成 App 才用固定窗口。生产 `web/app.css` 的三栏本来就是 `body` 撑满加 grid，唯一像限宽容器的 `.conv{max-width:940px}` 全仓没有任何 JS 生成 `class="conv"`，是条死规则；删它属于夹带无关改动。
+- 防护：改默认版面先查生产骨架有没有实际生效的限宽容器，再决定是改生产代码还是只改样张；宿主分岔写进 UIUX 与 proposed note，样张用同一个 `data-host` 切换两种形态并分别量 `windowRect` 与 `appWidth`，别只靠 `node --check`。
+- Seen 1× (2026-11-10).
 
 **用消费端真正可读的交集校准功能覆盖，不用原始工具命中数代替。**
 - 证据：2026-11-05 插件评估核对同日验收快照：131 个含 Todo 的会话只有 3 个结算出轮次，只有 1 个已结算会话读到 Todo；合成跨轮 create/update 又证明有 Parser 和已结算轮仍不等于能还原完整状态。见[插件系统必要性评估](../../docs/plugin-system-review.md)。
