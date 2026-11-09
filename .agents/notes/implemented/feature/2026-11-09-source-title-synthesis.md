@@ -65,7 +65,7 @@ Status: implemented
 
 ### 2. 载体与写入
 
-`session_title` 是 v17 的 additive 表，主键 `(conv_key, source)`，`WITHOUT ROWID`。`manual` 只由 droid 的手动标记写入；读侧按 `manual DESC, observed_ms DESC, source ASC` 取一条。标题与 `evidence_json` 落库前都过 `redact`，标题按 Unicode 码点截断到 512 字符，证据只记 `source_kind`、`ref` 与附加事实。结构形状见[架构设计](../../../../docs/architecture-design.md#版本与破坏式替换)，运维版本见[运维手册](../../../../docs/operations.md#schema-版本)。
+标题另起一张会话级窄表，避免合成一笔假请求去复用请求读取。表的形状、脱敏与截断规则以[架构设计](../../../../docs/architecture-design.md#版本与破坏式替换)为准，升级边界见[运维手册](../../../../docs/operations.md#schema-版本)。`manual` 优先与读侧裁决顺序的理由是用户亲手改过的名字不该被上游自动标题盖掉。
 
 `SessionAdapter.sourceTitle?(state, file)` 是批末同步钩子，返回的 `SessionTitle.sessionId` 由适配器按自己的作用域判定；ingest 用 `sessionConvKey()` 生成 `conv_key`，不从最后一步 apply 猜会话身份。钩子只在没有坏行阻断的批次里跑，位置在 `flush` 与 `afterFile` 之间。标题、手动标记或证据没变时不刷新 `observed_ms`；自动标题不能覆盖 `manual=1`。钩子或写库异常只记 `session_title_failed` issue，不停游标。
 

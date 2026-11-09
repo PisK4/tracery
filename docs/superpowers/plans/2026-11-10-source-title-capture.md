@@ -217,7 +217,7 @@ Expected: PASS；`getSessionTitles` 计划仍含 `SEARCH request USING COVERING 
 ### Task 6: 文档、note 与收尾检查
 
 **Files:**
-- Move: `.agents/notes/proposed/feature/2026-11-09-source-title-synthesis.md` → `.agents/notes/implemented/feature/2026-11-09-source-title-synthesis.md`
+- Move（已执行）: `.agents/notes/implemented/feature/2026-11-09-source-title-synthesis.md`，`Status: implemented`
 - Modify: `docs/architecture-design.md`, `docs/operations.md`, `docs/agent-coverage.md`, `docs/acceptance.md`, `GLOSSARY.md`, `.agents/notes/LESSONS.md`
 
 **Interfaces:**
