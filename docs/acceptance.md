@@ -6,6 +6,32 @@
 
 记录里的数字、端口、pid 与耗时都来自作者机器，用于说明当时怎么判断，不是可复现的基准。
 
+## 用户设置层生产部署与真实只读复核（2026-11-09）
+
+前提：master `63e29fa`（`--no-ff` 合并 `feat/config-tier`），批次带 [用户设置层与配置目录](../.agents/notes/implemented/feature/2026-11-09-user-settings-config-tier.md)。改动触及 `src/`，按[运维手册](operations.md#起停与状态)走 `bun run service restart`，没有 kill 也没有另起实例。合成验收另见上一轮，两轮分开记。
+
+### 部署
+
+`bun run service restart` 返回 0，pid 63921，端口 8320，用时 486 毫秒。`bun run service status` 报告作业 running、上次退出 0、代码未落后、`/api/stats` 可读（12 毫秒）、请求 173767 笔；错误日志尾部只有正常态 `hook_absent_marked`。
+
+### 真实只读复核
+
+用本机 `read.token` 在进程内发带 Bearer 的请求，只读不写，没有打开浏览器页面，也没有触发旧 localStorage 迁移写真实配置文件：
+
+- `GET /api/settings` 返回 200，顶层只有 `settings` 与 `overrides` 两个键，`settings` 带 7 个字段、`overrides` 为空对象；响应不含令牌、盐、路径内容或环境变量原文。
+- `GET /settings.js`、`/settings-panel.js`、`/motion.js` 都返回 200 与 `text/javascript; charset=utf-8`，新增 web 模块在 `STATIC_FILES` 里可达。
+- 生产数据目录首次启动生成 `config/` 0700、`config/settings.json` 0600、`config/themes/` 0700；`settings.json` 只有 `{}`（3 字节），与默认值随代码发布、文件只存 overrides 的口径一致。
+
+### 未覆盖与边界
+
+- 这一轮是端点与静态资源的只读复核，不是页面交互验收；没有在生产 8320 上打开面板、点外观控件或发 POST。外观六项与语言切换的完整交互只在合成实例 8399 验过。
+- 没有读取真实请求正文、账号、令牌或用户配置内容；没有把任何真实配置值写进 fixture、日志或提交。
+- 采集来源、完整正文、分级保留、异常提醒与自定义隐藏词仍未接线，生产页签里只有事实说明。
+
+### 门禁
+
+合并批次跑过 `verify:notes:staged`、`verify:notes:range`（`origin/master..HEAD` 批次带 note）、`bun run typecheck` 与 112 项最窄测试。追加本验收记录属纯文档改动，提交信息带 `Agent-Note: none` 豁免，不重复已经通过的检查。
+
 ## 用户设置层第一阶段（合成，2026-11-09）
 
 前提：分支 `feat/config-tier`，四笔提交交付 `src/settings.ts`、`/api/settings` 读写端点、设置面板与外观接线。设计取舍见[用户设置层与配置目录](../.agents/notes/implemented/feature/2026-11-09-user-settings-config-tier.md)。验收范围是目录与权限、校验与拒绝路径、读写端点、外观生效与旧 localStorage 迁移，不含采集来源、完整正文、分级保留、异常提醒与自定义隐藏词。
