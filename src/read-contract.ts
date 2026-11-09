@@ -4,7 +4,8 @@
  * 只包含类型，不生成运行代码；DTO 以 type-only 引用既有查询与阅读模块，不复制
  * 结构。URL 拼接、HTTP 状态与 Response 只属于 web/read-http.js；store 与 feature
  * 只消费这里的操作名、ReadInput/ReadOutput 与 ReadErrorCode。批次端点的服务端
- * 实现归 reading 批读取（Task 4），本契约先固定它的对外形状。
+ * 实现归 reading 批读取（Task 4），本契约先固定它的对外形状。settings 与
+ * saveSettings 是同一条传输 seam 上的读与写，不另建第二个 fetch 调用点。
  */
 import type { SessionRow, SessionAgentDirectory } from './queries/sessions';
 import type { RequestRow } from './queries/projection';
@@ -19,6 +20,7 @@ import type { TodoByTurn } from './queries/todo-by-turn';
 import type { SessionSummary, SummaryEntriesQuery, SummaryEntries } from './queries/session-summary';
 import type { Stats } from './queries/stats';
 import type { getRoute } from './queries/routes';
+import type { Settings, SettingsPayload } from './settings';
 
 /** 单笔正文区间读取的输入；token 是 owner 当时的阅读身份（if_reading）。 */
 export type RangeInput = { id: number; token: string; from: number; to: number };
@@ -72,6 +74,8 @@ export type ReadOperations = {
   stats: { input: Record<string, never>; output: Stats };
   readings: { input: { key: string; ids: number[] }; output: BatchPage<ReadingBundle> };
   bodyRanges: { input: { key: string; ranges: RangeInput[] }; output: BatchPage<ReadingBody> };
+  settings: { input: Record<string, never>; output: SettingsPayload };
+  saveSettings: { input: Settings; output: SettingsPayload };
 };
 
 export type ReadInput<K extends keyof ReadOperations> = ReadOperations[K]['input'];

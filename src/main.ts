@@ -21,6 +21,7 @@ import { runSessionScheduler, type SessionSchedulerState } from './sources/sessi
 import { SESSION_ADAPTERS } from './sources/session/registry';
 import type { SessionAdapter } from './sources/session/types';
 import { createHandler, loadReadToken } from './http';
+import { loadSettings } from './settings';
 import { createLiveActivity } from './activity';
 import { markHookAbsent, reconcilePending } from './hook';
 import { createDeriveUnit, type DeriveCompute } from './derive/unit';
@@ -106,6 +107,8 @@ export async function startCollector(
     version: codeVersion(),
   });
   diagnostics.lifecycle('service.start', { phase: 'boot' });
+  // 用户设置在启动时读一次：坏文件只回退默认值并记 issue，不拦住采集器。
+  const settings = loadSettings(config.dataDir, diagnostics);
   // 维护命令运行时不允许采集器起来：两边同时写会得到自相矛盾的快照。
   // 陈旧锁不在这里自动清：把路径原样报出来，由操作者确认后删除。
   const heldLock = maintenanceLockPresent(config.dataDir);
@@ -369,7 +372,7 @@ export async function startCollector(
     token: otlpToken,
     salt,
     admission: () => gate.check(0),
-  }, diagnostics, live, community);
+  }, diagnostics, live, settings, community);
 
   timers.push(setInterval(ledgerTick, intervalOf(config, 'ledger', LEDGER_INTERVAL_MS)));
   timers.push(setInterval(routeTick, intervalOf(config, 'route', ROUTE_INTERVAL_MS)));

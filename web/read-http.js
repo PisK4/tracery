@@ -94,6 +94,9 @@ export function createHttpReadTransport({ fetcher, baseUrl = '', headers }) {
         return `/api/sessions/${enc(input.key)}/readings?ids=${enc(JSON.stringify(input.ids))}`;
       case 'bodyRanges':
         return `/api/sessions/${enc(input.key)}/reading-ranges?items=${enc(JSON.stringify(input.ranges))}`;
+      case 'settings':
+      case 'saveSettings':
+        return '/api/settings';
       default:
         throw Object.assign(new Error('unsupported_operation'), { code: 'unsupported_operation' });
     }
@@ -212,6 +215,10 @@ export function createHttpReadTransport({ fetcher, baseUrl = '', headers }) {
       case 'stats':
         if (!isObj(parsed)) reject();
         return;
+      case 'settings':
+      case 'saveSettings':
+        if (!isObj(parsed) || !isObj(parsed.settings) || !isObj(parsed.overrides)) reject();
+        return;
       case 'readings': {
         if (!isObj(parsed)) reject();
         checkBatch(parsed.items, input.ids, parsed.next_index);
@@ -250,9 +257,15 @@ export function createHttpReadTransport({ fetcher, baseUrl = '', headers }) {
     async execute(operation, input, { signal }) {
       const url = baseUrl + encode(operation, input);
       if (new TextEncoder().encode(url).length > MAX_READ_URL_BYTES) throw fail('batch_too_large');
+      const isSave = operation === 'saveSettings';
       let response;
       try {
-        response = await fetcher(url, { method: 'GET', headers: headers?.(), signal });
+        response = await fetcher(url, {
+          method: isSave ? 'POST' : 'GET',
+          headers: isSave ? { ...headers?.(), 'content-type': 'application/json' } : headers?.(),
+          ...(isSave ? { body: JSON.stringify(input) } : {}),
+          signal,
+        });
       } catch (error) {
         if (signal.aborted) throw fail('cancelled');
         throw fail('unavailable');
@@ -265,6 +278,7 @@ export function createHttpReadTransport({ fetcher, baseUrl = '', headers }) {
           : status === 400 ? 'invalid_input'
           : status === 401 ? 'unauthorized'
           : status === 403 ? 'forbidden'
+          : status === 413 ? 'batch_too_large'
           : status === 414 ? 'batch_too_large'
           : 'unavailable';
         throw fail(code, status);
