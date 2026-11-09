@@ -1163,8 +1163,14 @@ test('设置层是外观与语言的唯一权威，面板不摆未接线开关',
   expect(settingsJs).toContain("reader.execute('settings'");
   expect(settingsJs).toContain("transport.execute('saveSettings'");
   expect(i18n).not.toContain("localStorage.getItem('tc.lang')");
+  expect(i18n).not.toContain("localStorage.setItem('tc.lang'");
   expect(settingsJs).not.toContain("localStorage.setItem('tc.theme'");
   expect(settingsJs).not.toContain("localStorage.setItem('tc.lang'");
+  // 旧键每次启动都清，但只有全新的服务端文件才采用浏览器残留值。
+  expect(settingsJs).toContain('Object.keys(payload.overrides).length === 0');
+  expect(settingsJs).toContain("localStorage.removeItem('tc.theme')");
+  expect(settingsJs).toContain("localStorage.removeItem('tc.lang')");
+  expect(settingsJs).toContain('apply(current, true)');
   // 未接线分类只给事实，不摆开关也不写「已生效」。
   expect(panel).toContain('data-panel="sources" hidden');
   expect(panel).toContain('data-panel="history" hidden');
@@ -1172,6 +1178,10 @@ test('设置层是外观与语言的唯一权威，面板不摆未接线开关',
   expect(panel).not.toContain('data-ret=');
   expect(panel).not.toContain('data-field="notify"');
   expect(panel).not.toContain('data-field="fullBody"');
+  // 骨架只生成一次，语言切换时按标记就地换文案，页签与页脚不能僵在初始语言。
+  expect(panel).toContain('data-i18n=');
+  expect(panel).toContain('data-i18n-aria=');
+  expect(panel).toContain("querySelectorAll('[data-i18n]')");
 });
 
 test('reduced-motion 判定只有 motion.js 一个来源，CSS 与设置开关同口径', () => {

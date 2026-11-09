@@ -6,7 +6,7 @@
  */
 
 import { icon } from './icons.js';
-import { t, otherLocale, changeLocale } from './i18n.js';
+import { t, otherLocale, setLocale } from './i18n.js';
 
 /** @param {string} id */
 function el(id) {
@@ -114,7 +114,7 @@ export function initLayout(onLocaleChange) {
   el('lang-toggle').addEventListener('click', () => {
     const next = otherLocale();
     if (onLangChange !== null) onLangChange(next);
-    else { changeLocale(next); applyLangButton(); onLocaleChange?.(); }
+    else { setLocale(next); applyLangButton(); onLocaleChange?.(); }
   });
 
   el('theme-toggle').addEventListener('click', () => {

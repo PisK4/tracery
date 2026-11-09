@@ -1795,6 +1795,14 @@ if (typeof document !== 'undefined') {
     }
   }
 
+  /** 服务端语言就位时只重画静态 chrome；动态区域之后按正常加载路径渲染。 */
+  function applySettingsLocale() {
+    document.documentElement.lang = htmlLang();
+    applyStaticTexts();
+    applyTheme();
+    refreshSettingsPanel();
+  }
+
   /** 语言切换的界面侧：静态 chrome 换文案，动态区域走既有渲染路径全量重绘。
    * 投影与准备结论缓存里存着上一语言的步骤短语，切换时一并重置，重绘按当前语言重投影。 */
   function applyLocaleChrome() {
@@ -2852,7 +2860,7 @@ if (typeof document !== 'undefined') {
   void (async () => {
     // 设置层服务端权威先就位：它决定主题、语言、字号与动效，再装面板。
     // 服务端不可写时 initSettings 退回降级缓存，页面照常渲染。
-    await initSettings(settingsTransport, applyLocaleChrome, toast);
+    await initSettings(settingsTransport, applySettingsLocale, applyLocaleChrome, toast);
     initSettingsPanel(toast);
     let listError = null;
     try {

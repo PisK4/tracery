@@ -2,10 +2,8 @@
 /**
  * 界面双语：语言状态与 t()。中文原文即 key，web/i18n-en.js 做 zh→en 映射，
  * 缺 key 回退原文——按文件分批抽取时，没抽到的界面保持中文，不显示 key 名。
- * 偏好存 localStorage('tc.lang')，缺省跟随 navigator.language；语言切换后的
- * 界面重绘归调用点（app.js 的 onLocaleChange），本模块只管文案与偏好。
- * 服务端设置层是语言选择的权威：启动时由它调用 setLocale，浏览器存储只在
- * 服务端不可写时作降级缓存，不再决定初始语言。
+ * 服务端设置层是语言选择的权威：启动时由它调用 setLocale；浏览器存储只承载
+ * 一份降级缓存（tc.settings），不再写 tc.lang，也不再决定初始语言。
  */
 
 import { dict } from './i18n-en.js';
@@ -60,10 +58,4 @@ export function htmlLang() { return locale === 'zh' ? 'zh-CN' : 'en'; }
 export function initLocale() {
   const lang = typeof navigator === 'undefined' ? '' : navigator.language ?? '';
   locale = lang.toLowerCase().startsWith('zh') ? 'zh' : 'en';
-}
-
-/** 切换并持久化；DOM 与界面重绘归调用点。 @param {'zh' | 'en'} next */
-export function changeLocale(next) {
-  setLocale(next);
-  try { localStorage.setItem('tc.lang', next); } catch { /* storage may be blocked */ }
 }

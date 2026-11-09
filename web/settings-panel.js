@@ -126,30 +126,40 @@ function connectPanel() {
 
 /** @param {string} cat @param {string} label */
 function navButton(cat, label) {
-  return `<button data-cat="${cat}" aria-selected="false">${esc(t(label))}</button>`;
+  return `<button data-cat="${cat}" data-i18n="${esc(label)}" aria-selected="false">${esc(t(label))}</button>`;
 }
 
 export function settingsHtml() {
-  return `<button class="set-scrim" id="set-scrim" aria-label="${esc(t('关闭设置'))}" hidden></button>`
-    + `<section class="settings" id="settings" aria-label="${esc(t('设置'))}" hidden>`
-    + `<div class="set-head"><h2>${esc(t('设置'))}</h2>`
-      + `<button class="set-close" id="set-close" aria-label="${esc(t('关闭设置'))}">`
+  return `<button class="set-scrim" id="set-scrim" aria-label="${esc(t('关闭设置'))}" data-i18n-aria="关闭设置" hidden></button>`
+    + `<section class="settings" id="settings" aria-label="${esc(t('设置'))}" data-i18n-aria="设置" hidden>`
+    + `<div class="set-head"><h2 data-i18n="设置">${esc(t('设置'))}</h2>`
+      + `<button class="set-close" id="set-close" aria-label="${esc(t('关闭设置'))}" data-i18n-aria="关闭设置">`
       + icon('close', 16) + `</button></div>`
-    + `<nav class="set-nav" id="set-nav" aria-label="${esc(t('设置分类'))}">`
+    + `<nav class="set-nav" id="set-nav" aria-label="${esc(t('设置分类'))}" data-i18n-aria="设置分类">`
       + navButton('appearance', '外观') + navButton('sources', '采集来源')
       + navButton('history', '历史与空间') + navButton('connect', '接入') + `</nav>`
     + `<div class="set-body" id="set-body"></div>`
-    + `<div class="set-foot"><span class="set-path">${esc(t('设置保存在本机数据目录'))}</span>`
-      + `<button class="set-mini" id="set-export">${esc(t('复制主题'))}</button>`
-      + `<button class="set-mini" id="set-import">${esc(t('导入主题'))}</button>`
+    + `<div class="set-foot"><span class="set-path" data-i18n="设置保存在本机数据目录">${esc(t('设置保存在本机数据目录'))}</span>`
+      + `<button class="set-mini" id="set-export" data-i18n="复制主题">${esc(t('复制主题'))}</button>`
+      + `<button class="set-mini" id="set-import" data-i18n="导入主题">${esc(t('导入主题'))}</button>`
       + `<div class="set-import" id="set-import-box" hidden><textarea id="set-import-text" `
-      + `aria-label="${esc(t('粘贴主题 JSON'))}"></textarea><button class="set-mini" id="set-import-apply">`
-      + `${esc(t('应用'))}</button><span class="set-import-msg" id="set-import-msg"></span></div></div>`
+      + `aria-label="${esc(t('粘贴主题 JSON'))}" data-i18n-aria="粘贴主题 JSON"></textarea>`
+      + `<button class="set-mini" id="set-import-apply" data-i18n="应用">${esc(t('应用'))}</button>`
+      + `<span class="set-import-msg" id="set-import-msg"></span></div></div>`
     + `</section>`;
 }
 
 /** @param {Settings} s */
 function paint(s) {
+  // 面板骨架只生成一次；语言切换后按当前 t() 就地换文案，事件绑定与开合状态不动。
+  for (const node of document.querySelectorAll('[data-i18n]')) {
+    const key = node.getAttribute('data-i18n');
+    if (key !== null) node.textContent = t(key);
+  }
+  for (const node of document.querySelectorAll('[data-i18n-aria]')) {
+    const key = node.getAttribute('data-i18n-aria');
+    if (key !== null) node.setAttribute('aria-label', t(key));
+  }
   const body = el('set-body');
   body.innerHTML = appearancePanel(s) + sourcesPanel() + historyPanel() + connectPanel();
   for (const button of el('set-nav').querySelectorAll('button')) {

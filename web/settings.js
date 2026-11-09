@@ -4,7 +4,8 @@
  *
  * 页面只在启动时读一次，改动经具名 saveSettings 保存；保存失败时状态不翻转，
  * 界面用上一次成功的生效值继续渲染。localStorage 只作服务端不可写时的降级
- * 缓存：首次启动把 tc.theme / tc.lang 迁到服务端，之后不再把浏览器存储当权威。
+ * 缓存：启动时清掉 tc.theme / tc.lang 旧键，只在设置文件全新时迁一次，
+ * 之后不再把浏览器存储当权威。
  */
 import { currentLocale, setLocale } from './i18n.js';
 import { setReduceMotion } from './motion.js';
@@ -27,8 +28,10 @@ const RGBA = /^rgba\(\d{1,3},\d{1,3},\d{1,3},0?\.\d{1,2}\)$/;
 let current = null;
 /** @type {ReadTransport | null} */
 let transport = null;
-/** @type {(() => void) | null} */
-let onLocaleChange = null;
+/** @type {(() => void) | null} 启动时按服务端语言重画静态 chrome。 */
+let onChromeRedraw = null;
+/** @type {(() => void) | null} 用户切换语言时的全量重绘，动态区也要换文案。 */
+let onLocaleRedraw = null;
 /** @type {(message: string) => void} */
 let notify = () => {};
 
@@ -45,25 +48,29 @@ function isSettings(value) {
     && ['zh', 'en'].includes(String(v.lang));
 }
 
-/** 把一份完整设置写到 CSS 变量与语言/主题状态，不触碰页面内容区。 */
-function apply(/** @type {Settings} */ s, redrawChrome = false) {
+/** 把一份完整设置写到 CSS 变量与语言/主题状态，不触碰页面内容区。
+ * redrawChrome 只给启动用：静态文案早于设置读取渲染过一次，需要按服务端语言重画。
+ * @param {Settings} s
+ * @param {boolean} [redrawChrome]
+ */
+function apply(s, redrawChrome = false) {
   const root = document.documentElement;
   root.style.setProperty('--accent', s.accent);
   root.style.setProperty('--accent-soft', s.accentSoft);
   root.style.setProperty('--fs-scale', String(SCALE[s.fontSize]));
   setThemePref(s.appearance);
   setReduceMotion(s.reduceMotion);
-  if (s.lang !== currentLocale()) {
-    setLocale(s.lang);
-    if (redrawChrome) onLocaleChange?.();
-  }
+  if (s.lang !== currentLocale()) setLocale(s.lang);
+  root.lang = s.lang === 'zh' ? 'zh-CN' : 'en';
   applyLangButton();
   applyTheme();
+  // 启动时也要按服务端语言重画静态文案：applyStaticTexts 早于设置读取跑过一次。
+  if (redrawChrome) onChromeRedraw?.();
 }
 
 /**
- * 首次迁移：tc.theme 与 tc.lang 只在服务端仍是默认值时才覆盖一次，避免把
- * 用户在别处改过的服务端选择拉回浏览器旧值。存储不可用时静默跳过。
+ * 读一次旧偏好并删键。是否采用这些值由 initSettings 按服务端是否全新决定：
+ * 已有的服务端选择不能被浏览器残留值覆盖，旧键每次启动都清掉。
  * @returns {Partial<Settings>}
  */
 export function legacyOverrides() {
@@ -74,6 +81,8 @@ export function legacyOverrides() {
     if (theme === 'system' || theme === 'light' || theme === 'dark') out.appearance = theme;
     const lang = localStorage.getItem('tc.lang');
     if (lang === 'zh' || lang === 'en') out.lang = lang;
+    localStorage.removeItem('tc.theme');
+    localStorage.removeItem('tc.lang');
   } catch { /* storage may be blocked */ }
   return out;
 }
@@ -98,15 +107,17 @@ export function settings() {
 }
 
 /**
- * 启动时装配：注入读取 transport 与语言重绘回调，读服务端设置并应用。
+ * 启动时装配：注入读取 transport 与两种语言重绘回调，读服务端设置并应用。
  * 服务端不可用时退回降级缓存或默认值，页面照常渲染。
  * @param {ReadTransport} reader
- * @param {() => void} redraw
+ * @param {() => void} chromeRedraw 服务端语言就位时重画静态文案
+ * @param {() => void} localeRedraw 用户切换语言时全量重绘
  * @param {(message: string) => void} [toast]
  */
-export async function initSettings(reader, redraw, toast) {
+export async function initSettings(reader, chromeRedraw, localeRedraw, toast) {
   transport = reader;
-  onLocaleChange = redraw;
+  onChromeRedraw = chromeRedraw;
+  onLocaleRedraw = localeRedraw;
   notify = toast ?? (() => {});
   // 顶栏快捷切换也走保存端点：不写 localStorage，不与服务端权威分叉。
   setThemeChange(next => { if (current !== null) void set({ ...current, appearance: next }); });
@@ -125,15 +136,13 @@ export async function initSettings(reader, redraw, toast) {
       reduceMotion: false, lang: currentLocale(),
     };
   }
-  apply(current);
-  // 迁移只做一次：仅当服务端该字段仍是默认值且浏览器存过旧偏好时提交。
+  apply(current, true);
+  // 旧键每次启动都清；只有全新的服务端文件才采用它们，之后浏览器存储不再有资格覆盖。
   const legacy = legacyOverrides();
-  const needsMigration = Object.keys(legacy).some(key =>
-    current?.[/** @type {keyof Settings} */ (key)] !== legacy[/** @type {keyof Settings} */ (key)]
-    && payload?.overrides?.[/** @type {keyof Settings} */ (key)] === undefined);
-  if (needsMigration && transport !== null) {
-    await set({ ...current, ...legacy });
-  }
+  const freshServer = payload !== null && Object.keys(payload.overrides).length === 0;
+  const needsMigration = freshServer && Object.keys(legacy).some(key =>
+    current?.[/** @type {keyof Settings} */ (key)] !== legacy[/** @type {keyof Settings} */ (key)]);
+  if (needsMigration && transport !== null) await set({ ...current, ...legacy });
 }
 
 /**
@@ -149,7 +158,8 @@ export async function set(next) {
     const langChanged = current !== null && current.lang !== payload.settings.lang;
     current = payload.settings;
     cache(current);
-    apply(current, langChanged);
+    apply(current);
+    if (langChanged) onLocaleRedraw?.();
     return true;
   } catch {
     notify('设置没能保存，请重试');
