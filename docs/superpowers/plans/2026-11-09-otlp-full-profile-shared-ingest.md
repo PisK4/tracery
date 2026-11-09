@@ -42,6 +42,7 @@
 | `src/protocol-shape.ts` | semconv 查表：messagesKey、`semconvCalls`、`semconvResults` | 3 |
 | `src/capabilities.ts` | `CAPABLE_PROTOCOLS` 加 `genai-semconv` | 3 |
 | `src/input-interpretation.ts` | `textBlocks` 识别 semconv `parts[].content` | 3 |
+| `src/derive/decision.ts` | `replyShapeOf` 加 semconv 分支（messages + stop_reason 判 final/tools） | 3 |
 | `src/sources/otlp/mapping.ts` | `AttrKeys`/`SpanMapping` 加 responseId/inputMessages/outputMessages；`fullProfileRule` 工厂；升版 5 | 4 |
 | `scripts/otlp-full-profile-export.ts`（新建） | 全量 profile 参考导出脚本（真实流量验收载体） | 4 |
 | `tests/ingest-core.test.ts`（新建） | 核心判重优先、认领复用、正文降级、派生标记 | 1 |
@@ -751,6 +752,24 @@ function textBlocks(message: unknown): string[] {
 }
 ```
 
+- [ ] **Step 5b: replyShapeOf 加 semconv 分支（审查时发现的缺口，已补）**
+
+`src/derive/decision.ts` 的 `replyShapeOf` 原只认 content/choices 信封，semconv 的 `{ messages }` 回复会落 `unknown`，轮次结算（`queries/turns.ts` 按 `reply_shape==='final'` 找收尾）认不出最终答复。在 `const record = …` 后、responses 分支前加：
+
+```typescript
+if (protocol === 'genai-semconv') {
+  if (!Array.isArray(record.messages)) return 'unknown';
+  const finish = typeof record.stop_reason === 'string' && record.stop_reason !== '' ? record.stop_reason : null;
+  const calls = replyCallsOf(protocol, reply);
+  if (calls.length > 0) return finish !== null && REPLY_FINISH_TRUNCATED.has(finish) ? 'unknown' : 'tools';
+  if (finish === null) return 'unknown';
+  if (REPLY_FINISH_TRUNCATED.has(finish)) return 'unknown';
+  return REPLY_FINISH_FINAL.has(finish) ? 'final' : 'unknown';
+}
+```
+
+`stop_reason` 由 Task 4 摄入时从 `mapping.stop`（span finish_reasons）写进回复信封；`REPLY_FINISH_FINAL` 已含 `stop`。tests/protocols.test.ts 加 semconv final/tools/unknown 用例。此步已在 semconv 分支以 fixup 落地（commit fc5a566），并跑 protocols/protocol-shape/input-interpretation/derive-tool-pairing/derive-unit 共 78 pass。
+
 - [ ] **Step 6: 跑适配器套件 + 协议回归**
 
 Run: `bun test tests/protocol-shape.test.ts tests/input-interpretation.test.ts tests/protocols.test.ts tests/capabilities.test.ts tests/body.test.ts`
@@ -941,7 +960,13 @@ function fullProfileBodyTx(
   if (input !== null && !Array.isArray(input)) return degrade();
   if (output !== null && !Array.isArray(output)) return degrade();
   const request = input === null ? null : { messages: input };
-  const reply = output === null ? null : { ...(mapping.responseId !== null ? { id: mapping.responseId } : {}), messages: output };
+  // stop_reason 进回复信封：replyShapeOf 的 semconv 分支靠它判 final/tools，
+  // 缺它纯文本答复会落 unknown，轮次结算认不出收尾（mapping.stop 取自 finish_reasons）。
+  const reply = output === null ? null : {
+    ...(mapping.responseId !== null ? { id: mapping.responseId } : {}),
+    ...(mapping.stop !== null ? { stop_reason: mapping.stop } : {}),
+    messages: output,
+  };
   return {
     protocol: 'genai-semconv',
     request: request === null ? null : redact(request, salt),
