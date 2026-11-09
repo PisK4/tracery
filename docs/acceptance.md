@@ -2616,3 +2616,43 @@ Grok 的 `session_usage` 有 4 行而游标有 6 个，不是漏刷：本机 6 �
 ### 门禁
 
 合并批次已跑 `verify:notes:staged`（258 篇 Agent Note、8 个冻结产物）、全量 `verify:notes`、`bun run typecheck`、五个窄测试共 123 pass / 0 fail / 5966 expect 与 `git diff --cached --check`；追加本验收记录属纯文档改动，提交信息带 `Agent-Note: none` 豁免，本轮不重复。
+
+## OTLP 全量级与共享摄入核心生产部署与真实流量验收（2026-11-09）
+
+前提：master `51ff745`（merge `feat/otlp-full-profile-shared-ingest` + `feat/genai-semconv-protocol`），含共享核心 `src/ingest-core.ts`、OTLP 全量级 `fullProfileRule`、`genai-semconv` 协议适配器。`OTLP_MAPPING_VERSION` 4→5，PURPOSE/GROUP/DERIVE/ADAPTER 不变。生产采集器经 `bun run service restart` 更新；真实流量验收用 `scripts/otlp-full-profile-export.ts` 向本机端点发送合成会话的 OTLP/HTTP JSON traces，服务名 `tracery-reference`（已在 SPAN_RULES 登记，generic-only）。页面走查与数据库查询在 127.0.0.1:8320 的生产页面与本地只读库进行，不读取真实请求正文、账号与令牌；真实流量验证对象是半合成的参考导出脚本，数据仍为合成内容。
+
+### 部署
+
+`bun run service restart` 返回 0，pid 37563，端口 8320，用时 488 毫秒；`bun run service status` 报告作业 running、代码未落后（进程启动时最后一次 src 改动匹配 master）、`/api/stats` 可读（12 毫秒），请求 171920 笔。重启后错误日志尾部无 error、exception、failed 与 crash，只有正常态 `hook_absent_marked` 条目。版本基线从 `da6d212` 升为 merge commit，T4 至 T5 的全部行为变化已生效：判重先于认领、统一 owner 双向认领、证据身份按来源保留。
+
+### 合成出口真实流量复验
+
+向生产端点发送一段全量 profile OTLP trace（synthetic question + assistant answer with tool_call）：
+
+**响应码**：200 `{"partialSuccess":{}}`。
+
+**请求行**：req_id=222560，agent=reference，via=otlp，have=8（HAVE_OTLP），session='ref-1794208290881'，model_requested='reference-model'，body_state=available，response_id_norm='ref-ref-...'（full-profile anchor），created_at=1794208290884。
+
+**正文存储**：request_block ord 0 role 0，block id 400239，raw_size 82；zstd 解包为 `{"role":"user","parts":[{"type":"text","content":"synthetic reference question"}]}`。skeleton_z 解包显式携带 protocol='genai-semconv'、reply envelope={id:'chatcmpl-ref-...',stop_reason:'stop',messages:[{role:'assistant',parts:[{type:'text'}, {type:'tool_call','id':'call_ref_1','name':'reference_tool'}]}]}、redact_version=1、has_messages=true、msg_count=1、body_bytes=351。
+
+**派生结果**：parse_state=ok，reply_state=ok，reply_shape='tools'（semconv replyShapeOf 分支正确判定 output 含 tool_call + finish 'stop'），derive_version=1。工具调用提取：tool_call.call_id='call_ref_1'，req_id=222560，ord=0，tool_name='reference_tool'，state='pending'，算法版本 8 的 basis_json 正常。purpose_status='unrecognized'，purpose_rule=null（reference generic-only，不进 purpose 登记）。
+
+**证据登记**：source_kind='otlp_span'，ref_key='6e9e69005fdd885aa0c7157ebf4f5018/a731f73d99e8e200'，match_rule='trace_span.v1'，merge_state='merged'，payload_state='present'，added_at 与 created_at 一致。没有 ingest_issue（clean parse，无 body_parse_failed 降级路径触发）。
+
+**native-dialect 观察**：raw_otlp_span 可见 `codex-app-server`（300967 spans）与 `codex-exec-server`（1300），这些服务未登记，落入 `service_not_registered` doorbell；这是已有开放 todo "评估 codex-app-server handle_responses span 的映射规则"（cmw6gt3h3k0q98），不在此轮 scope。claude-code 与 oh-my-pi 当前本机无 OTLP 实时导出，native-dialect 回归依赖合成套件覆盖（全量 1464 pass）。
+
+### 门禁与合规模块
+
+全量 `bun test` 1464 pass / 0 fail / 13528 expect（涵盖 ingest-core claim/dedup、claimOtlpTarget mirror、mapping version、harness-purpose whitelist、semconv wire/derive/adapter、replay preview 等）；`bun run typecheck` 退出 0；`bun run verify:notes` 对合并批次（origin/master..HEAD）通过（264 篇、8 个冻结产物、批次带 implemented note）；spine worktree `.codex-worktrees/atc-otlp-full-profile` 移除，分支名 `feat/otlp-full-profile-shared-ingest` 与 `feat/genai-semconv-protocol` 保留作里程碑台账。
+
+### 未覆盖与边界
+
+- Claude Code / OMP native OTLP export 在本机当前无实时流量，本节不对 native-dialect 做真实入口验收；cross-channel hook↔OTLP claim convergence 仅在合成套件覆盖，未在生产实例上验证同一调用的双证据收敛。
+- codex-app-server 与 codex-exec-server 的 span shape 评估归现有 todo，不在 T6 scope。
+- 真实正文与用户数据的观感验收仍在计划中（需要用户手动确认页面列表与细览页对 full-profile 会话的正确渲染，以及跨通道认领后的单行视图稳定）。
+- 存量双行合并（maintain dedupe-sessions 针对既有 data）需另行范围授权；本节不触既有的 double-row 会话。
+- 本轮无跨浏览器矩阵，仅本地生产端点验证。
+
+### 门禁
+
+合并批次已跑 `verify:notes:staged`（264 篇、8 个冻结产物）与全量 `verify:notes`，`bun test` 1464 pass，`bun run typecheck` 退 0；追加本验收记录属纯文档改动，提交信息带 `Agent-Note: none` 豁免。
