@@ -2712,9 +2712,9 @@ Grok 的 `session_usage` 有 4 行而游标有 6 个，不是漏刷：本机 6 �
 
 合并批次已跑 `verify:notes:staged`（264 篇、8 个冻结产物）与全量 `verify:notes`，`bun test` 1464 pass，`bun run typecheck` 退 0；追加本验收记录属纯文档改动，提交信息带 `Agent-Note: none` 豁免。
 
-## 桌面 UI 重构：合成页面验收与生产只读核对（2026-11-10）
+## 桌面 UI 重构：合成页面、部署与真实流量只读验收（2026-11-10）
 
-前提：分支 `feat/desktop-ui`（worktree `.codex-worktrees/atc-desktop-ui`），改动是 Tauri 2 外壳、`?host=desktop` 宿主接缝、右栏密度与双圆环、概要板两级详情。规范见[桌面 UI 重构](../.agents/notes/proposed/feature/2026-11-09-desktop-ui-redesign.md)。**本轮没有部署**：生产 8320 仍是主检出的旧前端，所以下面分两段写，合成验收不能当作真实流量证据。
+前提：分支 `feat/desktop-ui`（worktree `.codex-worktrees/atc-desktop-ui`），改动是 Tauri 2 外壳、`?host=desktop` 宿主接缝、右栏密度与双圆环、概要板两级详情。规范见[桌面 UI 重构](../.agents/notes/proposed/feature/2026-11-09-desktop-ui-redesign.md)。合成验收在合并前做，部署与真实流量只读验收在合并后做，两段分开写。
 
 ### 合成页面验收
 
@@ -2741,9 +2741,28 @@ Grok 的 `session_usage` 有 4 行而游标有 6 个，不是漏刷：本机 6 �
 
 `cargo build` 后启动 `target/debug/tracery-shell`：窗口创建成功，尺寸被可见区夹取为 1412×882（请求 1440×900）；请求 `/` 带 `?host=desktop`，UA 为 WKWebView；停掉采集器后加载内嵌失败页，「重试连接」在服务恢复后可跳转。拖动区只对原生标题栏生效——远程页面不启用 IPC，`data-tauri-drag-region` 不参与。
 
-### 生产只读核对（旧前端，非本轮证据）
+### 部署与真实流量只读验收
 
-用 CDP 打开 `http://127.0.0.1:8320/?host=desktop` 得到 `host:null`、`topbar:44`、`donuts:0`、`cueToggle:false`、`railW:640`、横向溢出 0；带 `Sec-Fetch-Site: same-origin` 请求 `/host.js` 与 `/usage-donuts.js` 都是 404，`/app.css` 为 200。原因是 launchd 采集器服务的是主检出的 `web/`，新模块只在 worktree。这条结果只能说明旧页面没有回归，不能作为新代码的验收。部署后需按验收条款在真实流量上复验 1440×900 / 1180×760 / 280px / 中英 / 三档字号，以及双圆环与概要板在真实 `SessionSummary` 上的缺失态。
+master `0b5c9a1`（`--no-ff` 合并 `feat/desktop-ui`）。合并后主检出的 `web/` 已是新前端，而运行中的进程仍持旧 `STATIC_FILES` 白名单：CDP 打开 8320 得到 `sessions:0`、`donuts:0`、`/host.js` 404，页面只剩顶栏与空壳。`bun run service restart` 返回 0（pid 69975，端口 8320，489 毫秒）后恢复。这条是[静态白名单教训](../.agents/notes/LESSONS.md)第二次出现，合并本身就会换掉主检出的 `web/`，带前端改动的合并之后必须立刻重启核页面。
+
+真实流量只读，走 8320 生产页面，选真实会话 `session 9ca0a6f1-…`（89 个请求行）与 `trace=227311`：
+
+| 场景 | 宿主 | 顶栏 | 应用宽 | 右栏宽 | 密度 | 横向溢出 | 右栏纵向溢出 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1440×900 | desktop | 48 | 1440 | 480 | full | 0 | 0 |
+| 1180×760 | desktop | 48 | 1180 | 480 | compact | 0 | 0 |
+| 右栏 280 | desktop | 48 | 1440 | 280 | full | 0 | 206 |
+| 右栏 640 | desktop | 48 | 1440 | 640 | full | 0 | 0 |
+| 字号 0.92 / 1.06 | desktop | 48 | 1440 | 480 | full | 0 | 0 |
+| 英文界面 | desktop | 48 | 1440 | 480 | full | 0 | 0 |
+| 无宿主参数 | browser | 44 | 1440 | 480 | full | 0 | 0 |
+
+- 读数页在真实会话上渲染出 5 个折叠、2 个双圆环（中心 51.6k / 25.71 s）、10 行图例、4 个时间轴刻度、16 块树状图瓦片，右栏无纵向滚动；页签 5 个，280px 时文字 `display:none` 进图标模式。
+- 概要板展开：两条堆叠条共 4 段（`bad` / `ok` / `unknown` / `ok`，第二条无缺口段），三张卡显示「失败调用 26」「出现中断的请求 0」「工具调用 1055 · 5 种工具 · 1 种技能」，`aria-expanded="true"`，「全部明细」二级开关存在。
+- 跨图联动：默认无压暗；点 Token 侧第一行（`system`）后圆环压暗 6 段、点亮 4 段，树状图压暗 13 块、点亮 3 块，时间轴不压暗（该类别在耗时侧没有对应阶段）；点耗时侧 `wait` 后两张圆环与时间轴按同侧规则压暗（圆环 2 段、时间轴 2 段），树状图复原。
+- 降级形态确认：该会话 Token 侧只有 `system` / `tools` / `memory` / `chat` / `skills` 五类输入加 `output_reasoning` / `output_text` 两段输出，耗时侧只有 `wait` / `reasoning` / `reply` 三段，没有 `exec` 与 `other`；符合「缺字段的段整段不出现」。
+- 截图 `/tmp/atc-prod-session.png`（真实会话读数页与概要板展开）、`/tmp/atc-prod-legend.png`（图例选中态），未入库；页面只渲染读数与列表，没有把正文写入文件。
+- 未覆盖：外壳窗口内的实际渲染仍无截图（`screencapture -l` 失败），窗口层证据只有请求 URL、UA 与窗口尺寸；待办页签在真实会话上未点开核对（demo 无 `/api/todo`，样式只靠注入片段验过）。
 
 ### 门禁
 

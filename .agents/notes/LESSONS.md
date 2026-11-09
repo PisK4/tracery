@@ -104,9 +104,9 @@
 - Seen 2× (2026-11-03, 2026-11-07).
 
 **新增或搬移 `web/` 模块后，必须跑 `tests/http.test.ts` 的静态白名单断言，并重启生产服务再验页面。**
-- 证据：2026-11-07 前端叶子外移合并（76c23b5）新增 `web/empty-state.js` 与 `web/scroll.js`，未登记 `src/http.ts` 的 `STATIC_FILES`。浏览器模块图 404，生产页面整页停在「正在读取本机会话…」，会话列表与三栏都不渲染。补两行登记并重启后恢复。
-- 防护：动 `web/` 目录后跑 `bun test tests/http.test.ts`；白名单是启动时载入内存的常量，改完要 `bun run service restart`。生产核对看静态资源的 `responseStatus`，不只看 DOM 是否存在。
-- Seen 1× (2026-11-07).
+- 证据：2026-11-07 前端叶子外移合并（76c23b5）新增 `web/empty-state.js` 与 `web/scroll.js`，未登记 `src/http.ts` 的 `STATIC_FILES`。浏览器模块图 404，生产页面整页停在「正在读取本机会话…」，会话列表与三栏都不渲染。补两行登记并重启后恢复。2026-11-10 桌面 UI 合并（0b5c9a1）再次踩到：登记本身已经写进 `src/http.ts` 并通过测试，但合并只换了主检出的 `web/`，运行中的进程仍持旧白名单，`/host.js` 404 让整页只剩顶栏与空壳（`sessions:0`、`donuts:0`）；`bun run service restart` 后恢复（`host:desktop`、15 个会话、2 个圆环）。
+- 防护：动 `web/` 目录后跑 `bun test tests/http.test.ts`；白名单是启动时载入内存的常量，改完要 `bun run service restart`。**合并本身就等于改了主检出的 `web/`**，所以带前端改动的合并之后必须立刻重启并打开页面核一次，别等下一次维护窗口。生产核对看静态资源的 `responseStatus`，不只看 DOM 是否存在。
+- Seen 2× (2026-11-07, 2026-11-10).
 
 **CSS 过渡/动画的验收要读计算样式，不能只看 DOM 有没有带类。**
 - 证据：2026-11-08 档 1 首版用 `.compact-preview::after` 画占位灰条，DOM 与类名都在，但 `.compact-preview` 在 flex 行里被 `min-width:0` 压成 0 宽、`overflow:hidden` 又把伪元素裁掉，浏览器实测 `getComputedStyle(...,'::after').width` 为 `0px`。同一轮 `startSwapIn()` 只设 `data-switch-state="entering"` 没排清理定时器，刷新后状态永久停在 entering，也是靠浏览器逐帧观测才抓到，静态测试全绿。
@@ -139,8 +139,8 @@
 - Seen 1× (2026-11-08).
 
 **worktree 里改的前端，生产页面验不到；那条只读检查只能证明旧页面没回归。**
-- 证据：2026-11-10 桌面 UI 收尾，在 worktree 里给 `web/` 加了 `host.js` 与 `usage-donuts.js`，用 CDP 打开 `http://127.0.0.1:8320/?host=desktop` 得到 `host:null`、`top:44`、`donuts:0`、`cueToggle:false`——launchd 采集器服务的是主检出的 `web/`，新模块根本不在那个目录里。同一轮 `screencapture -l <windowid>` 取外壳窗口截图失败，新代码的实际证据只剩合成 demo（`prototypes/synthetic-server.ts`，8770）。
-- 防护：worktree 前端验收一律指向合成 demo 或从 worktree 起一份隔离实例，别拿生产 8320 当证据；要验生产就必须先部署（合并 + `bun run service restart`）。验收记录里把「生产只读检查（旧前端）」与「新代码合成验收」分开写，不合并成一句「生产已验」。
+- 证据：2026-11-10 桌面 UI 收尾，在 worktree 里给 `web/` 加了 `host.js` 与 `usage-donuts.js`，用 CDP 打开 `http://127.0.0.1:8320/?host=desktop` 得到 `host:null`、`top:44`、`donuts:0`、`cueToggle:false`——launchd 采集器服务的是主检出的 `web/`，新模块根本不在那个目录里。同一轮 `screencapture -l <windowid>` 取外壳窗口截图失败，新代码的实际证据只剩合成 demo（`prototypes/synthetic-server.ts`，8770）。合并后同一份检查换成新页面，才拿到真实流量证据。
+- 防护：worktree 前端验收一律指向合成 demo 或从 worktree 起一份隔离实例，别拿生产 8320 当证据；要验生产就必须先部署（合并 + `bun run service restart`）。验收记录里把「worktree 期生产只读检查（旧前端）」与「合并后的真实流量验收」分开写，不合并成一句「生产已验」。
 - Seen 1× (2026-11-10).
 
 ## 依赖与命名
