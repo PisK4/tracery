@@ -20,7 +20,7 @@ import { agentLogoHtml, setAgentLogoFetcher } from './agent-logos.js';
 import { backendStateHtml } from './backend-state.js';
 import { esc } from './html.js';
 import { icon } from './icons.js';
-import { motion, settled } from './motion.js';
+import { motion, settled, prefersReducedMotion } from './motion.js';
 import { partLabel } from './parts.js';
 import { createReaderStore } from './reader-store.js';
 import { createHttpReadTransport } from './read-http.js';
@@ -233,7 +233,7 @@ if (typeof document !== 'undefined') {
             const group = /** @type {HTMLElement | null} */ (document.querySelector(`.trace-group[data-group-key="req:${CSS.escape(String(fx.reqId))}"]`));
             // 落点确认：目标组呼吸一次淡出，让定位滚动有「到了」的反馈。
             if (group !== null) markFresh(group, 'landed', 760);
-            group?.scrollIntoView({ block: 'center', behavior: state.revealed && !matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'instant' });
+            group?.scrollIntoView({ block: 'center', behavior: state.revealed && !prefersReducedMotion() ? 'smooth' : 'instant' });
           });
           break;
         }
@@ -2196,7 +2196,7 @@ if (typeof document !== 'undefined') {
       const now = performance.now();
       const deadline = now + SWITCH_HOLD_MS;
       const minDeadline = now + SWITCH_MIN_HOLD_MS;
-      const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const reduce = prefersReducedMotion();
       // 刚换过场又点下一个：先等点击停稳，被下一次点击取代就整次放弃。
       if (!reduce && now - lastSwapAt < SWITCH_BURST_MS) {
         await sleep(Math.min(SWITCH_SETTLE_MS, SWITCH_HOLD_MS));

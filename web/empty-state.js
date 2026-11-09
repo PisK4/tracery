@@ -1,5 +1,7 @@
 // @ts-check
 
+import { prefersReducedMotion } from './motion.js';
+
 /**
  * 空状态里的 B1 蜘蛛。几何来自重绘稿 `rail-fix/spider-rail.svg`（画布 261×424，剪影 IoU 0.958）；
  * 画布左移 -20.95 只为给 ±2° 摆动留边（θ=-2° 右侧越界 8.1px、θ=+2° 左侧越界 5.1px），几何点未动。
@@ -58,14 +60,12 @@ function spiderInner(animated) {
     + '</g></g>';
 }
 
-const reducedMotion = typeof window === 'undefined' ? null : window.matchMedia('(prefers-reduced-motion: reduce)');
-
 /**
  * @param {number} size 渲染边长（属性初值；实际尺寸由 CSS 决定，窄容器会降级）
  * @returns {string}
  */
 export function spiderArt(size) {
-  const animated = reducedMotion === null || !reducedMotion.matches;
+  const animated = !prefersReducedMotion();
   return `<svg class="spider-art" width="${size}" height="${size}" viewBox="-20.9528 0 261 424"`
     + ` preserveAspectRatio="xMidYMid meet" data-motion="${animated ? 'idle' : 'static'}"`
     + ' aria-hidden="true" focusable="false">'
@@ -105,7 +105,7 @@ export function armSpider() {
     if (spiderTimer !== null) { clearTimeout(spiderTimer); spiderTimer = null; }
     return;
   }
-  if (reducedMotion !== null && reducedMotion.matches) {
+  if (prefersReducedMotion()) {
     for (const art of idle) art.dataset.motion = 'static';
     if (spiderTimer !== null) { clearTimeout(spiderTimer); spiderTimer = null; }
     return;
@@ -132,8 +132,8 @@ export function armSpider() {
   spiderTimer = setTimeout(() => { spiderTimer = null; armSpider(); }, Math.max(0, due));
 }
 
-reducedMotion?.addEventListener('change', () => {
-  if (reducedMotion === null || !reducedMotion.matches) return;
+document.addEventListener('motionchange', () => {
+  if (!prefersReducedMotion()) return;
   // 中途切到 reduce：直接换成品，不用 animation:none 去冻一个带动效的副本。
   for (const node of document.querySelectorAll('.spider-art')) {
     const art = /** @type {SVGSVGElement} */ (node);

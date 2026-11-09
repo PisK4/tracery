@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createMoreTargets } from '../web/selection.js';
 import { restoreScroll } from '../web/scroll.js';
 import { backendStateHtml, backendStateText } from '../web/backend-state.js';
@@ -1144,7 +1145,7 @@ test('换会话的换场钉住最短驻留，减少动态时不等', () => {
   expect(app).toMatch(/const SWITCH_MIN_HOLD_MS = 200;/);
   expect(app).toMatch(/function switchReady\(loading, minDeadline, deadline, reduce\)/);
   expect(app).toMatch(/if \(!reduce\) await sleep\(Math\.max\(0, minDeadline - performance\.now\(\)\)\);/);
-  expect(app).toMatch(/const reduce = matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches;/);
+  expect(app).toMatch(/const reduce = prefersReducedMotion\(\);/);
   // 两段动画时长与 JS 的驻留/清理定时器对齐；扫描线不再用 1s 无限循环。
   expect(css).toContain('animation:switch-leave 200ms var(--ease-out) both');
   expect(css).toContain('animation:switch-sweep 200ms var(--ease-out) both');
@@ -1153,6 +1154,23 @@ test('换会话的换场钉住最短驻留，减少动态时不等', () => {
   expect(app).toContain('}, 260);');
   // 减少动态时清掉关键帧末帧的位移，旧画面不留在偏移位。
   expect(css).toContain('.col-main[data-switch-state] .session-head,');
+});
+
+test('reduced-motion 判定只有 motion.js 一个来源，CSS 与设置开关同口径', () => {
+  const css = readFileSync('web/app.css', 'utf8');
+  const motionJs = readFileSync('web/motion.js', 'utf8');
+  const files = readdirSync('web').filter(name => name.endsWith('.js') && name !== 'motion.js');
+  const readers: string[] = [];
+  for (const name of files) {
+    const source = readFileSync(join('web', name), 'utf8');
+    if (source.includes('prefers-reduced-motion: reduce')) readers.push(name);
+  }
+  expect(readers).toEqual([]);
+  expect(motionJs).toContain('export function prefersReducedMotion()');
+  expect(motionJs).toContain('document.documentElement.dataset.reduceMotion');
+  expect(css).toContain('@media (prefers-reduced-motion:reduce)');
+  expect(css).toContain(':root[data-reduce-motion="true"]');
+  expect(css).toContain('--fs-scale:1');
 });
 
 test('分段控件弹起匹配真实类名，不留死选择器', () => {

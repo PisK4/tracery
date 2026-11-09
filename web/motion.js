@@ -5,11 +5,46 @@
  * keyframes 由 app.css 动效区的 media blanket 统一关闭，两边口径一致。
  * 时长单位是秒；easing 默认取 app.css --ease-out 同一条 bezier。
  * 模块可在 bun test 无 DOM 环境导入（与 app.js 的 spider 守卫同口径）。
+ *
+ * 「减少动效」的判定只在这一处：系统偏好与设置面板的开关取或。web/ 里其余
+ * 模块一律调用 prefersReducedMotion()，不各自读 matchMedia。
  */
 import { animate } from './motion.vendor.js';
 
-const REDUCE = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+const SYSTEM_REDUCE = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
 const EASE = [0, 0, 0.2, 1];
+/** 设置面板写入的用户开关；启动时由 initSettings 注入一次。 */
+let userReduce = false;
+
+/**
+ * 唯一的 reduced-motion 判定：系统偏好或用户主动选择减少动效。
+ * @returns {boolean}
+ */
+export function prefersReducedMotion() {
+  return userReduce || (SYSTEM_REDUCE !== null && SYSTEM_REDUCE.matches);
+}
+
+/**
+ * 设置面板写入开关；同步把状态挂到 documentElement 供 CSS blanket 读取，
+ * 让 CSS 与 JS 两条路径共用一个口径。
+ * @param {boolean} value
+ */
+export function setReduceMotion(value) {
+  userReduce = value === true;
+  if (typeof document !== 'undefined') {
+    if (prefersReducedMotion()) document.documentElement.dataset.reduceMotion = 'true';
+    else delete document.documentElement.dataset.reduceMotion;
+    // 开关与系统偏好共用一条通知：蜘蛛等需要换成品的模块订阅这一个事件。
+    document.dispatchEvent(new CustomEvent('motionchange'));
+  }
+}
+if (SYSTEM_REDUCE !== null && typeof document !== 'undefined') {
+  SYSTEM_REDUCE.addEventListener('change', () => {
+    if (prefersReducedMotion()) document.documentElement.dataset.reduceMotion = 'true';
+    else if (!userReduce) delete document.documentElement.dataset.reduceMotion;
+    document.dispatchEvent(new CustomEvent('motionchange'));
+  });
+}
 
 /**
  * @param {Element} el
@@ -19,7 +54,7 @@ const EASE = [0, 0, 0.2, 1];
  * @returns {{ finished: Promise<unknown>, cancel: () => void } | null}
  */
 export function motion(el, keyframes, duration = 0.15, options = {}) {
-  if (REDUCE !== null && REDUCE.matches) return null;
+  if (prefersReducedMotion()) return null;
   if (typeof el.animate !== 'function') return null;
   const run = /** @type {(target: Element, frames: Record<string, (string | number)[]>, options: {duration: number, easing: number[]}) => {finished: Promise<unknown>, cancel: () => void}} */ (animate);
   const controls = run(el, keyframes, { duration, easing: EASE });

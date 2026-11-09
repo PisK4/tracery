@@ -18,6 +18,8 @@
      档位判定在 parts.js partShade。alpha 是示意值，真实会话验证深色区分度后可调。 */
   --t1:rgba(0,122,255,.16); --t2:rgba(0,122,255,.12); --t3:rgba(0,122,255,.08); --t4:rgba(0,122,255,.05);
   --shadow:0 1px 2px rgba(0,0,0,.06);
+  /* 字号三档只改这个倍率，档位仍取既有 px 值，不新增半像素档。 */
+  --fs-scale:1;
   /* 空状态蜘蛛（B1）：身体对 --canvas 11.85:1；丝与眼沿用的是 B1 原值。 */
   --spider-body:#013660; --spider-thread:#F29176; --spider-accent:#FF896D;
   --ui:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei",sans-serif;
@@ -65,7 +67,7 @@
 html,body{height:100%}
 body{
   margin:0;background:var(--canvas);color:var(--text);
-  font:13px/1.55 var(--ui);
+  font:calc(13px * var(--fs-scale))/1.55 var(--ui);
   display:flex;flex-direction:column;overflow:hidden;
   -webkit-font-smoothing:antialiased;
 }
@@ -78,7 +80,7 @@ code,pre,.mono{font-family:var(--mono)}
 .num{font-variant-numeric:tabular-nums;font-family:var(--mono);letter-spacing:-.01em}
 .muted{color:var(--muted)}
 .sep{color:var(--line-strong)}
-.label{font:500 10px/1.3 var(--ui);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.label{font:500 calc(10px * var(--fs-scale))/1.3 var(--ui);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
 
 /* ---------- 顶栏：一条 44px 的仪器横条，不做首屏大标题 ---------- */
 .topbar{
@@ -87,7 +89,7 @@ code,pre,.mono{font-family:var(--mono)}
   position:relative;z-index:5;
 }
 /* 品牌是回主页的按钮：内距与负外距让 hover 底色外扩一圈，不挤动相邻元素。 */
-.brand{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13.5px;white-space:nowrap;border-radius:4px;padding:4px 7px;margin:-4px -7px}
+.brand{display:flex;align-items:center;gap:8px;font-weight:600;font-size:calc(13.5px * var(--fs-scale));white-space:nowrap;border-radius:4px;padding:4px 7px;margin:-4px -7px}
 .brand:hover{background:var(--hover)}
 .brand-mark{width:20px;height:20px;display:block;flex:none}
 /* 两枚标志都留在 DOM 里，主题只切可见性：切主题当帧完成，不会重新取图闪一下。
@@ -99,18 +101,18 @@ code,pre,.mono{font-family:var(--mono)}
 }
 :root[data-theme="dark"] .brand-mark--light{display:none}
 :root[data-theme="dark"] .brand-mark--dark{display:block}
-.crumb{display:flex;align-items:center;gap:7px;min-width:0;font-size:12px;color:var(--text-2)}
+.crumb{display:flex;align-items:center;gap:7px;min-width:0;font-size:calc(12px * var(--fs-scale));color:var(--text-2)}
 .crumb b{font-weight:550;color:var(--text);white-space:nowrap;flex:none}
 .crumb-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .grow{flex:1;min-width:8px}
 .toolbar-right{display:flex;align-items:center;gap:6px}
 .icon-btn{
   height:28px;min-width:28px;border:1px solid transparent;border-radius:5px;background:transparent;
-  display:inline-flex;align-items:center;justify-content:center;color:var(--text-2);font-size:12px;padding:0 8px;
+  display:inline-flex;align-items:center;justify-content:center;color:var(--text-2);font-size:calc(12px * var(--fs-scale));padding:0 8px;
 }
 .icon-btn:hover{background:var(--hover)}
 /* 后端降级标签：正常态不渲染；点按重新读取准入状态。 */
-.backend-chip{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 8px;border:1px solid currentColor;border-radius:4px;font:10.5px var(--ui);cursor:pointer;white-space:nowrap}
+.backend-chip{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 8px;border:1px solid currentColor;border-radius:4px;font:calc(10.5px * var(--fs-scale)) var(--ui);cursor:pointer;white-space:nowrap}
 .backend-chip .ico{opacity:.9}
 .backend-chip.warn{color:var(--warn);background:var(--warn-soft)}
 .backend-chip.bad{color:var(--bad);background:var(--bad-soft)}
@@ -136,50 +138,50 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .resize-handle{cursor:col-resize;border-left:1px solid var(--line);background:var(--surface);touch-action:none;position:relative;overflow:hidden}
 .resize-handle:hover,.resize-handle:focus-visible{background:var(--accent-soft);outline:0}
 .resize-handle::after{content:"";position:absolute;top:45%;left:1px;width:2px;height:30px;background:var(--line-strong);border-radius:2px}
-.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:60;background:var(--text);color:var(--page);font-size:11.5px;padding:7px 12px;border-radius:5px;box-shadow:var(--shadow);max-width:70vw}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:60;background:var(--text);color:var(--page);font-size:calc(11.5px * var(--fs-scale));padding:7px 12px;border-radius:5px;box-shadow:var(--shadow);max-width:70vw}
 
 /* ---------- 左栏：会话 ---------- */
 .sessions-head{padding:12px 12px 8px;display:flex;flex-direction:column;gap:8px;flex:none}
 .sessions-title{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
-.sessions-title h2{font-size:12.5px;font-weight:600;letter-spacing:.02em}
-.sessions-title span{font:10.5px var(--mono);color:var(--muted)}
+.sessions-title h2{font-size:calc(12.5px * var(--fs-scale));font-weight:600;letter-spacing:.02em}
+.sessions-title span{font:calc(10.5px * var(--fs-scale)) var(--mono);color:var(--muted)}
 /* 计数与列表刷新同一端对齐：刷新只重读第一页，窗口刷新仍在主栏。 */
 .sessions-title-end{display:flex;align-items:center;gap:6px}
 .sessions-title-end .chip-btn.ico{width:20px;height:20px}
 .search{position:relative}
 .search input{
   width:100%;height:30px;border:1px solid transparent;border-radius:6px;background:var(--inset);
-  padding:0 8px 0 26px;font-size:12px;color:var(--text);
+  padding:0 8px 0 26px;font-size:calc(12px * var(--fs-scale));color:var(--text);
 }
 .search input:focus{outline:0;border-color:var(--accent);background:var(--surface)}
 .search svg{position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none}
 /* Agent 分组列表（方案 B）：选中为蓝底 + 左竖条，行高 32px；折叠用 max-height + opacity 同步收。 */
 .agent-scope{padding:0 12px 4px;flex:none;border-bottom:1px solid var(--line)}
-.group-head{display:flex;align-items:center;gap:6px;height:28px;padding:0 6px;margin:2px 0;font:600 10px var(--ui);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);width:100%;border-radius:6px}
+.group-head{display:flex;align-items:center;gap:6px;height:28px;padding:0 6px;margin:2px 0;font:600 calc(10px * var(--fs-scale)) var(--ui);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);width:100%;border-radius:6px}
 .group-head:hover{background:var(--inset)}
 .group-head .chev{width:14px;height:14px;display:grid;place-items:center;transition:transform var(--t-fold) var(--ease-out);color:var(--muted)}
 .group-head[aria-expanded="false"] .chev{transform:rotate(-90deg)}
-.group-head .grp-n{margin-left:auto;font:10.5px var(--mono);letter-spacing:0;text-transform:none;color:var(--muted)}
+.group-head .grp-n{margin-left:auto;font:calc(10.5px * var(--fs-scale)) var(--mono);letter-spacing:0;text-transform:none;color:var(--muted)}
 /* 164px = 全部 Agent 行 + 前 4 家（5×32 + 4×1 gap），其余滚动，把高度让给会话列表 */
 .agent-list{display:grid;gap:1px;overflow:auto;max-height:164px;opacity:1;transition:max-height var(--t-fold) var(--ease-out),opacity var(--t-fold) var(--ease-out)}
 .agent-list[data-open="false"]{max-height:0;opacity:0}
-.agent-row{display:flex;align-items:center;gap:8px;height:32px;padding:0 8px;border-radius:6px;font-size:13px;color:var(--text);position:relative;width:100%;transition:background var(--t-micro) var(--ease-out)}
+.agent-row{display:flex;align-items:center;gap:8px;height:32px;padding:0 8px;border-radius:6px;font-size:calc(13px * var(--fs-scale));color:var(--text);position:relative;width:100%;transition:background var(--t-micro) var(--ease-out)}
 .agent-row:hover{background:var(--inset)}
 .agent-row[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);font-weight:550}
 .agent-row[aria-pressed="true"]::before{content:"";position:absolute;left:-12px;top:6px;bottom:6px;width:3px;border-radius:2px;background:var(--accent)}
-.agent-row .ic{width:16px;height:16px;flex:none;display:grid;place-items:center;font-size:10px;border-radius:4px;background:var(--inset);color:var(--text-2);font-weight:700}
+.agent-row .ic{width:16px;height:16px;flex:none;display:grid;place-items:center;font-size:calc(10px * var(--fs-scale));border-radius:4px;background:var(--inset);color:var(--text-2);font-weight:700}
 .agent-row[aria-pressed="true"] .ic{background:var(--surface);color:var(--accent)}
 .agent-row .lead{width:16px;height:16px;flex:none;display:inline-flex;align-items:center;justify-content:center;line-height:0}
 .agent-row .lead .agent-logo{width:16px;height:16px}
 .agent-row .lead .agent-logo svg,.agent-row .lead .agent-logo img{width:16px;height:16px}
 .agent-row .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
-.agent-row .cnt{font:11px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.agent-row .cnt{font:calc(11px * var(--fs-scale)) var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
 .agent-row[aria-pressed="true"] .cnt{color:var(--accent)}
 .live-dot{width:6px;height:6px;border-radius:50%;background:var(--good);flex:none;animation:live-pulse 2s infinite}
 @keyframes live-pulse{0%,100%{opacity:1}50%{opacity:.35}}
-@media(prefers-reduced-motion:reduce){.live-dot{animation:none}.agent-list,.group-head .chev{transition:none}}
+/* reduce 的完整降级集中到动效区末尾的 blanket，这里不再单列规则。 */
 .chip-btn{
-  font-size:11px;padding:3px 7px;border:1px solid var(--line);border-radius:3px;color:var(--text-2);
+  font-size:calc(11px * var(--fs-scale));padding:3px 7px;border:1px solid var(--line);border-radius:3px;color:var(--text-2);
   background:var(--surface);white-space:nowrap;
 }
 .chip-btn:hover{background:var(--hover)}
@@ -192,7 +194,7 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .sessions-list{flex:1;min-height:0;overflow:auto;padding:2px 8px 16px}
 .group-label{
   display:flex;align-items:center;gap:6px;padding:10px 6px 5px;
-  font:500 10px var(--ui);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  font:500 calc(10px * var(--fs-scale)) var(--ui);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
 }
 .group-label::after{content:"";flex:1;height:1px;background:var(--line)}
 /* 行高固定 44px：标题单行、第二行 meta 常驻，长标题只省略不撑高。
@@ -204,12 +206,12 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 /* 导航选中是中性的灰底：accent 只留给内容区选中态。 */
 .sess:hover{background:var(--inset)}
 .sess[aria-current="true"]{background:var(--hover)}
-.sess-title{font-size:12.5px;font-weight:550;line-height:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sess-title{font-size:calc(12.5px * var(--fs-scale));font-weight:550;line-height:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* 标题读取中：异步回填未完成时的占位，与正式无标题区分。 */
 .sess-title.is-loading{color:var(--muted);font-weight:450;animation:sess-title-pulse 1s ease-in-out infinite alternate}
 .head-title.is-loading{color:var(--muted);font-weight:500;animation:sess-title-pulse 1s ease-in-out infinite alternate}
 @keyframes sess-title-pulse{from{opacity:.55}to{opacity:1}}
-.sess-meta{display:flex;align-items:center;gap:6px;font-size:10.5px;line-height:14px;color:var(--muted);min-width:0}
+.sess-meta{display:flex;align-items:center;gap:6px;font-size:calc(10.5px * var(--fs-scale));line-height:14px;color:var(--muted);min-width:0}
 .sess-meta .dot{width:5px;height:5px;border-radius:50%;flex:none}
 /* 失败与缺正文的形状标记：8px 是形状可辨的下限，正常行不再画点。 */
 .sess-meta .dot.flagmark{width:8px;height:8px;border-radius:0;display:inline-flex;align-items:center;justify-content:center}
@@ -230,12 +232,12 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 /* 笔数固定为不截断的后缀：多 Agent 行只让名字先省略。 */
 .sess-meta .sess-count{flex:none;white-space:nowrap;color:var(--text-2);margin-left:-3px}
 /* 右下时间格宽度固定：出现「请求中」时字变、格不挪，标题也不被挤掉。 */
-.sess-time{font:10.5px var(--mono);color:var(--muted);margin-left:auto;flex:none;min-width:44px;text-align:right;white-space:nowrap}
+.sess-time{font:calc(10.5px * var(--fs-scale)) var(--mono);color:var(--muted);margin-left:auto;flex:none;min-width:44px;text-align:right;white-space:nowrap}
 /* 在途标记复用同一个格子，只换字体与文字；不加点、不加角标。 */
 .sess-time.is-live{font-family:var(--ui);font-weight:550;letter-spacing:.02em;color:var(--text-2)}
-.group-label .grp-n{font:10.5px var(--mono);color:var(--muted);letter-spacing:0;text-transform:none}
+.group-label .grp-n{font:calc(10.5px * var(--fs-scale)) var(--mono);color:var(--muted);letter-spacing:0;text-transform:none}
 .sess-more{display:flex;justify-content:center;padding:10px 0 4px}
-.sess-empty{padding:16px 8px;font-size:12px;color:var(--muted)}
+.sess-empty{padding:16px 8px;font-size:calc(12px * var(--fs-scale));color:var(--muted)}
 /* 骨架条：左栏首屏占位，与真实行同高同位，列表到达即整段替换。 */
 .sess-skeleton{display:flex;flex-direction:column;justify-content:center;gap:8px;height:44px;padding:0 8px 0 9px;margin-bottom:1px;border-radius:6px}
 .sess-skel-title,.sess-skel-meta{display:block;height:10px;border-radius:4px;background:var(--line);animation:sess-skel-pulse 1.1s ease-in-out infinite alternate}
@@ -250,7 +252,7 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 /* 插画 0.35s 淡入：节点出现后由 JS 隔帧加 .is-in；静态降级与 reduce 直接就位。 */
 .spider-art{opacity:0;transition:opacity .35s ease}
 .spider-art.is-in,.spider-art[data-motion="static"]{opacity:1}
-@media (prefers-reduced-motion:reduce){.spider-art{opacity:1;transition:none}}
+/* 静态降级与 reduce 的完整口径都在动效区末尾的 blanket。 */
 /* 空状态插画：方框内接 200，插画与说明间距 12px，文字不再从左上角起排。 */
 .sess-empty-art{display:flex;flex-direction:column;align-items:center;gap:12px;margin:0;padding:24px 16px;text-align:center}
 .sess-empty-art .spider-art{width:200px;height:200px}
@@ -260,27 +262,27 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .step-list.art-empty > .sess-empty-art{margin:auto}
 .sess-fold{padding:3px 10px;border-top:1px dashed var(--line)}
 /* 折叠入口收窄为低存在感文字链接：旁路下推后只剩探针/后台/工具子事件，不值得一个实心按钮。 */
-.sess-fold .chip-btn{border-color:transparent;background:transparent;color:var(--muted);padding:2px 4px;font-size:10.5px}
+.sess-fold .chip-btn{border-color:transparent;background:transparent;color:var(--muted);padding:2px 4px;font-size:calc(10.5px * var(--fs-scale))}
 .sess-fold .chip-btn:hover{background:var(--hover);color:var(--text-2)}
-.bg-note{font-size:10.5px;color:var(--muted);white-space:nowrap}
+.bg-note{font-size:calc(10.5px * var(--fs-scale));color:var(--muted);white-space:nowrap}
 
 /* ---------- 中栏：会话头 ---------- */
 .session-head{padding:14px 20px 12px;border-bottom:1px solid var(--line);background:var(--canvas);position:sticky;top:0;z-index:3;container-type:inline-size}
-.session-head h1{font-size:17px;line-height:1.35;font-weight:600;letter-spacing:-.01em}
+.session-head h1{font-size:calc(17px * var(--fs-scale));line-height:1.35;font-weight:600;letter-spacing:-.01em}
 .head-top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-top:3px}
 .head-top h1{flex:1 1 auto;min-width:0}
 .head-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto}
-.head-actions .muted{font-size:10.5px}
-.session-facts{display:flex;flex-wrap:wrap;align-items:center;gap:5px 12px;margin-top:7px;font-size:11px;color:var(--muted)}
+.head-actions .muted{font-size:calc(10.5px * var(--fs-scale))}
+.session-facts{display:flex;flex-wrap:wrap;align-items:center;gap:5px 12px;margin-top:7px;font-size:calc(11px * var(--fs-scale));color:var(--muted)}
 .session-facts b{font-weight:550;color:var(--text-2)}
-.session-facts .mono{font-size:10.5px}
+.session-facts .mono{font-size:calc(10.5px * var(--fs-scale))}
 /* facts 第一格只留 logo：18×18 命中区包住 12px 图形，名字在悬停/聚焦时浮出。
    浮层用 CSS 读 data-name，不进 DOM 文本，也不撑高这一行。 */
 .session-facts .fact-agent{position:relative;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex:none;border-radius:3px;outline-offset:1px}
 .session-facts .fact-agent::after{
   content:attr(data-name);position:absolute;left:50%;top:calc(100% + 5px);transform:translateX(-50%);
   padding:2px 6px;border-radius:3px;background:var(--text);color:var(--page);
-  font:10.5px/1.4 var(--ui);white-space:nowrap;opacity:0;pointer-events:none;
+  font:calc(10.5px * var(--fs-scale))/1.4 var(--ui);white-space:nowrap;opacity:0;pointer-events:none;
   transition:opacity .12s ease;z-index:9;
 }
 .session-facts .fact-agent:hover::after,.session-facts .fact-agent:focus-visible::after{opacity:1}
@@ -290,7 +292,7 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .fact-copy:hover{background:var(--hover);color:var(--text-2)}
 .session-note{
   margin-top:9px;padding:6px 9px;border-radius:4px;border:1px solid var(--line);
-  background:var(--surface);font-size:11px;color:var(--text-2);display:flex;gap:7px;align-items:flex-start;
+  background:var(--surface);font-size:calc(11px * var(--fs-scale));color:var(--text-2);display:flex;gap:7px;align-items:flex-start;
 }
 .session-note.warn{border-color:var(--warn);background:var(--warn-soft)}
 /* 反向入口：跟着会话头的定位提示走，按钮本身是可点元素，过三件套。 */
@@ -300,13 +302,13 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 
 /* ---------- 分段控件 ---------- */
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:var(--surface)}
-.seg button{font-size:11px;padding:4px 9px;color:var(--text-2);border-right:1px solid var(--line)}
+.seg button{font-size:calc(11px * var(--fs-scale));padding:4px 9px;color:var(--text-2);border-right:1px solid var(--line)}
 .seg button:last-child{border-right:0}
 .seg button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);font-weight:550}
 /* 会话头阅读视图：贴 facts 行右端，计数用 mono 小字，选中时计数随文字转 accent。 */
 .view-switch{margin-left:auto}
-.view-switch button{font-size:10.5px;padding:3px 8px}
-.view-switch .ct{font:500 10px var(--mono);color:var(--muted);margin-left:3px}
+.view-switch button{font-size:calc(10.5px * var(--fs-scale));padding:3px 8px}
+.view-switch .ct{font:500 calc(10px * var(--fs-scale)) var(--mono);color:var(--muted);margin-left:3px}
 .view-switch button[aria-pressed="true"] .ct{color:var(--accent)}
 
 /* ---------- 对话视图：按请求分组，USER / ASSISTANT 交替 ---------- */
@@ -316,7 +318,7 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .conv-tools{display:flex;flex-wrap:wrap;gap:5px;align-items:center;padding:9px 11px}
 .conv-tools .label{flex:none;margin-right:1px}
 .tool-chip{
-  display:inline-flex;align-items:center;gap:5px;font:10.5px var(--mono);padding:3px 6px;
+  display:inline-flex;align-items:center;gap:5px;font:calc(10.5px * var(--fs-scale)) var(--mono);padding:3px 6px;
   border:1px solid var(--line);border-radius:3px;background:var(--surface);color:var(--text-2);max-width:100%;
 }
 .tool-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -325,7 +327,7 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .tool-chip.res{border-color:var(--k-tool);color:var(--k-tool);background:var(--k-tool-bg)}
 .tool-chip.miss{border-color:var(--warn);color:var(--warn);background:var(--warn-soft)}
 .conv-tools details{padding:0 11px 9px;width:100%;cursor:default}
-.conv-tools details summary{font-size:10.5px;color:var(--muted);cursor:pointer}
+.conv-tools details summary{font-size:calc(10.5px * var(--fs-scale));color:var(--muted);cursor:pointer}
 .conv-tools details summary:hover{color:var(--text)}
 .conv-tools details pre{margin-top:7px}
 
@@ -337,10 +339,10 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .step-list{padding:0 24px 28px}
 /* 加载入口在列表尾部：与从头往下读的方向一致，上边框与末组分隔。 */
 .history-loader{display:flex;align-items:center;flex-wrap:wrap;gap:9px;justify-content:center;padding:14px 0 15px;border-top:1px solid var(--line)}
-.history-button{border:1px solid var(--line);border-radius:5px;padding:7px 13px;background:var(--surface);font-size:11px;color:var(--text-2)}
+.history-button{border:1px solid var(--line);border-radius:5px;padding:7px 13px;background:var(--surface);font-size:calc(11px * var(--fs-scale));color:var(--text-2)}
 .history-button.ico{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;line-height:0}
 .history-button:hover{border-color:var(--accent);color:var(--accent)}
-.history-start{font-size:11px;color:var(--muted)}
+.history-start{font-size:calc(11px * var(--fs-scale));color:var(--muted)}
 /* 滚动定位的让位随会话头实际高度走：app.js 的 syncBandTop 把头与带的高度
    写进 --head-h / --band-h，头部增减、汇总到达或清单展开都不用改样式。 */
 .trace-group{scroll-margin-top:var(--head-h,155px)}
@@ -359,13 +361,13 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .trace-group[data-subagent][data-status="failed"]::before{left:2px}
 .trace-group[data-subagent] .compact-select{padding-left:8px}
 /* 组首标记：正文级字号，全视图首现写「子代理 S1」，其后只写 S1。 */
-.row-sub-tag{flex:none;font:10px/1.5 var(--ui);font-weight:500;letter-spacing:0;color:var(--text-2);cursor:help}
+.row-sub-tag{flex:none;font:calc(10px * var(--fs-scale))/1.5 var(--ui);font-weight:500;letter-spacing:0;color:var(--text-2);cursor:help}
 /* 版本恢复期间显示的是上一版投影：标记绝对定位、不占高度，出现与消失都不移行；
    组内首行右侧留出让位，文字不钻到标记下面。 */
 .trace-group[data-stale]{position:relative}
 .trace-group[data-stale]::after{
   content:attr(data-stale);position:absolute;top:8px;right:10px;z-index:1;
-  font-size:10px;color:var(--warn);background:var(--warn-soft);border:1px solid currentColor;
+  font-size:calc(10px * var(--fs-scale));color:var(--warn);background:var(--warn-soft);border:1px solid currentColor;
   border-radius:3px;padding:1px 6px;pointer-events:none;white-space:nowrap;
 }
 .trace-group[data-stale] .compact-step:first-child .compact-select{padding-right:120px}
@@ -377,7 +379,7 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 /* 序号槽整个当前窗口共用一个宽度：基准 28px，按窗口最大序号的位数以等宽
    字体的 ch 加内距扩展（--ord-digits 由步骤列表按 rows.length 写入），
    不按每行的数字单独撑宽，标签起点不参差。 */
-.compact-meta{display:flex;align-items:center;flex:none;width:max(28px,calc(var(--ord-digits,1)*1ch + 8px));font:9px var(--mono);color:var(--muted)}
+.compact-meta{display:flex;align-items:center;flex:none;width:max(28px,calc(var(--ord-digits,1)*1ch + 8px));font:calc(9px * var(--fs-scale)) var(--mono);color:var(--muted)}
 .compact-meta b{font-weight:400;color:var(--text-2)}
 /* 图标：一份 16 网格、整枚缩放；颜色一律继承外层，不单独定色。 */
 .ico{display:inline-block;flex:none;vertical-align:-.18em}
@@ -402,7 +404,7 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .compact-row.step-flag[data-flag="failed"] .row-label.flag{color:var(--bad)}
 /* 工具 chip 沿用 row-label 的低饱和底色模式，色类只包工具名；宽度随内容伸缩，
    超长省略号截断。参数摘要与结果正文以普通文本跟随，不进色类。 */
-.row-tint{flex:none;max-width:170px;padding:2px 5px;border-radius:999px;font:9.5px var(--mono);font-weight:600;background:var(--inset);color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row-tint{flex:none;max-width:170px;padding:2px 5px;border-radius:999px;font:calc(9.5px * var(--fs-scale)) var(--mono);font-weight:600;background:var(--inset);color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* 启动点：工具名 chip 变成可跳的入口。↗ 只在有启动回执时出现，链接态随它条件化；
    hover 与焦点只落在 chip 自身，不随整行亮，避免与行选择语义混淆。 */
 .row-tint.is-spawn{display:inline-flex;align-items:center;gap:3px;color:var(--accent);background:var(--accent-soft);cursor:pointer}
@@ -411,29 +413,29 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .row-tint-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .row-tint-arrow{display:inline-flex;flex:none;line-height:0}
 .row-tint-arrow .ico{vertical-align:0}
-.row-arrow{color:var(--muted);font-size:10px;margin:0 4px}
+.row-arrow{color:var(--muted);font-size:calc(10px * var(--fs-scale));margin:0 4px}
 /* 失败的工具结果行不再满铺 warn 软色，改虚线左缘。 */
 .compact-row.step-error{border-left:2px dashed var(--warn);padding-left:3px}
-.compact-preview{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:11px}
-.compact-preview code{font-size:10px;color:var(--text-2)}
+.compact-preview{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:calc(11px * var(--fs-scale))}
+.compact-preview code{font-size:calc(10px * var(--fs-scale));color:var(--text-2)}
 /* 多目标计数：一行只报数，完整清单在 hover/聚焦时由弹层按需渲染。 */
-.row-more{flex:none;margin-left:3px;padding:0 4px;border-radius:3px;background:var(--inset);color:var(--text-2);font:9.5px var(--mono);font-weight:600;cursor:default}
+.row-more{flex:none;margin-left:3px;padding:0 4px;border-radius:3px;background:var(--inset);color:var(--text-2);font:calc(9.5px * var(--fs-scale)) var(--mono);font-weight:600;cursor:default}
 .compact-select:hover .row-more{background:var(--hover);color:var(--text)}
 /* 完整目标弹层：只有一个实例，打开时现填，关闭时清空。 */
 .more-pop{position:fixed;left:0;top:0;z-index:60;max-width:340px;max-height:280px;overflow:auto;padding:6px 0;border:1px solid var(--line);border-radius:6px;background:var(--surface);box-shadow:0 8px 24px rgb(0 0 0 / .12);opacity:0;pointer-events:none;transition:opacity .12s ease}
 .more-pop.show{opacity:1;pointer-events:auto}
-.mp-head{padding:0 9px 4px;font-size:10px;color:var(--muted);letter-spacing:.04em}
-.mp-item{padding:3px 9px;font:10.5px var(--mono);color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mp-head{padding:0 9px 4px;font-size:calc(10px * var(--fs-scale));color:var(--muted);letter-spacing:.04em}
+.mp-item{padding:3px 9px;font:calc(10.5px * var(--fs-scale)) var(--mono);color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* 工具调用整行等宽弱化，工具名已加重；结果正文再弱一档。 */
 .compact-select[data-kind="tool"] .compact-preview{font-family:var(--mono)}
-.compact-select[data-kind="tool"] .compact-preview code{font-size:10.5px;color:var(--text-2)}
+.compact-select[data-kind="tool"] .compact-preview code{font-size:calc(10.5px * var(--fs-scale));color:var(--text-2)}
 .compact-select[data-kind="tool_result"] .compact-preview{font-family:var(--mono)}
-.compact-select[data-kind="tool_result"] .compact-preview code{font-size:10.5px;color:var(--muted)}
+.compact-select[data-kind="tool_result"] .compact-preview code{font-size:calc(10.5px * var(--fs-scale));color:var(--muted)}
 /* 行尾读数槽：定宽右对齐，没有读数的行也占位，读数右边缘在所有行上成一条竖线。
    标签保留「思考/执行」，读数槽本身不再带角色色底；正常档弱灰，只有数字按档位换色。
    等待型工具没有档位，数值照常显示——长窗口来自等人，不是工具开销。 */
 .compact-reading{flex:none;margin-left:auto;min-width:78px;display:flex;justify-content:flex-end}
-.row-reading{flex:none;display:inline-flex;align-items:center;gap:4px;padding:2px 0;border-radius:0;font:9.5px var(--mono);white-space:nowrap;color:var(--muted);background:none}
+.row-reading{flex:none;display:inline-flex;align-items:center;gap:4px;padding:2px 0;border-radius:0;font:calc(9.5px * var(--fs-scale)) var(--mono);white-space:nowrap;color:var(--muted);background:none}
 .row-reading.reason,.row-reading.exec,.row-reading.wait{color:var(--muted);background:none}
 .row-reading .k{display:inline-flex;align-items:center;color:var(--muted)}
 .row-reading .v{font-weight:600;font-variant-numeric:tabular-nums}
@@ -441,7 +443,7 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .t-good{color:var(--muted)}
 .t-warn{color:var(--warn)}
 .t-bad{color:var(--bad)}
-.timeline-end{display:flex;align-items:center;justify-content:center;gap:6px;padding:22px 0 5px;color:var(--muted);font-size:10px}
+.timeline-end{display:flex;align-items:center;justify-content:center;gap:6px;padding:22px 0 5px;color:var(--muted);font-size:calc(10px * var(--fs-scale))}
 .timeline-end span{width:5px;height:5px;background:var(--line-strong);border-radius:50%}
 
 /* ---------- 会话头双列分组板：左资源/性能/结构，右工具/Skill/路径 ---------- */
@@ -460,7 +462,7 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 }
 /* 摘要行不再带图标与标签，两列分工靠列间 1px 细线与间距；按需说明放 data-desc，
    悬停与键盘聚焦都可见。读数与单位用 mono，常驻文字标签留在 UI 字体。 */
-.cue-data{position:relative;display:flex;align-items:center;flex-wrap:nowrap;gap:3px 10px;min-width:0;font-size:11px;line-height:1.7;color:var(--muted);cursor:default}
+.cue-data{position:relative;display:flex;align-items:center;flex-wrap:nowrap;gap:3px 10px;min-width:0;font-size:calc(11px * var(--fs-scale));line-height:1.7;color:var(--muted);cursor:default}
 .cue-data.open-wrap{flex-wrap:wrap}
 .cue-data.chips{align-items:flex-start;flex-wrap:wrap}
 .cue-data>span{white-space:nowrap}
@@ -471,7 +473,7 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .cue-data::after{
   content:attr(data-desc);display:none;position:absolute;left:0;top:calc(100% + 4px);z-index:6;
   width:max-content;max-width:min(300px,100%);padding:5px 8px;border:1px solid var(--line);border-radius:4px;
-  background:var(--surface);color:var(--text-2);font-size:10.5px;line-height:1.6;white-space:normal;text-align:left;
+  background:var(--surface);color:var(--text-2);font-size:calc(10.5px * var(--fs-scale));line-height:1.6;white-space:normal;text-align:left;
   box-shadow:0 4px 14px rgba(0,0,0,.08);pointer-events:none;
 }
 .cue-data:hover::after,.cue-data:focus-visible::after{display:block}
@@ -482,12 +484,12 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .cue-data .tool-chip .n,.cue-data .tool-chip .err{flex:none;overflow:visible;text-overflow:clip}
 .cue-data .tool-chip .n{font-weight:550;color:var(--text)}
 .cue-data .tool-chip .err{color:var(--bad);font-weight:550;margin-left:2px}
-.cue-data .interrupt{font-size:10px;white-space:nowrap;flex:none}
+.cue-data .interrupt{font-size:calc(10px * var(--fs-scale));white-space:nowrap;flex:none}
 /* 汇总未就绪时的资源回退标记：可见地更换统计口径，不只是悬停说明。 */
-.cue-data .scope-tag{font-size:10px;color:var(--warn);background:var(--warn-soft);border-radius:3px;padding:0 5px;flex:none}
+.cue-data .scope-tag{font-size:calc(10px * var(--fs-scale));color:var(--warn);background:var(--warn-soft);border-radius:3px;padding:0 5px;flex:none}
 /* 无正文请求入口：性能行末的按需清单，展开时该行恢复换行。 */
 .hidden-more{display:inline-flex;flex-wrap:wrap;flex:none;min-width:0}
-.hidden-more summary{color:var(--accent);font:10.5px/1.7 var(--ui);cursor:pointer;list-style:none;white-space:nowrap}
+.hidden-more summary{color:var(--accent);font:calc(10.5px * var(--fs-scale))/1.7 var(--ui);cursor:pointer;list-style:none;white-space:nowrap}
 .hidden-more summary::-webkit-details-marker{display:none}
 /* JS 显式放置的 chevron：与文字同色，收起朝右、展开朝下。 */
 .hidden-more summary .chev{margin-right:5px;vertical-align:-.12em;color:var(--accent)}
@@ -495,13 +497,13 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .hidden-more summary:hover,.hidden-more summary:focus-visible{text-decoration:underline;outline:0}
 .hidden-more summary b{font-variant-numeric:tabular-nums}
 .hidden-more .more-body{display:flex;flex-direction:column;gap:2px;flex-basis:100%;padding:5px 0 2px}
-.path-lab{font:10.5px/1.7 var(--ui);color:var(--muted);flex:none;white-space:nowrap}
-.path-chip{display:inline-flex;align-items:baseline;gap:6px;font:10.5px var(--mono);padding:2px 7px;border-radius:3px;cursor:pointer;border:0;background:var(--inset);color:var(--text-2);max-width:260px;flex:0 1 auto;min-width:0}
+.path-lab{font:calc(10.5px * var(--fs-scale))/1.7 var(--ui);color:var(--muted);flex:none;white-space:nowrap}
+.path-chip{display:inline-flex;align-items:baseline;gap:6px;font:calc(10.5px * var(--fs-scale)) var(--mono);padding:2px 7px;border-radius:3px;cursor:pointer;border:0;background:var(--inset);color:var(--text-2);max-width:260px;flex:0 1 auto;min-width:0}
 .path-chip .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .path-chip .c{font-weight:550;flex:none;overflow:visible;text-overflow:clip}
 .path-chip:hover{filter:brightness(.96)}
 .path-more{display:inline-flex;flex-wrap:wrap;flex:none;min-width:0}
-.path-more summary{font:10.5px var(--mono);padding:2px 7px;border-radius:3px;cursor:pointer;list-style:none;font-weight:550;background:var(--inset);color:var(--text-2)}
+.path-more summary{font:calc(10.5px * var(--fs-scale)) var(--mono);padding:2px 7px;border-radius:3px;cursor:pointer;list-style:none;font-weight:550;background:var(--inset);color:var(--text-2)}
 .path-more summary::-webkit-details-marker{display:none}
 .path-more summary:hover{filter:brightness(.96)}
 .path-more .more-body{display:flex;flex-wrap:wrap;gap:5px;padding:5px 0 2px;flex-basis:100%}
@@ -518,9 +520,9 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .turn-chip{
   flex:none;display:inline-flex;align-items:center;gap:6px;max-width:36ch;
   padding:3px 8px;border:1px solid var(--line);border-radius:3px;background:var(--surface);
-  font-size:11px;color:var(--text-2);
+  font-size:calc(11px * var(--fs-scale));color:var(--text-2);
 }
-.turn-chip b{font:500 10px var(--mono);color:var(--muted)}
+.turn-chip b{font:500 calc(10px * var(--fs-scale)) var(--mono);color:var(--muted)}
 .turn-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .turn-chip:hover{background:var(--hover)}
 .turn-chip[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
@@ -529,28 +531,28 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .step-list.band-above .trace-group{scroll-margin-top:calc(var(--head-h,155px) + var(--band-h,32px))}
 /* 轮次面板的空态比整栏空态紧凑。 */
 .turn-panel-empty{padding:10px 4px;text-align:left}
-@media(max-width:1300px){.compact-meta{font-size:8px}}
-@media(max-width:620px){.compact-row{gap:5px}.compact-select{gap:5px}.compact-preview{font-size:11px}.row-label{width:32px;height:19px}.row-tint{max-width:120px;font-size:9px}.compact-reading{min-width:64px}.row-reading{font-size:9px;gap:3px;padding:2px 4px}.row-reading .k{font-size:8.5px}}
+@media(max-width:1300px){.compact-meta{font-size:calc(8px * var(--fs-scale))}}
+@media(max-width:620px){.compact-row{gap:5px}.compact-select{gap:5px}.compact-preview{font-size:calc(11px * var(--fs-scale))}.row-label{width:32px;height:19px}.row-tint{max-width:120px;font-size:calc(9px * var(--fs-scale))}.compact-reading{min-width:64px}.row-reading{font-size:calc(9px * var(--fs-scale));gap:3px;padding:2px 4px}.row-reading .k{font-size:calc(8.5px * var(--fs-scale))}}
 
 .msg-list{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--surface)}
 .msg{border-bottom:1px solid var(--line)}
 .msg:last-child{border-bottom:0}
 .msg-head{
   display:grid;grid-template-columns:34px 64px minmax(0,1fr);gap:8px;align-items:center;
-  width:100%;padding:6px 10px;font-size:12px;border-left:2px solid transparent;
+  width:100%;padding:6px 10px;font-size:calc(12px * var(--fs-scale));border-left:2px solid transparent;
 }
 .msg-head:hover{background:var(--hover)}
 .msg[aria-current="true"] .msg-head{background:var(--accent-soft);border-left-color:var(--accent)}
-.msg-ord{font:10px var(--mono);color:var(--muted);text-align:right}
+.msg-ord{font:calc(10px * var(--fs-scale)) var(--mono);color:var(--muted);text-align:right}
 .msg-preview{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
-.msg-preview.result{font:11px var(--mono);color:var(--text-2)}
+.msg-preview.result{font:calc(11px * var(--fs-scale)) var(--mono);color:var(--text-2)}
 /* 新增消息：行左缘 2px accent（方向 A 第 6 步），无底色——选中态才有浅蓝底，两态可区分。 */
 .msg.msg-new .msg-head{border-left-color:var(--accent)}
 .msg-more{padding:8px 10px;text-align:center;border-top:1px solid var(--line)}
 /* 未读区间：已缓存序号之间的空洞，原样说明，不冒充已读。 */
-.msg-gap{padding:5px 10px;font-size:10.5px;color:var(--muted);border-bottom:1px dashed var(--line);list-style:none}
+.msg-gap{padding:5px 10px;font-size:calc(10.5px * var(--fs-scale));color:var(--muted);border-bottom:1px dashed var(--line);list-style:none}
 .msg-thinking{margin:6px 0;border:1px dashed var(--line-strong);border-radius:4px;padding:0 9px}
-.msg-thinking summary{font-size:10.5px;color:var(--muted);padding:6px 0;cursor:pointer;list-style:none}
+.msg-thinking summary{font-size:calc(10.5px * var(--fs-scale));color:var(--muted);padding:6px 0;cursor:pointer;list-style:none}
 .msg-thinking summary::-webkit-details-marker{display:none}
 .msg-thinking summary::before{margin-right:6px}
 .msg-thinking[open] summary::before{transform:rotate(90deg)}
@@ -578,9 +580,9 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
   display:flex;flex-wrap:wrap;align-items:center;gap:5px 10px;
   padding:9px 12px;border-bottom:1px solid var(--line);background:var(--inset);
 }
-.body-top .id{font:10.5px var(--mono);color:var(--muted)}
+.body-top .id{font:calc(10.5px * var(--fs-scale)) var(--mono);color:var(--muted)}
 .body-top .grow{flex:1}
-.state-chip{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;padding:2px 6px;border-radius:3px;border:1px solid currentColor;flex:none}
+.state-chip{display:inline-flex;align-items:center;gap:5px;font-size:calc(10.5px * var(--fs-scale));padding:2px 6px;border-radius:3px;border:1px solid currentColor;flex:none}
 .state-chip.ok{color:var(--good);background:var(--good-soft)}
 .state-chip.bad{color:var(--bad);background:var(--bad-soft)}
 .state-chip.warn{color:var(--warn);background:var(--warn-soft)}
@@ -594,13 +596,13 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .bad-text{color:var(--bad)}
 /* 请求能力：工具与技能清单折叠行的列表体。 */
 .cap-list{list-style:none;margin:0;padding:2px 0 6px;display:flex;flex-direction:column;gap:2px}
-.cap-item{font-size:11px;line-height:1.5;min-width:0}
+.cap-item{font-size:calc(11px * var(--fs-scale));line-height:1.5;min-width:0}
 .cap-item>details>summary{display:flex;align-items:baseline;gap:7px;cursor:pointer;list-style:none;padding:3px 0;min-width:0}
 .cap-item>details>summary::-webkit-details-marker{display:none}
 .cap-item>details>summary::before{color:var(--muted)}
 .cap-item>details[open]>summary::before{transform:rotate(90deg)}
 .cap-item>details>summary:hover .cap-name{color:var(--accent)}
-.cap-name{font:10.5px var(--mono);color:var(--text);flex:none;background:none;border:0;padding:0}
+.cap-name{font:calc(10.5px * var(--fs-scale)) var(--mono);color:var(--text);flex:none;background:none;border:0;padding:0}
 .cap-desc{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cap-item>details>pre{margin:4px 0 6px 13px}
 .cap-list>.cap-item:not(:has(details)){display:flex;align-items:baseline;gap:7px;padding:3px 0;min-width:0}
@@ -608,13 +610,13 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .section{padding:12px 12px 0}
 .section:last-child{padding-bottom:12px}
 .section-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;min-height:24px;flex-wrap:wrap}
-.section-head h3{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2)}
-.section-head .count{font:10.5px var(--mono);color:var(--muted)}
+.section-head h3{font-size:calc(11px * var(--fs-scale));font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2)}
+.section-head .count{font:calc(10.5px * var(--fs-scale)) var(--mono);color:var(--muted)}
 .section-head .grow{flex:1}
-.mini-search{height:24px;border:1px solid var(--line);border-radius:4px;background:var(--surface);padding:0 7px;font-size:11px;width:150px}
+.mini-search{height:24px;border:1px solid var(--line);border-radius:4px;background:var(--surface);padding:0 7px;font-size:calc(11px * var(--fs-scale));width:150px}
 
 .kind{
-  display:inline-block;font:500 9px/1 var(--mono);letter-spacing:.05em;padding:2px 8px;border-radius:999px;
+  display:inline-block;font:500 calc(9px * var(--fs-scale))/1 var(--mono);letter-spacing:.05em;padding:2px 8px;border-radius:999px;
   text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
 /* 消息列表的角色类名用稳定小写（roleClass）；REPLY 等大写类仍由回复详情等固定标签使用。 */
@@ -629,27 +631,27 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .kind.TOOL,.kind.SCHEMA{color:var(--k-tool);background:var(--k-tool-bg)}
 .kind.FIELD,.kind.PARAM{color:var(--k-system);background:var(--k-system-bg)}
 .kind.REPLY{color:var(--accent);background:var(--accent-soft);font-weight:600}
-.path-row[data-dim="true"] .path-flag{font:9px var(--ui);color:var(--accent);text-align:right;white-space:nowrap}
+.path-row[data-dim="true"] .path-flag{font:calc(9px * var(--fs-scale)) var(--ui);color:var(--accent);text-align:right;white-space:nowrap}
 .path-row.search-hit 
 
 /* 回复 */
-.reply-text{padding:8px 2px 4px;overflow-wrap:anywhere;font-size:13px;line-height:1.75;max-width:78ch}
+.reply-text{padding:8px 2px 4px;overflow-wrap:anywhere;font-size:calc(13px * var(--fs-scale));line-height:1.75;max-width:78ch}
 .reply-text.clip{max-height:200px;overflow:hidden;position:relative}
 .reply-text.clip::after{content:"";position:absolute;inset:auto 0 0;height:48px;background:linear-gradient(transparent,var(--surface))}
-.reply-empty{padding:14px;font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+.reply-empty{padding:14px;font-size:calc(12px * var(--fs-scale));color:var(--muted);display:flex;flex-direction:column;gap:4px}
 .reply-empty b{color:var(--bad);font-weight:550}
 .reply-actions{display:flex;gap:6px;padding:0 12px 10px}
 
 /* 回复里的极简 Markdown */
 .md-table-wrap{overflow-x:auto;margin:6px 0}
-.md-table{border-collapse:collapse;font-size:12px;min-width:60%}
+.md-table{border-collapse:collapse;font-size:calc(12px * var(--fs-scale));min-width:60%}
 .md-table th,.md-table td{border:1px solid var(--line);padding:4px 8px;text-align:left;vertical-align:top}
 .md-table th{background:var(--inset);font-weight:600;color:var(--text-2);white-space:nowrap}
 .md-list{margin:4px 0;padding-left:20px}
 .md-list li{margin:2px 0}
 .md-head{font-weight:600;margin:8px 0 2px}
 .md-code{margin:6px 0;padding:8px 10px;background:var(--inset);border:1px solid var(--line);border-radius:4px;
-  font:10.5px/1.7 var(--mono);overflow:auto;max-height:280px;white-space:pre}
+  font:calc(10.5px * var(--fs-scale))/1.7 var(--mono);overflow:auto;max-height:280px;white-space:pre}
 .conv-asst-body p{margin:0 0 7px}
 .conv-asst-body p:last-child,.reply-text p:last-child{margin-bottom:0}
 .reply-text p{margin:0 0 7px}
@@ -659,7 +661,7 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .disclosures{display:flex;flex-direction:column;border-top:1px solid var(--line);margin-top:12px}
 .disclosures>details{border-bottom:1px solid var(--line);background:var(--surface)}
 .disclosures>details:last-child{border-bottom:0}
-.disclosures summary{display:flex;align-items:center;gap:7px;padding:8px 12px;font-size:11px;color:var(--text-2);cursor:pointer;list-style:none}
+.disclosures summary{display:flex;align-items:center;gap:7px;padding:8px 12px;font-size:calc(11px * var(--fs-scale));color:var(--text-2);cursor:pointer;list-style:none}
 .disclosures summary::-webkit-details-marker{display:none}
 .disclosures summary::before{color:var(--muted)}
 .disclosures details[open] summary::before{transform:rotate(90deg)}
@@ -667,12 +669,12 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .disclosures .d-body{padding:2px 12px 12px}
 
 /* 路由链 */
-.chain{display:flex;flex-direction:column;gap:0;font-size:11.5px}
+.chain{display:flex;flex-direction:column;gap:0;font-size:calc(11.5px * var(--fs-scale))}
 .chain-row{display:grid;grid-template-columns:78px minmax(0,1fr);gap:8px;padding:5px 0;border-bottom:1px dashed var(--line)}
 .chain-row:last-child{border-bottom:0}
-.chain-row dt{color:var(--muted);font-size:10.5px}
+.chain-row dt{color:var(--muted);font-size:calc(10.5px * var(--fs-scale))}
 .chain-row dd{margin:0;min-width:0;overflow-wrap:anywhere}
-.chain-row code{font-size:10.5px;background:var(--inset);border:1px solid var(--line);border-radius:2px;padding:0 3px}
+.chain-row code{font-size:calc(10.5px * var(--fs-scale));background:var(--inset);border:1px solid var(--line);border-radius:2px;padding:0 3px}
 /* 证据四行：行首是到达标记，只有异常态（未到/依赖）出颜色。 */
 .evidence-chain .chain-row{grid-template-columns:16px minmax(0,1fr)}
 .evidence-chain .ev{display:inline-flex;align-items:center;justify-content:center;width:16px}
@@ -681,52 +683,52 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .evidence-chain .ev.wait{color:var(--muted)}
 .attempt{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:8px;align-items:start;padding:6px 0;border-bottom:1px dashed var(--line)}
 .attempt:last-child{border-bottom:0}
-.attempt-n{font:10px var(--mono);color:var(--muted);padding-top:2px}
-.attempt-name{font:10.5px var(--mono);color:var(--text)}
-.attempt-note{font-size:10.5px;color:var(--muted);margin-top:2px}
-.attempt-side{text-align:right;font:10px var(--mono);color:var(--muted);white-space:nowrap}
-.attempt-side .sc{display:block;font-size:10px}
+.attempt-n{font:calc(10px * var(--fs-scale)) var(--mono);color:var(--muted);padding-top:2px}
+.attempt-name{font:calc(10.5px * var(--fs-scale)) var(--mono);color:var(--text)}
+.attempt-note{font-size:calc(10.5px * var(--fs-scale));color:var(--muted);margin-top:2px}
+.attempt-side{text-align:right;font:calc(10px * var(--fs-scale)) var(--mono);color:var(--muted);white-space:nowrap}
+.attempt-side .sc{display:block;font-size:calc(10px * var(--fs-scale))}
 .attempt-side .sc.ok{color:var(--good)} .attempt-side .sc.bad{color:var(--bad)}
 .attempt-bar{display:flex;gap:2px;height:5px;margin:6px 0 2px;border-radius:2px;overflow:hidden}
 .attempt-bar i{display:block;border-radius:1px}
 .attempt-bar i.ok{background:var(--good)} .attempt-bar i.bad{background:var(--bad)}
-.breakdown{display:flex;flex-wrap:wrap;gap:2px 10px;font-size:10px;color:var(--muted);margin-top:3px}
+.breakdown{display:flex;flex-wrap:wrap;gap:2px 10px;font-size:calc(10px * var(--fs-scale));color:var(--muted);margin-top:3px}
 .breakdown b{font-weight:500;color:var(--text-2);font-family:var(--mono)}
 
 pre.raw{
   margin:0;padding:10px;background:var(--inset);border:1px solid var(--line);border-radius:4px;
-  font-size:10.5px;line-height:1.7;overflow:auto;max-height:340px;white-space:pre;tab-size:2;
+  font-size:calc(10.5px * var(--fs-scale));line-height:1.7;overflow:auto;max-height:340px;white-space:pre;tab-size:2;
 }
-.note{font-size:10.5px;color:var(--muted);line-height:1.6}
+.note{font-size:calc(10.5px * var(--fs-scale));color:var(--muted);line-height:1.6}
 .note.warn{color:var(--warn)}
 
 /* ---------- 右栏：读数 / 正文 ---------- */
 /* 头部第一行是会话标题：身份行已删，顶部留白 11→15 补回节奏，页签再下移 10。 */
 .rail-head{flex:none;padding:15px 14px 0;border-bottom:1px solid var(--line);background:var(--surface)}
-.rail-id{display:flex;align-items:center;gap:7px;font:10.5px var(--mono);color:var(--muted)}
+.rail-id{display:flex;align-items:center;gap:7px;font:calc(10.5px * var(--fs-scale)) var(--mono);color:var(--muted)}
 .rail-id .grow{flex:1}
 .rail-title-row{display:flex;align-items:flex-start;gap:8px;min-height:18px}
-.rail-title{font-size:13px;font-weight:600;line-height:1.4;margin-top:0;flex:1;min-width:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.rail-title{font-size:calc(13px * var(--fs-scale));font-weight:600;line-height:1.4;margin-top:0;flex:1;min-width:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .rail-state{display:flex;align-items:center;gap:6px;flex:none;margin-left:auto}
 .rail-id .strip-model{font-weight:600;color:var(--text)}
 /* 用量读数两列：复用 chain-row 的标签列与值列结构，数值列右对齐成列、等宽数字；
    只作用于读数范围，不改全局 chain-row dd 的文字详情排版。 */
 .ledger-chain{margin:6px 0 0}
 .ledger-chain .chain-row{padding:3px 0}
-.ledger-chain .chain-row dd{text-align:right;font:11px/1.5 var(--mono);font-variant-numeric:tabular-nums}
+.ledger-chain .chain-row dd{text-align:right;font:calc(11px * var(--fs-scale))/1.5 var(--mono);font-variant-numeric:tabular-nums}
 .ledger-chain .miss{color:var(--missing);font-style:normal}
 .rail-tabs{display:flex;gap:0;margin:0 -14px;padding:0 14px;background:var(--surface)}
 /* 页签只在有标题行时才下移；无标题请求不跟着长高。 */
 .rail-title-row + .rail-tabs{margin-top:10px}
-.rail-tabs button{position:relative;font-size:11px;padding:8px 10px 7px;color:var(--muted)}
+.rail-tabs button{position:relative;font-size:calc(11px * var(--fs-scale));padding:8px 10px 7px;color:var(--muted)}
 .rail-tabs button[aria-pressed="true"]{color:var(--accent);font-weight:550}
 .rail-tabs button:hover{color:var(--text)}
 .rail-body{flex:1;min-height:0;overflow:auto;padding:0 14px 24px}
 .rail-section{padding:13px 0;border-bottom:1px solid var(--line)}
 .rail-section:last-child{border-bottom:0}
-.rail-section h3{display:flex;align-items:center;gap:6px;font:500 9.5px var(--ui);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.rail-section h3{display:flex;align-items:center;gap:6px;font:500 calc(9.5px * var(--fs-scale)) var(--ui);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
 .rail-section h3 .grow{flex:1}
-.rail-section h3 .hint{font-size:9.5px;letter-spacing:0;text-transform:none;color:var(--muted)}
+.rail-section h3 .hint{font-size:calc(9.5px * var(--fs-scale));letter-spacing:0;text-transform:none;color:var(--muted)}
 
 /* 构成区顶部的四个指标：已用上下文、固定开销、提示词缓存、耗时。
    窄栏 已用与耗时各占整行，固定开销与缓存成对；宽栏一行四列，耗时最宽。
@@ -739,18 +741,18 @@ pre.raw{
   .ctx-stat:first-child,.ctx-stat-time{grid-column:auto}
 }
 .ctx-stat{display:flex;flex-direction:column;gap:3px;min-width:0}
-.ctx-k{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;font:500 9.5px var(--ui);letter-spacing:.06em;color:var(--muted)}
-.ctx-big{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px .3em;min-width:0;overflow:hidden;font:600 20px/1.15 var(--mono);font-variant-numeric:tabular-nums;color:var(--text)}
+.ctx-k{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;font:500 calc(9.5px * var(--fs-scale)) var(--ui);letter-spacing:.06em;color:var(--muted)}
+.ctx-big{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px .3em;min-width:0;overflow:hidden;font:600 calc(20px * var(--fs-scale))/1.15 var(--mono);font-variant-numeric:tabular-nums;color:var(--text)}
 .ctx-big b{font-weight:600}
-.ctx-big span{font:10.5px/1.5 var(--mono);color:var(--muted);font-weight:400}
+.ctx-big span{font:calc(10.5px * var(--fs-scale))/1.5 var(--mono);color:var(--muted);font-weight:400}
 .ctx-stat .miss{color:var(--missing);font-style:normal}
-.ctx-sub{font-size:10px;line-height:1.35;color:var(--muted);overflow-wrap:anywhere}
+.ctx-sub{font-size:calc(10px * var(--fs-scale));line-height:1.35;color:var(--muted);overflow-wrap:anywhere}
 
-.comp-legend{display:grid;grid-template-columns:1fr auto auto;gap:3px 8px;font-size:12px}
+.comp-legend{display:grid;grid-template-columns:1fr auto auto;gap:3px 8px;font-size:calc(12px * var(--fs-scale))}
 .comp-legend .name{display:flex;align-items:center;gap:6px;font-weight:600;color:var(--text);min-width:0}
 .comp-legend .name span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.comp-legend .val{font:600 12px var(--mono);color:var(--text);text-align:right}
-.comp-legend .pct{font:10.5px var(--mono);color:var(--muted);text-align:right;width:34px}
+.comp-legend .val{font:600 calc(12px * var(--fs-scale)) var(--mono);color:var(--text);text-align:right}
+.comp-legend .pct{font:calc(10.5px * var(--fs-scale)) var(--mono);color:var(--muted);text-align:right;width:34px}
 
 /* 上下文分布图：读数折叠行内的 treemap 与内容列表（web/context-map.js 拼装）。
    容器高度 = clamp(160px, 宽/2.4, 240px)，由 aspect-ratio 加 min/max 表达。
@@ -761,34 +763,34 @@ pre.raw{
 .ctx-tile{position:absolute;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;gap:2px;padding:7px 8px;border:1px solid color-mix(in srgb,var(--accent) 14%,var(--line));border-radius:4px;background:var(--c);color:var(--text);min-width:0}
 .ctx-tile:hover,.ctx-tile.ctx-hl{background:color-mix(in srgb,var(--accent) 24%,var(--surface));border-color:var(--accent)}
 .ctx-tile:focus-visible{outline-offset:-2px}
-.ctx-tname{font-size:10.5px;font-weight:550;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ctx-tval{font:10px var(--mono);color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ctx-tname{font-size:calc(10.5px * var(--fs-scale));font-weight:550;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ctx-tval{font:calc(10px * var(--fs-scale)) var(--mono);color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ctx-tile.low .ctx-tval{display:none}
 .ctx-tile.bare{padding:0;border-radius:3px}
 .ctx-tile.bare .ctx-tname,.ctx-tile.bare .ctx-tval{display:none}
 .ctx-rows{display:flex;flex-direction:column;gap:1px;margin:0 0 6px}
 /* 图例与内容列表之间的分隔线；展开区（.ctx-more 内）的 .ctx-rows 不套这条。 */
 .comp-legend + .ctx-rows{border-top:1px solid var(--line);padding-top:6px;margin-top:6px}
-.ctx-row{display:flex;align-items:center;gap:7px;padding:2.5px 6px;border-radius:4px;font-size:11px}
+.ctx-row{display:flex;align-items:center;gap:7px;padding:2.5px 6px;border-radius:4px;font-size:calc(11px * var(--fs-scale))}
 .ctx-row:hover,.ctx-row.ctx-hl{background:var(--hover)}
 .ctx-row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ctx-row .nm b{font-weight:450;color:var(--text-2)}
-.ctx-row .xn{color:var(--muted);font-size:10px;white-space:nowrap}
-.ctx-row .tg{font:10px var(--mono);color:var(--text-2);background:var(--inset);border:1px solid var(--line);border-radius:3px;padding:0 4px;white-space:nowrap}
-.ctx-row .v{width:44px;flex:none;text-align:right;font:10.5px var(--mono);font-variant-numeric:tabular-nums;color:var(--text-2)}
+.ctx-row .xn{color:var(--muted);font-size:calc(10px * var(--fs-scale));white-space:nowrap}
+.ctx-row .tg{font:calc(10px * var(--fs-scale)) var(--mono);color:var(--text-2);background:var(--inset);border:1px solid var(--line);border-radius:3px;padding:0 4px;white-space:nowrap}
+.ctx-row .v{width:44px;flex:none;text-align:right;font:calc(10.5px * var(--fs-scale)) var(--mono);font-variant-numeric:tabular-nums;color:var(--text-2)}
 /* 列表超出 8 行的「显示全部」：开合走既有 data-fold 恢复机制。 */
 .ctx-more{margin:2px 0 0}
-.ctx-more summary{display:inline-flex;cursor:pointer;list-style:none;font-size:10.5px;color:var(--accent);padding:2px 6px;border-radius:3px}
+.ctx-more summary{display:inline-flex;cursor:pointer;list-style:none;font-size:calc(10.5px * var(--fs-scale));color:var(--accent);padding:2px 6px;border-radius:3px}
 .ctx-more summary::-webkit-details-marker{display:none}
 .ctx-more summary:hover{background:var(--hover)}
 .ctx-more .when-open{display:none}
 .ctx-more[open] .when-open{display:inline}
 .ctx-more[open] .when-closed{display:none}
 /* 构成区指标行内的异常态 pill：本地估计（中性）与接近占满/占满（warn）。 */
-.u-pill{font-size:10px;border:1px solid var(--line);border-radius:3px;padding:0 5px;color:var(--muted);white-space:nowrap}
+.u-pill{font-size:calc(10px * var(--fs-scale));border:1px solid var(--line);border-radius:3px;padding:0 5px;color:var(--muted);white-space:nowrap}
 .u-pill.warn{border-color:var(--warn);color:var(--warn);background:var(--warn-soft)}
 
-.rail-empty{padding:26px 4px;text-align:center;font-size:11.5px;color:var(--muted);line-height:1.7}
+.rail-empty{padding:26px 4px;text-align:center;font-size:calc(11.5px * var(--fs-scale));color:var(--muted);line-height:1.7}
 /* 未选择请求：内接 160；rail 内宽 ≤320（手动把右栏拖到 280 时）降 96，避免插画顶到说明文字。 */
 .rail-empty-art{container-type:inline-size}
 .rail-empty-art .spider-art{width:160px;height:160px;margin:0 auto 12px}
@@ -800,16 +802,16 @@ pre.raw{
 .note.with-ico{display:flex;align-items:flex-start;gap:8px}
 .note.with-ico .ico{flex:none;color:var(--warn)}
 .rail-empty b{display:block;color:var(--text-2);font-weight:550;margin-bottom:3px}
-.rail-note{margin-top:9px;padding:7px 9px;border-radius:4px;background:var(--inset);border:1px solid var(--line);font-size:10px;line-height:1.6;color:var(--muted)}
+.rail-note{margin-top:9px;padding:7px 9px;border-radius:4px;background:var(--inset);border:1px solid var(--line);font-size:calc(10px * var(--fs-scale));line-height:1.6;color:var(--muted)}
 
 /* 右栏折叠行：读数页统一行样式（回复/结构/能力/上下文），开合状态按稳定键在重绘后恢复。 */
 .rail-fold{border:1px solid var(--line);border-radius:6px;background:var(--inset);margin:12px 0 0;overflow:hidden}
-.rail-fold>summary{display:flex;align-items:center;gap:7px;padding:8px 10px;font-size:11px;font-weight:550;color:var(--text-2);cursor:pointer;list-style:none}
+.rail-fold>summary{display:flex;align-items:center;gap:7px;padding:8px 10px;font-size:calc(11px * var(--fs-scale));font-weight:550;color:var(--text-2);cursor:pointer;list-style:none}
 .rail-fold>summary::-webkit-details-marker{display:none}
 .rail-fold>summary::before{color:var(--muted)}
 .rail-fold[open]>summary::before{transform:rotate(90deg)}
 .rail-fold>summary:hover{background:var(--hover)}
-.rail-fold .fold-count{margin-left:auto;font:10.5px var(--mono);color:var(--muted);font-weight:400}
+.rail-fold .fold-count{margin-left:auto;font:calc(10.5px * var(--fs-scale)) var(--mono);color:var(--muted);font-weight:400}
 .rail-fold .fold-count.new{margin-left:6px;color:var(--accent)}
 .rail-fold .fold-count.warn{color:var(--warn)}
 .rail-fold .fold-count.bad{color:var(--bad)}
@@ -822,31 +824,31 @@ pre.raw{
 .rail-fold .fold-body .conv-tools{padding:8px 0 2px}
 /* 用量明细：折叠行里的二级 disclosure，收起时只占一行小字，开合随 data-fold 恢复。 */
 .usage-more{margin:8px 0 0;border-top:1px solid var(--line)}
-.usage-more>summary{display:flex;align-items:center;gap:6px;padding:6px 0 2px;font-size:10px;color:var(--muted);cursor:pointer;list-style:none}
+.usage-more>summary{display:flex;align-items:center;gap:6px;padding:6px 0 2px;font-size:calc(10px * var(--fs-scale));color:var(--muted);cursor:pointer;list-style:none}
 .usage-more>summary::-webkit-details-marker{display:none}
 .usage-more[open]>summary::before{transform:rotate(90deg)}
 .usage-more>summary:hover{color:var(--text-2)}
 
 /* 工具四页：概览/参数/结果/Schema 与返回按钮。 */
 .tool-page-head{display:flex;align-items:center;gap:8px;margin:10px 0 2px}
-.tool-page-head .mono{font-size:11px;color:var(--text-2);overflow-wrap:anywhere}
-.tool-page-head .cnt{margin-left:auto;font-size:10.5px;color:var(--muted);white-space:nowrap;flex:none}
+.tool-page-head .mono{font-size:calc(11px * var(--fs-scale));color:var(--text-2);overflow-wrap:anywhere}
+.tool-page-head .cnt{margin-left:auto;font-size:calc(10.5px * var(--fs-scale));color:var(--muted);white-space:nowrap;flex:none}
 .tool-page-head .cnt .err{color:var(--bad);font-weight:550}
 /* 子页签与筛选同套分段控件：inset 槽承载，选中段 surface 浮起。 */
 .tool-page-tabs{display:inline-flex;gap:2px;padding:2px;border-radius:7px;background:var(--inset);margin:8px 0}
-.tool-page-tabs button{font-size:10.5px;padding:3px 9px;border-radius:5px;border:0;color:var(--muted);background:transparent}
+.tool-page-tabs button{font-size:calc(10.5px * var(--fs-scale));padding:3px 9px;border-radius:5px;border:0;color:var(--muted);background:transparent}
 .tool-page-tabs button[aria-pressed="true"]{color:var(--text);background:var(--surface);box-shadow:var(--shadow);font-weight:500}
 .tool-page-tabs button:hover{color:var(--text)}
 /* 汇总条目列表：行内是调用序号与摘要，右侧 mono 弱化来源与执行窗口；窗口外整行弱一档。 */
-.tool-row .call{font:10.5px var(--mono);color:var(--text-2);flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tool-row .dur{margin-left:auto;font:10px var(--mono);color:var(--muted);white-space:nowrap;flex:none}
-.tool-row .muted.mono{margin-left:auto;font-size:10px;color:var(--muted)}
+.tool-row .call{font:calc(10.5px * var(--fs-scale)) var(--mono);color:var(--text-2);flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tool-row .dur{margin-left:auto;font:calc(10px * var(--fs-scale)) var(--mono);color:var(--muted);white-space:nowrap;flex:none}
+.tool-row .muted.mono{margin-left:auto;font-size:calc(10px * var(--fs-scale));color:var(--muted)}
 .tool-row.dim{opacity:.55}
 /* 配对页两段的角色标：粗体角色词加 mono 弱化来源；中间弱化连接语交代因果。 */
 .frole{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
-.frole b{font-size:11px;font-weight:600;color:var(--text);flex:none}
-.frole span{font:10px var(--mono);color:var(--muted);overflow-wrap:anywhere}
-.pair-arrow{font-size:10.5px;color:var(--muted);padding:2px 0 6px}
+.frole b{font-size:calc(11px * var(--fs-scale));font-weight:600;color:var(--text);flex:none}
+.frole span{font:calc(10px * var(--fs-scale)) var(--mono);color:var(--muted);overflow-wrap:anywhere}
+.pair-arrow{font-size:calc(10.5px * var(--fs-scale));color:var(--muted);padding:2px 0 6px}
 button.tool-link{background:none;border:0;cursor:pointer}
 button.tool-link:hover{background:var(--hover);border-radius:4px}
 .schema-item{margin:8px 0}
@@ -855,21 +857,21 @@ button.tool-link:hover{background:var(--hover);border-radius:4px}
 .body-panel{padding-top:12px}
 .body-panel .bp-head{display:flex;align-items:flex-start;gap:8px;margin-bottom:8px}
 .body-panel .bp-kind{flex:none}
-.body-panel .bp-path{font:10px var(--mono);color:var(--text-2);overflow-wrap:anywhere;flex:1}
+.body-panel .bp-path{font:calc(10px * var(--fs-scale)) var(--mono);color:var(--text-2);overflow-wrap:anywhere;flex:1}
 /* 配对页 Result 面板的失败软色：is_error=true 才出现。 */
 .body-panel.pair-error{background:var(--warn-soft);border-radius:6px;padding:6px 10px 10px}
 /* Edit 对照块：old_string/new_string 各成一个红绿 soft 着色块，等宽字体沿用 pre.raw。 */
 .edit-block{margin:8px 0;border:1px solid var(--line);border-radius:4px;overflow:hidden}
-.edit-block .edit-tag{display:block;font:500 9px/1 var(--ui);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding:6px 10px 0}
+.edit-block .edit-tag{display:block;font:500 calc(9px * var(--fs-scale))/1 var(--ui);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding:6px 10px 0}
 .edit-block pre.raw{margin:0;border:0;border-radius:0;background:transparent;max-height:240px}
 .edit-block.old{background:var(--bad-soft)}
 .edit-block.new{background:var(--good-soft)}
 .bp-nav{display:flex;gap:3px;flex:none}
-.bp-nav button{width:22px;height:22px;border:1px solid var(--line);border-radius:3px;color:var(--text-2);display:inline-flex;align-items:center;justify-content:center;font-size:11px}
+.bp-nav button{width:22px;height:22px;border:1px solid var(--line);border-radius:3px;color:var(--text-2);display:inline-flex;align-items:center;justify-content:center;font-size:calc(11px * var(--fs-scale))}
 .bp-nav button:hover{background:var(--hover)}
 .bp-nav button[disabled]{opacity:.35;cursor:default}
-.bp-meta{display:flex;gap:8px;font-size:10px;color:var(--muted);margin-bottom:8px;flex-wrap:wrap}
-.bp-text{overflow-wrap:anywhere;font-size:12.5px;line-height:1.8;max-width:62ch}
+.bp-meta{display:flex;gap:8px;font-size:calc(10px * var(--fs-scale));color:var(--muted);margin-bottom:8px;flex-wrap:wrap}
+.bp-text{overflow-wrap:anywhere;font-size:calc(12.5px * var(--fs-scale));line-height:1.8;max-width:62ch}
 .bp-text pre,.bp-text code{white-space:pre-wrap}
 
 /* 响应式 */
@@ -919,28 +921,28 @@ button.tool-link:hover{background:var(--hover);border-radius:4px}
 .ctx-dialog-root[hidden]{display:none}
 .ctx-dialog{width:100%;max-width:860px;max-height:80vh;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line-strong);border-radius:8px;box-shadow:0 12px 40px rgba(10,18,26,.25);overflow:hidden}
 .ctx-d-head{display:flex;align-items:center;gap:9px;padding:10px 14px;border-bottom:1px solid var(--line);flex:none}
-.ctx-d-head .t{display:flex;align-items:center;gap:7px;font-size:12.5px;min-width:0}
+.ctx-d-head .t{display:flex;align-items:center;gap:7px;font-size:calc(12.5px * var(--fs-scale));min-width:0}
 .ctx-d-head .t b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ctx-d-head .v{font:11px var(--mono);color:var(--text-2);flex:none}
+.ctx-d-head .v{font:calc(11px * var(--fs-scale)) var(--mono);color:var(--text-2);flex:none}
 .ctx-d-head .grow{flex:1}
 .ctx-d-head .x{border:0;background:none;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;line-height:0;border-radius:4px;cursor:pointer}
 .ctx-d-head .x:hover{background:var(--hover);color:var(--text)}
 .ctx-d-body{padding:10px 14px 14px;overflow:auto}
-.ctx-d-status{font-size:11px;color:var(--warn);margin:0 0 6px}
-.ctx-d-note{font-size:10.5px;color:var(--muted);line-height:1.6;margin:0 0 6px}
+.ctx-d-status{font-size:calc(11px * var(--fs-scale));color:var(--warn);margin:0 0 6px}
+.ctx-d-note{font-size:calc(10.5px * var(--fs-scale));color:var(--muted);line-height:1.6;margin:0 0 6px}
 .ctx-d-entries{display:flex;flex-direction:column;gap:4px;margin-top:6px}
 .ctx-d-entry{border:1px solid var(--line);border-radius:5px;background:var(--inset)}
-.ctx-d-entry>summary{display:flex;align-items:baseline;gap:8px;padding:6px 9px;font-size:11px;cursor:pointer;list-style:none}
+.ctx-d-entry>summary{display:flex;align-items:baseline;gap:8px;padding:6px 9px;font-size:calc(11px * var(--fs-scale));cursor:pointer;list-style:none}
 .ctx-d-entry>summary::-webkit-details-marker{display:none}
 .ctx-d-entry>summary::before{color:var(--muted)}
 .ctx-d-entry[open]>summary::before{transform:rotate(90deg)}
 .ctx-d-entry>summary:hover{background:var(--hover)}
-.ctx-d-entry .p{font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:3px;padding:0 4px;flex:none}
+.ctx-d-entry .p{font-size:calc(10px * var(--fs-scale));color:var(--muted);border:1px solid var(--line);border-radius:3px;padding:0 4px;flex:none}
 .ctx-d-entry .p.located{color:var(--good);border-color:var(--good)}
 .ctx-d-entry .who{font-weight:550;white-space:nowrap}
-.ctx-d-entry .path{font:10px var(--mono);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.ctx-d-entry .path{font:calc(10px * var(--fs-scale)) var(--mono);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .ctx-d-content{padding:2px 9px 9px;border-top:1px solid var(--line)}
-.ctx-d-text{font:10.5px/1.55 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:7px 9px;margin:6px 0 0}
+.ctx-d-text{font:calc(10.5px * var(--fs-scale))/1.55 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:7px 9px;margin:6px 0 0}
 
 /* 图例项与内容列表行是 button：与 tile 走同一选择动作，样式按行还原。 */
 .comp-legend .name{font:inherit;border:0;background:none;padding:0;cursor:pointer;text-align:left}
@@ -1048,18 +1050,36 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 }
 .rail-fold[open]::details-content,.disclosures>details[open]::details-content,.msg-thinking[open]::details-content,
 .cap-item>details[open]::details-content,.ctx-d-entry[open]::details-content{block-size:auto}
-/* 系统减少动态：CSS 侧一网打尽；JS 侧由 web/motion.js 同口径短路。 */
+/* 减少动态：系统偏好与设置开关同口径。JS 侧由 web/motion.js 的
+   prefersReducedMotion() 短路，data 属性由 setReduceMotion() 写入。 */
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{
     animation-duration:.01ms!important;animation-iteration-count:1!important;
     transition-duration:0s!important;transition-delay:0s!important;
   }
+  .live-dot{animation:none}
+  .agent-list,.group-head .chev{transition:none}
+  .spider-art{opacity:1;transition:none}
   /* 换场两个关键帧都写了 transform：缩短动画后要清掉末帧，免得旧画面停在偏移位。 */
   .col-main[data-switch-state] .session-head,
   .col-main[data-switch-state] .step-list,
   .col-main[data-switch-state="switching"] .session-head::after{animation:none;transform:none;opacity:1}
   .col-main[data-switch-state="switching"] .session-head::after{left:0}
 }
+:root[data-reduce-motion="true"] *,
+:root[data-reduce-motion="true"] *::before,
+:root[data-reduce-motion="true"] *::after{
+  animation-duration:.01ms!important;animation-iteration-count:1!important;
+  transition-duration:0s!important;transition-delay:0s!important;
+}
+:root[data-reduce-motion="true"] .live-dot{animation:none}
+:root[data-reduce-motion="true"] .agent-list,
+:root[data-reduce-motion="true"] .group-head .chev{transition:none}
+:root[data-reduce-motion="true"] .spider-art{opacity:1;transition:none}
+:root[data-reduce-motion="true"] .col-main[data-switch-state] .session-head,
+:root[data-reduce-motion="true"] .col-main[data-switch-state] .step-list,
+:root[data-reduce-motion="true"] .col-main[data-switch-state="switching"] .session-head::after{animation:none;transform:none;opacity:1}
+:root[data-reduce-motion="true"] .col-main[data-switch-state="switching"] .session-head::after{left:0}
 /* 切主题两帧抑制：主题当帧完成（既有决策），交互过渡在其余时刻照常。
    只关过渡，不写 animation:none —— 那会把正在跑的无限动画取消后从零重播，
    整页的 pulse、live-dot、骨架呼吸会集体对回同一相位。 */
