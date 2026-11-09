@@ -14,8 +14,16 @@
 | `otlp.token` | OTLP 端点令牌，首次启动生成；harness exporter 只拿这一个 |
 | `redaction.salt` | 脱敏用的本地盐；与库里的绑定标识配对，不能单独替换 |
 | `maintenance.lock` | 维护命令的独占锁，只在维护期间存在 |
+| `config/settings.json` | 用户设置里与默认值不同的项，0600 |
+| `config/themes/` | 自定义主题预留目录，0700 |
 
 `redaction.salt` 与库必须配对。库里的 `collector_state['privacy:salt']` 记这份盐的标识（加域前缀的 SHA-256，不含盐明文）；有数据却没有绑定、盘上没有盐文件、或盐与标识不符时，采集器拒绝启动，分别报 `redaction_salt_unbound`、`redaction_salt_missing`、`redaction_salt_mismatch`。启动路径不会顺手生成新盐：换盐会让库里已有的占位符再也解释不了。有盐文件却没有绑定同样拒绝启动（`redaction_salt_unbound`）：无法证明历史占位符是这份盐算的，也没有确认绕过的入口，旧库删除后重建。
+
+## 用户设置文件
+
+页面顶栏的设置面板读写 `config/settings.json`，采集器启动时加载一次。文件只存与默认值不同的项：未知键、类型不符、越界取值或非法 JSON 都回退默认值并记一条诊断 issue，原文件不改写也不删除。面板保存走 `POST /api/settings`，只接受固定字段与 4 KiB 以内的正文。
+
+备份与迁移单独做，不走 `bundle` / `restore`：恢复 bundle 仍只认 `trace.db`、`redaction.salt` 与 `manifest.json` 三个文件，多一个少一个报 `restore_bundle_invalid`。迁移到新机器或新数据目录时，把 `config/settings.json` 与 `config/themes/` 一并复制到新目录的 `config/` 下，保持目录 0700、文件 0600；恢复后首次启动会按文件里的 overrides 应用外观与语言。只恢复 bundle 而不复制这两个路径，设置会回到发布默认值，外观不会跟着数据回来。
 
 ## 本地插件包
 
@@ -457,8 +465,9 @@ Magpie operation 准入上线后，历史行的 `source_facts_json` 缺 `operati
 3. `bundle` 到数据目录外的一个新目录；只有数据库的 `backup` 不能恢复占位符连续性。
 4. `restore` 到另一个新目录，按 `restore` 的校验顺序确认清单、哈希、盐绑定与结构版本都通过。
 5. 用 `ATC_DATA_DIR` 指向恢复目录启动：首次启动会重新生成 `read.token`、`hook.token` 与 `otlp.token`，插件与 exporter 要用新令牌重新注册。
-6. 先让合成来源跑一遍分页、正文与路由，确认占位符与备份前一致。
-7. 确认无误后再停服务、切换配置，然后起回原服务。
+6. 把原数据目录的 `config/settings.json` 与 `config/themes/` 复制到恢复目录，外观与语言才会跟回来；步骤见[用户设置文件](#用户设置文件)。
+7. 先让合成来源跑一遍分页、正文与路由，确认占位符与备份前一致。
+8. 确认无误后再停服务、切换配置，然后起回原服务。
 
 游标可能落后于上游：重放按物理身份进行（文件代际 + 偏移），hook 的 best-effort 缺口仍然保留。**不要**把恢复库当成“补回了停机期间的正文”——停机期间没被投递的 hook 就是没投递，缺口表里会一直显示。
 

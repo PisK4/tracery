@@ -6,6 +6,35 @@
 
 记录里的数字、端口、pid 与耗时都来自作者机器，用于说明当时怎么判断，不是可复现的基准。
 
+## 用户设置层第一阶段（合成，2026-11-09）
+
+前提：分支 `feat/config-tier`，四笔提交交付 `src/settings.ts`、`/api/settings` 读写端点、设置面板与外观接线。设计取舍见[用户设置层与配置目录](../.agents/notes/implemented/feature/2026-11-09-user-settings-config-tier.md)。验收范围是目录与权限、校验与拒绝路径、读写端点、外观生效与旧 localStorage 迁移，不含采集来源、完整正文、分级保留、异常提醒与自定义隐藏词。
+
+### 合成数据
+
+- `tests/settings.test.ts`：全新目录生成 0700 `config/`、空 overrides 的 0600 `settings.json` 与 0700 `themes/`；坏文件（未知键、错误类型、越界取值、非法 JSON）回退默认值、留可查 issue、原文件不改写不删除；保存只落改过的项，重新加载得到同一份生效值。
+- `tests/settings-http.test.ts`：GET 响应只有 `settings` 与 `overrides`，不含令牌、盐、路径或环境变量原文；POST 拒绝未知键、缺字段、非法 JSON、超限与跨站 Origin 且文件不动；Host、Origin、同源三道门对 GET 与 POST 同样生效，Bearer 可读，非设置路径 POST 仍 405。
+- `tests/web.test.ts`、`tests/http.test.ts`、`tests/read-boundaries.test.ts`、`tests/i18n.test.ts`、`tests/i18n-coverage.test.ts`：静态白名单覆盖新增 web 模块、没有第二个 fetch 调用点、reduced-motion 只有一个 JS 来源、中英字典无缺项、未接线开关不在界面。`bun run typecheck` 退 0；最窄测试集 112 项通过、0 失败、3915 expect。
+
+### 隔离实例（合成页面走查）
+
+隔离实例 8399 用独立 `ATC_DATA_DIR` 与 `ATC_PORT`，注入空的会话适配器与社区插件，`/api/stats` 的请求数为 0；未碰 8320 生产服务。第一次预览用 `bun run start` 时会话适配器仍读了真实 `~/.claude` 目录，那次结果不作合成验收，停掉后换成注入为空的入口重起。
+
+面板 DOM、四类页签、外观六项、气泡文案与未接线开关 0 个都在浏览器里核过。六项切换后服务端落盘为 `preset=sea`、`appearance=dark`、`accent=#7C5CD6`、`accentSoft=rgba(124,92,214,.10)`、`fontSize=relaxed`、`reduceMotion=true`、`lang=zh`；计算样式读到 `--fs-scale:1.06`、正文字号 13.78px、`--accent:#7C5CD6`、`data-reduce-motion=true`。
+
+刷新复验：先写入旧键 `tc.theme=light` / `tc.lang=en` 并保留服务端 `dark/zh`，刷新后服务端仍是 `dark/zh`，DOM 为 `html lang=zh-CN`、`data-theme=dark`、静态文案「设置」，旧键已清，`tc.settings` 同步为 zh。全新服务端（空 overrides）时旧键采用一次并清键；已有 overrides 后旧键只清不采用。面板与顶栏切换语言都写服务端，中英两套骨架文案、页签、页脚与 aria 同步。
+
+### 未执行与边界
+
+- 生产部署与真实流量验收尚未做：这一阶段只改本机设置与页面，不改采集器摄入或读模型；部署后的真实只读复核另记一轮，不把合成数据说成真实流量验收。
+- `:focus-visible` 的气泡没有用真实键盘 modality 验过；程序化 `.focus()` 不触发该伪类，不能据此判定失败或成功。
+- 采集来源、完整正文、分级保留、异常提醒、自定义隐藏词都没接线，页签里只有事实说明；`PRIVACY_TRANSFORM_VERSION` 升级与存量重建未动。
+- 桌面宿主（Electron/Tauri）、窗口生命周期与 IPC 未定，本轮没有搭桌面壳；设置读写仍走现有本机 HTTP 边界。
+
+### 门禁
+
+分支上跑了 `bun run typecheck` 与最窄测试集；全量 `verify:notes` 与合并批次门禁在合并到 master 时执行，结果另记。
+
 ## 工具调用启动点标记（合成 + 生产真实流量，2026-11-08）
 
 前提：分支 `feat/agent-spawn-link`（合并 `0765ad9`），schema v16、`GROUP_ALGORITHM` 8、`DERIVE_ALGORITHM` 12。验收目标是「主链的 `Agent` 调用行标出它启动的子代理并能跳过去」，设计取舍见[工具调用标出它启动的子代理](../.agents/notes/implemented/feature/2026-11-08-tool-call-spawn-link.md)。
