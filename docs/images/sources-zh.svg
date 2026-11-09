@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 340" width="960" height="340" role="img" aria-labelledby="t d">
+  <title id="t">数据来源如何收敛</title>
+  <desc id="d">示意图：OTLP、本地 Agent 会话文件、magpie 网关与 Plugin 汇入同一个 SQLite 库；统一 owner 认领让一笔调用只留一行，读回成一条会话时间线。</desc>
+  <style>
+    .bg{fill:#FAFAFA}.card{fill:#FFFFFF;stroke:#ECECEA;stroke-width:1}
+    .line{stroke:#ECECEA;stroke-width:1}.divide{stroke:#DEDEDB;stroke-width:1}
+    .txt{fill:#171717;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .muted{fill:#A1A1AA}.sub{fill:#52525B}.accent{fill:#007AFF}
+    .soft{fill:#007AFF;fill-opacity:.07}.inset{fill:#F5F5F4}
+    .flow{stroke:#007AFF;stroke-width:1.6;fill:none}
+    .lbl{font-size:10px;letter-spacing:.09em}.h{font-size:14px;font-weight:600}
+    .s{font-size:12px}.sm{font-size:11px}.xs{font-size:10px}
+  </style>
+  <rect class="bg" x="0" y="0" width="960" height="340" rx="10"/>
+  <text class="txt h" x="24" y="30">四路输入，一笔调用只留一行</text>
+  <text class="txt xs mono muted" x="24" y="48">各来源彼此独立，认领只在摄入层发生。</text>
+
+  <!-- 来源卡片 -->
+  <rect class="card" x="24" y="70" width="212" height="62" rx="4"/>
+  <rect x="24" y="70" width="3" height="62" rx="1.5" class="accent"/>
+  <text class="txt s" x="38" y="90">OTLP</text>
+  <text class="txt xs mono sub" x="38" y="108">/v1/traces · /v1/logs</text>
+  <text class="txt xs muted" x="38" y="124">任意 Agent harness，GenAI semconv</text>
+
+  <rect class="card" x="24" y="140" width="212" height="62" rx="4"/>
+  <rect x="24" y="140" width="3" height="62" rx="1.5" class="accent"/>
+  <text class="txt s" x="38" y="160">本地会话文件</text>
+  <text class="txt xs mono sub" x="38" y="178">10 家适配器 · 定时扫描</text>
+  <text class="txt xs muted" x="38" y="194">按消息窗口重建请求</text>
+
+  <rect class="card" x="24" y="210" width="212" height="62" rx="4"/>
+  <rect x="24" y="210" width="3" height="62" rx="1.5" class="accent"/>
+  <text class="txt s" x="38" y="230">magpie 网关</text>
+  <text class="txt xs mono sub" x="38" y="248">hook · 账本 · 路由</text>
+  <text class="txt xs muted" x="38" y="264">三路证据</text>
+
+  <rect x="24" y="272" width="212" height="38" rx="4" class="inset"/>
+  <text class="txt s" x="38" y="290">Plugin</text>
+  <text class="txt xs mono sub" x="38" y="304">阅读页签 · 各家 Parser</text>
+
+  <!-- 收敛线 -->
+  <path class="flow" d="M236 101 H300 Q312 101 312 113 V155 Q312 165 322 165 H372"/>
+  <path class="flow" d="M236 171 H372"/>
+  <path class="flow" d="M236 241 H300 Q312 241 312 229 V175 Q312 165 322 165 H372"/>
+  <path class="flow" d="M236 291 H300 Q312 291 312 280 V175 Q312 165 322 165" stroke-dasharray="4 3"/>
+
+  <!-- 摄入核心 -->
+  <rect x="372" y="120" width="196" height="90" rx="6" fill="#FFFFFF" stroke="#007AFF" stroke-width="1.5"/>
+  <text class="txt lbl accent" x="388" y="142">共享摄入核心</text>
+  <text class="txt sm sub" x="388" y="162">判重 → owner 认领</text>
+  <text class="txt sm sub" x="388" y="180">→ 正文落块 → 证据登记</text>
+  <text class="txt xs mono muted" x="388" y="200">一笔调用 · 一行请求</text>
+
+  <path class="flow" d="M568 165 H640"/>
+
+  <!-- 本地库 -->
+  <rect class="card" x="640" y="112" width="132" height="106" rx="4"/>
+  <text class="txt lbl muted" x="654" y="134">本机存储</text>
+  <rect x="654" y="146" width="104" height="8" rx="4" class="inset"/>
+  <rect x="654" y="160" width="104" height="8" rx="4" class="inset"/>
+  <rect x="654" y="174" width="104" height="8" rx="4" class="inset"/>
+  <text class="txt sm" x="654" y="200">trace.db</text>
+  <text class="txt xs mono muted" x="654" y="212">SQLite · 0600 / 0700</text>
+
+  <!-- 阅读出口 -->
+  <path class="flow" d="M772 165 H820"/>
+  <rect x="820" y="122" width="116" height="86" rx="4" class="soft"/>
+  <text class="txt lbl accent" x="832" y="144">阅读</text>
+  <text class="txt sm sub" x="832" y="164">一条会话</text>
+  <text class="txt sm sub" x="832" y="182">逐步骤翻看</text>
+  <text class="txt xs mono muted" x="832" y="200">一条会话时间线</text>
+
+  <!-- 证据说明 -->
+  <rect x="372" y="222" width="564" height="76" rx="4" class="inset"/>
+  <text class="txt lbl muted" x="388" y="242">证据留在行上</text>
+  <text class="txt sm sub" x="388" y="264">账本晚到时按统一 owner 规则认领 OTLP 已建的行。</text>
+  <text class="txt sm sub" x="388" y="284">各来源保留自己的证据类型，重复到达不会建第二行。</text>
+
+  <text class="txt xs mono muted" x="24" y="328">示意图 — 箭头表示来源如何收敛，并非部署拓扑。</text>
+</svg>

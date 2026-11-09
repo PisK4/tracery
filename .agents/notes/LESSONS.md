@@ -50,6 +50,11 @@
 
 ## 验证
 
+**改 README 时，硬数字与来源计数从代码和实测取，两份版本一起核对。**
+- 证据：2026-11-09 重写 README 前盘点，测试徽章仍写 1165（实测 1464 pass），本地会话适配器写成 six agents（实际 9 家轮转加 droid 独立定时器共 10 家），中文版写「不读别的 Agent 会话数据」而代码读 10 家，英文版写账本先到 OTLP 后到仍保留两行而统一 owner 已收敛成一行。中文版比英文版落后更多：进路三只写 droid 一家。
+- 防护：动笔前跑 `bun test` 取徽章数、读 `src/sources/session/registry.ts` 取适配器家数、grep 两份 README 的旧数字与旧表述；改完跑 `xmllint --noout` 查 SVG、按相对链接逐个核对目标、`git diff --check`。SVG 根元素要带 `width`/`height`，颜色用字面色，不用宿主 CSS 变量。`xmllint` 不查重复属性，还要单独扫每个标签的属性名是否重复，并用 Chrome 按原生尺寸渲染逐张看图：本次 `sources-en.svg` 的重复 `class` 直接让浏览器拒绝渲染，另有文字压线与右端溢出靠肉眼才发现。
+- Seen 1× (2026-11-09).
+
 **改过 JS/TS 后，提交前跑 `bun run typecheck`；`bun test` 不检查 JSDoc 类型。**
 - 证据：2026-11-01 `9a97ed9` 才补 `web/app.js:1018-1019` 的 `headResizeObserver`/`observedHead` 注解，并单独合并为 `ba40614`；2026-11-02 `cb30675` 才补 `web/icons.js` 两处映射与 `web/trace-view.js:556` 的参数注解，修掉 3 处 TS7053/TS7006。
 - 防护：合并前跑 `bun run typecheck`；只动 web 的 JS 也跑，JSDoc 由 tsc 检查。

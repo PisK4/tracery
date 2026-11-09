@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 380" width="960" height="380" role="img" aria-labelledby="t d">
+  <title id="t">上下文按 token 面积铺开</title>
+  <desc id="d">右栏读数页的示意：prompt 分解按 token 面积铺成矩阵，附绝对值与百分比列表，以及已用上下文、窗口、固定开销与缓存命中。</desc>
+  <style>
+    .bg{fill:#FAFAFA}.card{fill:#FFFFFF;stroke:#ECECEA;stroke-width:1}
+    .line{stroke:#ECECEA;stroke-width:1}
+    .txt{fill:#171717;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .muted{fill:#A1A1AA}.sub{fill:#52525B}.accent{fill:#007AFF}.warn{fill:#99600a}
+    .inset{fill:#F5F5F4}
+    .t1{fill:#007AFF;fill-opacity:.16}.t2{fill:#007AFF;fill-opacity:.12}
+    .t3{fill:#007AFF;fill-opacity:.08}.t4{fill:#007AFF;fill-opacity:.05}
+    .lbl{font-size:10px;letter-spacing:.09em}.h{font-size:14px;font-weight:600}
+    .s{font-size:12px}.sm{font-size:11px}.xs{font-size:10px}
+  </style>
+  <rect class="bg" x="0" y="0" width="960" height="380" rx="10"/>
+  <text class="txt h" x="24" y="30">上下文由什么组成</text>
+  <text class="txt xs mono muted" x="24" y="48">面积是一笔请求的 token 占比 · 合成数字。</text>
+
+  <!-- 读数条 -->
+  <rect class="card" x="24" y="66" width="912" height="58" rx="4"/>
+  <text class="txt lbl muted" x="38" y="86">已用上下文</text>
+  <text class="txt h mono" x="38" y="110">25.9k</text>
+  <text class="txt xs mono muted" x="106" y="110">/ 窗口 1.0M · 3%</text>
+  <text class="txt lbl muted" x="268" y="86">固定开销</text>
+  <text class="txt h mono" x="268" y="110">24.1k</text>
+  <text class="txt xs mono muted" x="338" y="110">占已用 93%</text>
+  <text class="txt lbl muted" x="500" y="86">提示词缓存</text>
+  <text class="txt h mono" x="500" y="110">97%</text>
+  <text class="txt xs mono muted" x="546" y="110">命中</text>
+  <text class="txt lbl muted" x="690" y="86">首 token</text>
+  <text class="txt h mono" x="690" y="110">6.54s</text>
+  <text class="txt xs mono muted" x="754" y="110">首个文本 31.81s</text>
+
+  <!-- 矩阵 -->
+  <text class="txt lbl muted" x="24" y="148">PROMPT 分解</text>
+  <rect class="card" x="24" y="158" width="600" height="196" rx="4"/>
+  <rect class="t1" x="32" y="166" width="168" height="180"/>
+  <rect class="t1" x="204" y="166" width="196" height="180"/>
+  <rect class="t2" x="404" y="166" width="212" height="104"/>
+  <rect class="t3" x="404" y="274" width="104" height="72"/>
+  <rect class="t3" x="512" y="274" width="104" height="72"/>
+  <rect class="t2" x="32" y="166" width="168" height="180" fill="none" stroke="#DEDEDB" stroke-width="1"/>
+  <text class="txt sm" x="42" y="188">工具结果</text>
+  <text class="txt h mono" x="42" y="210">41%</text>
+  <text class="txt xs mono sub" x="42" y="228">10.6k tok</text>
+  <text class="txt sm" x="214" y="188">工具定义</text>
+  <text class="txt h mono" x="214" y="210">24%</text>
+  <text class="txt xs mono sub" x="214" y="228">6.1k tok</text>
+  <text class="txt sm" x="414" y="188">技能</text>
+  <text class="txt h mono" x="414" y="210">17%</text>
+  <text class="txt xs mono sub" x="414" y="228">4.4k tok</text>
+  <text class="txt sm" x="414" y="296">系统提示</text>
+  <text class="txt xs mono sub" x="414" y="314">3.4k · 13%</text>
+  <text class="txt sm" x="522" y="296">记忆</text>
+  <text class="txt xs mono sub" x="522" y="314">1.3k · 5%</text>
+
+  <!-- 列表 -->
+  <text class="txt lbl muted" x="640" y="148">绝对值与占比</text>
+  <rect class="card" x="640" y="158" width="296" height="196" rx="4"/>
+  <text class="txt sm sub" x="652" y="180">工具结果</text>
+  <text class="txt sm mono" x="924" y="180" text-anchor="end">10.6k · 41%</text>
+  <line class="line" x1="652" y1="188" x2="924" y2="188"/>
+  <text class="txt sm sub" x="652" y="208">工具定义</text>
+  <text class="txt sm mono" x="924" y="208" text-anchor="end">6.1k · 24%</text>
+  <line class="line" x1="652" y1="216" x2="924" y2="216"/>
+  <text class="txt sm sub" x="652" y="236">技能</text>
+  <text class="txt sm mono" x="924" y="236" text-anchor="end">4.4k · 17%</text>
+  <line class="line" x1="652" y1="244" x2="924" y2="244"/>
+  <text class="txt sm sub" x="652" y="264">系统提示</text>
+  <text class="txt sm mono" x="924" y="264" text-anchor="end">3.4k · 13%</text>
+  <line class="line" x1="652" y1="272" x2="924" y2="272"/>
+  <text class="txt sm sub" x="652" y="292">记忆</text>
+  <text class="txt sm mono" x="924" y="292" text-anchor="end">1.3k · 5%</text>
+  <line class="line" x1="652" y1="300" x2="924" y2="300"/>
+  <text class="txt xs mono warn" x="652" y="322">这一笔的上下文被工具结果占了。</text>
+  <text class="txt xs mono muted" x="652" y="340">上下文塞多了，从这里看。</text>
+
+  <text class="txt xs mono muted" x="24" y="370">示意图 — 标签与数值用于说明阅读视图，并非抓取的会话。</text>
+</svg>

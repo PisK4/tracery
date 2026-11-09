@@ -4,44 +4,82 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Runtime: Bun](https://img.shields.io/badge/runtime-Bun%20%E2%89%A5%201.4-black)](https://bun.sh)
 [![Dependencies: 0](https://img.shields.io/badge/dependencies-0-brightgreen)](package.json)
-[![Tests: 1165](https://img.shields.io/badge/tests-1165%20passing-brightgreen)](tests)
+[![Tests: 1464](https://img.shields.io/badge/tests-1464%20passing-brightgreen)](tests)
 [![README: English](https://img.shields.io/badge/README-English-blue)](README.md)
 
 [English](README.md) ｜ **简体中文**
 
-**Tracery 记录 Agent 发出的请求，把散落的调用织成一条可以逐步骤翻看的 trace。**
+**Tracery 留下每个 Agent 每笔请求背后的完整协议对象，让一次会话可以逐步骤翻看。**
 
-一个编码 Agent 一次会话要发几十笔 LLM 调用。观测平台告诉你每笔的成本与耗时，不告诉你请求体里到底装了哪几条消息、system prompt 是怎么组装的、第 N 笔比第 N-1 笔多了什么。
+一次 Agent 会话要发几十笔 LLM 调用。成本与耗时告诉你这些调用跑得怎么样，不告诉你请求体里组装了哪几条消息、项目指令（如 `CLAUDE.md`）、技能与记忆给 system prompt 添了什么、第 N 笔比第 N-1 笔多了什么。Tracery 在请求发出或导出的位置留完整请求，再按会话把这些请求读回成一条可以逐行翻看的时间线。
 
-Tracery 留下原始请求：把每笔调用记成一笔请求——组装后的协议对象、回复、路由决策与用量，再按会话把这些请求读回成一条可以逐行翻看的时间线。
+![Tracery 三栏界面示意：左栏会话列表，中栏轨迹，右栏读数](docs/images/overview-zh.svg)
 
-![Tracery 三栏界面：左栏会话列表，中栏轨迹，右栏读数](docs/images/session-list.png)
+它挂在数据面旁边。不转发、不改写、不拦截。没运行时，Agent 的请求照常走完。
 
-它挂在数据面旁边，不是代理：不转发、不改写、不拦截。没运行时，Agent 的请求照常走完，只是这段时间没有新记录。
+## 为什么用 Tracery
 
-## 为什么需要它
+- **OTLP 开放接入，不依赖网关。** 把任意 OTel GenAI exporter 指到本机端点即可；Claude Code、OMP 与 Codex CLI 按各自原生导出形状兼容。自研 Agent、自研网关、第三方 harness 都照同一份[接入 profile](docs/otlp-exporter-profile.md) 导出。
+- **一笔调用只留一行。** OTLP span、网关账本与本地会话文件走同一条 owner 认领规则，同一笔调用留下各来源的证据，仍只算一笔请求。
+- **10 种本机会话格式，零配置。** 已经在用的 Agent 留下的历史会话，扫描后重建为逐笔轨迹，fork 与子代理一并还原。
+- **数据全部留在本机。** 只监听回环，目录 0700、文件 0600，凭证按规则脱敏，零上传，零第三方运行时依赖。
 
-- **看清发了什么。** 某一轮 Agent 到底给模型发了哪几条消息，system prompt 组装了哪些内容，工具结果怎么回填。
-- **定位问题。** 失败、截断与重试发生在哪一笔请求，前一笔和后一笔差在哪几条消息。
-- **横向对照。** 不同 harness 的请求放进同一套读数、同一种轨迹结构与同一个会话列表里比较。
+## 一次会话能读到什么
 
-## 从上游捕获：三条进路
+三行环境变量，跑一轮 Agent 会话，阅读视图里就是下面这些：
 
-三条进路可以单独开，也可以同时开，写进同一个 SQLite 库。droid 转录在默认位置时自动扫描。
+![一次会话在 Tracery 里的样子：请求笔数、逐条消息比对、两种耗时、子代理跳转与上下文构成](docs/images/session-reading-zh.svg)
 
-### 进路一 · magpie 网关：三路证据，正文完整
+会话头给出笔数、token 总量与费用。中栏一行一个步骤：system 与 user 消息、assistant 文本、工具调用与结果。第 7 笔标出比第 6 笔多 2 条消息，共同前缀对得上，于是「另起一支」与「链断了」可以分开判断。推理段与执行段挂在不同行上。Agent 工具调用能跳到它启动的子代理。右栏把 prompt 按 token 面积铺开——工具结果、工具定义、技能、系统提示、记忆、对话内容——一次请求是不是塞多了上下文，从这里看。
 
-[magpie](https://github.com/yetone/magpie) 在请求发送点记录三路证据：hook 拿到客户端协议请求体与合并后的回复，用量账本给出状态、用量、`route_id` 与 `response_id`，路由历史给出候选顺序、尝试与规则。三路按 `response_id` 与 `route_id` 对账成一笔请求。
+图中标签与数字是示意，真实请求正文不进 fixture、日志或提交。
 
-正文来自 hook。把 [`integrations/magpie-hook/collector.hooks.ts`](integrations/magpie-hook/collector.hooks.ts) 注册进 magpie 的插件配置，并把首次启动生成的 `hook.token` 交给它。插件只做三件事：请求期生成 `hook_id`、完成期上报完整对象、按固定码记录投递结果；不改正文、不做关联、不做脱敏。
+## 数据从哪里来
 
-不装 hook 时，页面仍能读到账本与路由两路证据，但没有请求体与回复正文。
+![四路输入收敛到一个共享摄入核心与一个本机 SQLite 库](docs/images/sources-zh.svg)
 
-### 进路二 · OTLP：harness 自己导出
+各条通道可以单独开，也可以同时开，写进同一个 SQLite 库，按同一条 owner 规则认领。
 
-不装 magpie 也可以。已适配 Claude Code、OMP 与 Codex CLI：把各自的 OTLP exporter 指到本机的 `POST /v1/traces` 与 `POST /v1/logs`，认证用首次启动生成的 `otlp.token`。
+| 来源 | 适配对象 | 接入要做什么 | 能读到什么 |
+| --- | --- | --- | --- |
+| **OTLP** | 自研 Agent、自研网关、第三方 harness；Claude Code、OMP、Codex CLI 按原生导出形状兼容 | exporter 指向本机 `POST /v1/traces` 与 `POST /v1/logs`，认证用生成的 `otlp.token`；集成方按 GenAI semconv 导出并登记一个稳定的 `service.name` | 完整协议正文、逐条消息、工具调用与结果、模型与用量读数、跨来源认领证据 |
+| **本地 Agent 会话文件** | 下表 10 种本机会话格式 | 无需配置，定时扫描各自目录 | 历史会话重建为逐笔请求，fork 与子代理还原，各 Agent 的会话进同一个列表 |
+| **magpie 网关** | 经过 [magpie](https://github.com/yetone/magpie) 路由的 Agent | 把 [`integrations/magpie-hook/collector.hooks.ts`](integrations/magpie-hook/collector.hooks.ts) 注册进 magpie 插件配置，配上生成的 `hook.token` | 客户端协议请求体与合并回复、用量账本、路由候选与尝试链 |
+| **Plugin** | 各家 Agent 的工具形状 | 在 `src/plugins/registry.ts` 加一项，或装本地 Parser 包 | 右栏新增阅读页签，社区 Parser 在隔离 Worker 里运行 |
 
-令牌文件是 32 字节裸二进制，环境变量里放它的 base64url 形式——直接 `cat` 文件会把非 ASCII 字节塞进 `Authorization`，请求在 HTTP 层就被判畸形：
+OTLP 是通用入口。端点收 OTLP/HTTP 的 protobuf 与 JSON，profile 全部站在 OTel GenAI 语义约定之上，不发明私有键。新集成方的成本是一个稳定的 `service.name` 加一行选取规则，契约与版本承诺在[接入 profile](docs/otlp-exporter-profile.md)。Claude Code 还能把完整正文写成文件、在 log 事件里带指针，采集器按指针读入，正文完整不截断。Codex CLI 不读标准环境变量，在 `~/.codex/config.toml` 配 `[otel.trace_exporter.otlp-http]` 指向本机端点，`protocol` 写 `binary`。
+
+本地会话适配器：
+
+| Agent | 默认根 | 环境变量覆盖 | 调用单位 |
+| --- | --- | --- | --- |
+| droid（Factory） | `~/.factory/sessions` | `FACTORY_HOME_OVERRIDE` | 一条 assistant 消息 |
+| Claude Code | `~/.claude/projects` | `CLAUDE_CONFIG_DIR` | 一次 assistant 回复（`message.id`，内容块合并） |
+| Codex | `~/.codex/sessions`、`~/.codex/archived_sessions` | `CODEX_HOME` | 一次回复，由 usage 记录结算；明文与 `.jsonl.zst` 双份只算一次 |
+| DSH | `~/.dsh/sessions` | `DSH_HOME` | 一条 `assistant/message`；带种子的 fork 只继承父调用一次 |
+| Hermes | `~/.hermes/state.db` | `HERMES_HOME` | 一条物化消息行，按 `display_order` 排序 |
+| Grok | `~/.grok/sessions` | `GROK_HOME` | `chat_history.jsonl` 里的一条 assistant 行 |
+| WorkBuddy | `~/.workbuddy` | `WORKBUDDY_CONFIG_DIR` | 一个 `providerData.messageId` 组；子代理文件折进父会话 |
+| Zcode | `~/.zcode/cli/db/db.sqlite` | `ZCODE_HOME` | 一条 assistant 消息 |
+| OMP | `~/.omp/agent/sessions`、profiles 与 `$XDG_DATA_HOME/omp` | `PI_CONFIG_DIR`、`PI_CODING_AGENT_DIR`、`PI_CODING_AGENT_SESSION_DIR`；`OMP_HOME` 为旧值 | 一条 assistant 消息 |
+| Pi | `~/.pi/agent/sessions`、自定义 agent 目录与 `settings.json` 的 `sessionDir` | `PI_CODING_AGENT_DIR`、`PI_CODING_AGENT_SESSION_DIR`；`PI_HOME` 为旧值 | 一条 assistant 消息 |
+
+每 60 秒发现一次所有适配器，最近文件优先，历史按一家一轮回补。某一家适配器出错只冻结这一家。请求体由截至该轮的消息重建，回复取该轮内容。页面按 Agent 标注来源，来自会话文件的轨迹始终读成一条时间线。
+
+## 快速开始
+
+需要 [Bun](https://bun.sh) ≥ 1.4。SQLite 用 `bun:sqlite`，压缩用 `node:zlib`，没有其他运行时依赖。
+
+### 接真实流量
+
+```sh
+bun install
+bun run start        # 采集器，127.0.0.1:8320
+```
+
+打开 `http://127.0.0.1:8320`。首次启动在数据目录生成 `read.token`、`hook.token`、`otlp.token` 与 `redaction.salt`，权限 0600，目录 0700。默认数据目录在 macOS 上是 `~/Library/Application Support/tracery`，其他平台是 `${XDG_DATA_HOME:-~/.local/share}/tracery`。支持 macOS 与 Linux；不支持 Windows，采集器依赖的文件权限位在 Windows 上不成立。
+
+OTLP 令牌文件是 32 字节裸二进制，环境变量里放它的 base64url 形式。直接 `cat` 文件会把非 ASCII 字节塞进 `Authorization`，请求在 HTTP 层就被判畸形：
 
 ```sh
 ATC_TOKEN=$(base64 -i '<dataDir>/otlp.token' | tr '+/' '-_' | tr -d '\n=')
@@ -49,87 +87,53 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:8320
 export OTEL_EXPORTER_OTLP_HEADERS="authorization=Bearer $ATC_TOKEN"
 ```
 
-- **Claude Code**：LLM span 落成请求行；要逐笔正文再加 `OTEL_LOG_RAW_API_BODIES=file`，harness 把完整请求与回复写成文件、事件里带指针，采集器按指针读入并落库，正文完整不截断。
-- **OMP**：span 落成请求行，正文一栏是结构化摘要（页面标「OTLP 摘要」）；它的 OTLP 不带逐笔正文通路。
-- **Codex CLI**：不读环境变量，在 `~/.codex/config.toml` 配 `[otel.trace_exporter.otlp-http]` 指向本机端点，`protocol` 写 `binary`；turn span 落成请求行，有会话、模型与用量读数，不带逐笔正文。
+Claude Code 要逐笔正文再加 `OTEL_LOG_RAW_API_BODIES=file`。本地会话文件不需要任何设置，磁盘上已有的会话在下一轮扫描后出现在列表里。各条通道可以同时开。
 
-同一会话同时开 magpie 与 OTLP 时，账本晚到会按统一 owner 规则认领 OTLP 已建的行；账本先到、OTLP 后到时仍保留两行，行上来源可区分。droid 与账本行同样双向认领。
+路径与限额可用 `ATC_DATA_DIR`、`ATC_PORT`、`ATC_LEDGER_PATH`、`ATC_ROUTING_DIR`、`ATC_MAGPIE_URL`、`ATC_BODY_BUDGET`、`ATC_DISK_LIMIT` 覆盖。监听地址写死回环。
 
-### 进路三 · droid 会话文件：按转录重建
-
-droid（Factory）既不经过 magpie，也不导 OTLP。采集器默认每 60 秒扫一次 `~/.factory/sessions`（可用 `FACTORY_HOME_OVERRIDE` 指向别的 Factory 主目录），把每份 `.jsonl` 转录按 assistant 消息拆成逐笔请求。请求体由截至该轮的消息重建，回复取该行内容；system prompt 与工具定义不在转录里，页面标「droid 会话文件」。
-
-转录只给会话累计用量，不给逐笔用量：逐笔读数列留空，会话头单列「会话累计」。fork 会话的复制段与子代理归属按转录里的 `forkedAtMessageId` 与 `callingSessionId` 还原。
-
-## 快速开始
-
-需要 [Bun](https://bun.sh) ≥ 1.4。没有其他运行时依赖：SQLite 用 `bun:sqlite`，压缩用 `node:zlib`。
-
-### 只看界面（合成数据）
-
-不需要 magpie，不需要任何真实数据：
+### 先看界面（合成数据）
 
 ```sh
 bun install
 bun prototypes/synthetic-server.ts
 ```
 
-打开 `http://127.0.0.1:8770/?session=conv-synthetic-reading`。合成服务覆盖空状态排查、窗口分页、缺通道与轮次配对等场景；只监听回环，不连真实库、不读令牌。合成数据只服务界面验证，不是真实能力证明，也不参与生产验收。
+打开 `http://127.0.0.1:8770/?session=conv-synthetic-reading`。合成服务覆盖空状态、窗口分页、缺通道与轮次配对等场景；只监听回环，不连真实库，不读令牌。
 
-### 接真实流量
+## 阅读一条 trace
 
-```sh
-bun run start        # 采集器，127.0.0.1:8320
-```
+中栏一行一个步骤：开头是协议层——system prompt（连同 `cc_version`、`anthropic-beta` 这类字段）、user prompt、环境注入——随后是 assistant 文本与工具调用。调用与结果各自成行，按 `call_id` 与消息位置配对。标题生成、分类器这类旁路请求标成辅助请求，不进主链；标题生成请求算出的正式标题由主会话使用。
 
-打开 `http://127.0.0.1:8320`。首次启动在数据目录生成 `read.token`、`hook.token`、`otlp.token` 与 `redaction.salt`，权限 0600，目录 0700。默认数据目录在 macOS 上是 `~/Library/Application Support/tracery`，其他平台是 `${XDG_DATA_HOME:-~/.local/share}/tracery`。支持 macOS 与 Linux；不支持 Windows——采集器依赖的文件权限位在 Windows 上不成立。
+子代理与主会话共用 `conv_key`，按 `actor` 各自成组。阅读视图默认只看主链，可切到全部角色或按 `S#` 单看某个子代理；Agent 工具调用能跳到它启动的子代理，会话列表也会标出子代理会话。会话头给出子代理个数与各自笔数。
 
-可覆盖的项：`ATC_DATA_DIR`、`ATC_PORT`、`ATC_LEDGER_PATH`、`ATC_ROUTING_DIR`、`ATC_MAGPIE_URL`、`ATC_BODY_BUDGET`、`ATC_DISK_LIMIT`。监听地址写死回环，不接受配置成通配地址。
+![主链、全部角色与按 S 编号单看一个子代理，以及从启动它的工具调用跳转](docs/images/subagent-views-zh.svg)
 
-之后按上面的进路选：magpie 装 hook，把 harness 的 OTLP exporter 指到本机，或让采集器扫 droid 转录。三条也可以同时开。
+点任意一行，右栏定位到该步骤的协议来源。页签有读数（本次回复、请求结构、能力清单、用量与上下文、身份完整性）、正文（原始消息，按 40 条一片翻页）、工具（选中一次调用后有概览、参数、配对、Schema 四页）、路由（候选顺序与尝试链），以及 Plugin 页签。[Plugin 开发者指引](docs/plugin-guide.md) 写明作者契约与今天可用的两条贡献路径。
 
-## 一条 trace 长什么样
+<img src="docs/images/tool-pair-zh.svg" alt="工具调用配对：同一个 call_id 下的调用 JSON 与结果正文" width="720">
 
-轨迹是中栏主体：一行一个步骤，36px 高，只有序号、参与角色与内容摘要。开头固定是协议层——system prompt（连同 `cc_version`、`anthropic-beta` 这类协议字段）、user prompt、环境注入；随后是 assistant 文本与工具调用。工具调用与结果各自成行，按 `call_id` 与消息位置配对，不按工具分样式。
-
-标题生成、分类器这类旁路请求在轨迹里标成「辅助请求」，不参与主链；标题生成请求算出的正式标题会被主会话借用。子代理与主会话共用 `conv_key`，按 `actor` 各自成组，会话头里能看到子代理个数与笔数。
-
-点任意一行，右栏定位到该步骤对应的协议来源。右栏四个页签：读数（本次回复、请求结构、能力清单、用量与上下文、身份完整性）、正文（原始消息，按 40 条一片翻页）、工具（选中一次调用后有概览、参数、配对、Schema 四页）、路由（候选顺序与尝试链）。
-
-<img src="docs/images/session-trace.png" alt="会话的轨迹列：assistant 行与工具调用、结果行交替出现" width="620">
-
-assistant 文本行尾是推理段耗时，工具调用与结果行尾是执行段耗时。上图中序号 6 的 Bash 调用报 exit code 1，随后的 assistant 行给出修正方案。
-
-<img src="docs/images/tool-pair.png" alt="工具调用与结果的配对页：调用 JSON 与结果正文并排" width="520">
-
-「配对」页把同一个 `call_id` 的调用 JSON 与结果正文同屏并置，并注明结果由哪一笔请求带回、具体落在什么消息位置。
+配对页把同一个 `call_id` 的调用 JSON 与结果正文同屏并置，并注明结果由哪一笔请求带回、落在什么消息位置。
 
 ### 推理段与执行段
 
-轨迹行尾有两种耗时，归属不同：
+- **执行段**挂在工具调用行上，按每次调用计算：结果请求开始减调用请求结束。它含客户端处理与人工确认，是上界。
+- **推理段**挂在 assistant 文本行上，属于整笔请求：首个文本减首 token（`reasoning_span_ms`）。同一笔请求有多段文本时，每段标同一个数。
 
-- **执行段**挂在工具调用行上，按每次调用计算：结果请求开始减调用请求结束。它含客户端处理与人工确认，因此是上界，不是工具进程自身的精确耗时。
-- **推理段**挂在 assistant 文本行上，属于整笔请求：首个文本减首 token（`reasoning_span_ms`）。同一笔请求有多段文本时，每段都标同一个数。
-
-推理是请求级的，不按工具拆分——界面不会给出「某个工具占了多少推理时间」这种数。承载这次工具调用的请求推理了多久，在同一笔的 assistant 行与右栏读数里看。
+推理是请求级的，不按工具拆分。承载这次工具调用的请求推理了多久，在同一笔的 assistant 行与右栏读数里看。
 
 ### 上下文由什么组成
 
-右栏「读数 → 用量与上下文」把这一笔请求的 prompt 分解按 token 面积铺成上下文矩阵（treemap）：工具定义、技能、系统提示、记忆、对话内容、工具结果等各占一块，面积就是 token 占比，下方列表给出每类的绝对值与百分比。同一张卡还给出已用上下文、窗口总量、固定开销与缓存命中。
+右栏读数把这一笔请求的 prompt 分解按 token 面积铺成上下文矩阵：工具定义、技能、系统提示、记忆、对话内容、工具结果各占一块，面积就是 token 占比，下方列表给出每类的绝对值与百分比，同一张卡还有已用上下文、窗口总量、固定开销与缓存命中。
 
-<img src="docs/images/context-map.png" alt="上下文矩阵：按 token 面积铺开的请求构成" width="640">
+<img src="docs/images/context-map-zh.svg" alt="上下文按 token 面积铺开，附绝对值与百分比" width="720">
 
-判断「这次上下文是不是塞了不该塞的东西」，从这里看：固定开销占了多少，对话与工具结果又占了多少。
+### 多 Agent，同一套视图
 
-## 多 Agent，同一套视图
-
-左栏会话列表装不同 harness 的会话，用 Agent 标签区分与过滤；同一会话涉及多个 Agent 时，行上显示主 Agent 与 `+N`。已适配 Claude Code、OMP 与 Codex CLI。新增 harness 的成本是一个稳定的 `service.name` 加一行选取规则，规范见 [OTLP exporter 接入 profile](docs/otlp-exporter-profile.md)。
-
-页面阅读能力按 Plugin 注册：`src/plugins/registry.ts` 的一项给出页签槽位与各家 Agent 的形状适配 Parser。Todo 是第一个 Plugin，作者契约、今天可用的两条贡献路径与新 Feature 的完整形态见 [Plugin 开发者指引](docs/plugin-guide.md)。
+左栏会话列表装不同 harness 的会话，用 Agent 标签区分与过滤，带全库 Agent 目录与按 Agent 的可见性筛选；同一会话涉及多个 Agent 时，行上显示主 Agent 与 `+N`。新增 harness 的成本是一个稳定的 `service.name` 加一行选取规则。
 
 ## 记录什么，存在哪
 
-Tracery 存的是真实请求正文。这是它的用途，也值得直接说清：prompt、代码、工具输出与模型回复——凭证按规则脱敏，不是靠不写——都会落到本机的 SQLite 库里。
+Tracery 存的是真实请求正文：prompt、代码、工具输出与模型回复，凭证按规则脱敏，都落在本机 SQLite 库里。
 
 | | |
 | --- | --- |
@@ -137,36 +141,34 @@ Tracery 存的是真实请求正文。这是它的用途，也值得直接说清
 | 内容 | `trace.db` 与 WAL、四个令牌与盐文件、日志 |
 | 权限 | 目录 0700，文件 0600 |
 | 网络 | 只监听 `127.0.0.1`，写死；不接受通配地址 |
-| 外发 | 读取 magpie 的本机账本与路由文件、droid 的本机转录，探测 magpie 的本机端口。不上传任何内容 |
+| 外发 | 读取 magpie 的本机账本与路由文件、上表各 Agent 的本机会话文件，探测 magpie 的本机端口。不上传任何内容 |
 | 账号字段 | 不出接口 |
 | 回收 | 正文按预算回收：正文 10 GB、总盘 16 GB。正文到 90% 预算时回收最旧的，总盘到 80% 只接元数据，到 95% 停止接收。回收的正文补不回来 |
 
-这份范围之外，Tracery 只按定时器读 `~/.factory/sessions` 下的 droid 转录，不读别的 Agent 会话数据。OTLP 通道上唯一的文件读取是 `body_ref`——只读事件显式指到的单个文件，不列目录。
-
-测试只用合成数据。真实请求正文、账号、令牌与用户配置不进 fixture、日志或提交。
-
-## 边界与非目标
-
-- **只记录观察到的东西。** 不经过 magpie、不导 OTLP、也不在 droid 转录里的请求看不见。请求统计以已保存的观测范围为限，缺正文单独标明，不能把 hook 覆盖率当作总请求量。
-- **不做代理。** 不转发、不改写、不拦截任何 LLM 流量。
-- **不做跨 harness 的通用摄入协议。** 唯一的通用入口是 OTLP 的 `/v1/traces` 与 `/v1/logs`；其余通用 trace 协议不做。
-- **不做导出、告警、指标看板与多机聚合；不做服务端全文检索。** 页面上的搜索只按会话标题与客户端标签过滤已加载列表。
-- **不做评测。** 不打分、不管理提示词版本。
+OTLP 通道上唯一的文件读取是 `body_ref`，只读事件显式指到的单个文件，不列目录。测试只用合成数据，真实请求正文、账号、令牌与用户配置不进 fixture、日志或提交。
 
 ## 与观测平台的分工
 
-「这不就是 Langfuse 吗」是打开这个仓库时最常见的疑问。两者都在看 LLM 流量，但记录的东西不同。
+「这不就是 Langfuse 吗」是打开这个仓库时最常见的疑问。两者都在看 LLM 流量，回答的问题不同。平台的记录单位是一次 LLM 调用或一个 span：`input` / `output` 两段文本、耗时、成本、评分，用来回答「我写的应用表现如何」。Tracery 的记录单位是在发送点或导出点捕获的组装后协议对象，用来回答「这次会话到底发生了什么」。
 
-Langfuse 这类平台的记录单位是一次 LLM 调用或一个 span：`input` / `output` 两段文本、耗时、成本、评分，用来回答「我写的应用表现如何」。Tracery 的记录单位是一笔经过网关的请求：完整的脱敏协议对象、逐块可还原的消息、三路证据的对账结论，用来回答「这次会话到底发生了什么」。
+| 维度 | Tracery 能给出的 | 平台 hook 通常看到的 |
+| --- | --- | --- |
+| 记录单位 | 完整协议对象，逐条消息可还原 | 一次调用收敛成 input 与 output 两段文本 |
+| 组装后的上下文 | 项目指令（`CLAUDE.md` 一类）、技能、记忆、工具结果按 token 面积铺开 | 对话与工具调用；Langfuse 在[自己的集成文档](https://langfuse.com/resources/engineering/coding-agent-tracing)里写明，hook 读不到自动加载内容对实际 system prompt 的贡献 |
+| 请求间变化 | 语义指纹比共同前缀，能区分另一支与断链 | 一次调用一份载荷，不做序列比对 |
+| 证据一致性 | 多来源认领到同一行 owner，各来源证据都留着 | 单一来源 |
+| 子代理 | 主链与按 `S#` 的视图，从启动它的工具调用跳转 | 按 trace 层级平铺 |
+| 数据位置 | 每份正文都留在本机 | 上报到服务端 |
 
-能力表上的差异不如两件具体的事重要：
+评测、数据集、多人协作、聚合仪表盘与告警归平台。两边可以同时开：同一批请求，平台侧看成本趋势，本机侧读这次会话到底发生了什么。
 
-- **逐笔新增消息的比对。** Tracery 保存逐条消息并按语义指纹比共同前缀，能回答「第 N 笔比第 N-1 笔多了哪几条」，并区分「另起一支」与「链断了」。观测平台以一次调用为记录单位，输入输出是发给模型的载荷，不做这一层序列比对。
-- **组装后的上下文。** Langfuse 在[自己的集成文档](https://langfuse.com/resources/engineering/coding-agent-tracing)里写明：hook 读不到 `CLAUDE.md`、技能与自动加载内容对实际 system prompt 的贡献，看到的是对话与工具调用，而不是组装后的上下文。网关在发送点，看到的就是实际发出的请求体。
+## 边界与非目标
 
-这两件事以外，平台明显更强：评测与数据集、提示词版本管理、多人协作与权限、聚合仪表盘与告警、跨机器共享。这些 Tracery 都不做，也不打算做。
-
-分工可以直说：**趋势与共享交给平台，逐笔原文与对账留在本机。** 两边可以同时开：同一批请求，平台侧看成本趋势与团队对比，本机侧读这次会话到底发生了什么。
+- **只记录观察到的流量。** 不经 OTLP、网关，也不在扫描到的本地会话文件里的请求看不见，请求统计以已保存的观测范围为限。
+- **不做代理。** 不转发、不改写、不拦截任何 LLM 流量。
+- **OTLP 是唯一的通用摄入入口。** 其余通用 trace 协议不做。
+- **按本机设计。** 不做导出、告警、指标看板与多机聚合；页面搜索只按会话标题与客户端标签过滤已加载列表。
+- **做请求级阅读，不做评测。** 不打分，不管理提示词版本。
 
 ## 命令
 
@@ -175,22 +177,22 @@ bun install
 bun run start            # 采集器，127.0.0.1:8320
 bun test
 bun run typecheck
-bun run maintain <子命令> # 离线维护，要求采集器已停
+bun run maintain <子命令> # 离线维护：backup、restore、verify、dedupe、otlp-replay、rebuild、reparse、capacity；要求采集器已停
 bun run service <子命令>  # 起停与状态，走 launchd（仅 macOS）
 bun run verify:notes      # 变更 note 闸门，维护者用
 ```
 
 `service` 与 `maintain` 必须带子命令，裸调用只打印 usage 并退出 2。
 
-生产实例由 launchd 以 `KeepAlive` 托管，`bun run service` 管理这套部署，仅限 macOS。其他平台用 `bun run start` 挂到你自己的进程管理器下。
+生产实例由 launchd 以 `KeepAlive` 托管，`bun run service` 管理这套部署，仅限 macOS。其他平台用 `bun run start` 挂到自己的进程管理器下。
 
 ## 文档
 
 - [ATC trace 格式](docs/trace-format.md)：主实体、正文切块、派生结论与置信度
 - [架构设计](docs/architecture-design.md)：证据身份、存储模型、派生、容量与安全边界
-- [运维手册](docs/operations.md)：维护命令、备份恢复、容量门槛、派生切片
+- [运维手册](docs/operations.md)：维护命令、备份恢复、容量门槛
 - [OTLP exporter 接入 profile](docs/otlp-exporter-profile.md)：harness 作者的对接规范与登记方式
-- [Plugin 开发者指引](docs/plugin-guide.md)：准入判据、今天可用的两条贡献路径、本地 Feature 包的完整形态
+- [Plugin 开发者指引](docs/plugin-guide.md)：准入判据、今天可用的两条贡献路径、本地 Feature 包的形态
 - [验收记录](docs/acceptance.md)：各轮合成与真实流量的验收结果
 - [项目定位](docs/project-overview.md)：记录单位与阅读入口的取舍
 - [领域术语表](GLOSSARY.md)：术语定义与边界
@@ -211,4 +213,4 @@ bun run verify:notes      # 变更 note 闸门，维护者用
 
 ## 许可
 
-MIT，见 [LICENSE](LICENSE)。Agent 图标资产取自 magpie，见 [NOTICE](NOTICE)。
+MIT，见 [LICENSE](LICENSE)。

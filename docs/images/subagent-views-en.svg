@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 340" width="960" height="340" role="img" aria-labelledby="t d">
+  <title id="t">Subagent reading views</title>
+  <desc id="d">Schematic of the three reading views: main chain, all actors, and a single S-numbered subagent, with the jump from the launching Agent tool call to that subagent trace.</desc>
+  <style>
+    .bg{fill:#FAFAFA}.card{fill:#FFFFFF;stroke:#ECECEA;stroke-width:1}
+    .line{stroke:#ECECEA;stroke-width:1}
+    .txt{fill:#171717;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,sans-serif}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .muted{fill:#A1A1AA}.sub{fill:#52525B}.accent{fill:#007AFF}
+    .assistant{fill:#8E44AD}.tool{fill:#B45309}
+    .soft{fill:#007AFF;fill-opacity:.07}.inset{fill:#F5F5F4}
+    .flow{stroke:#007AFF;stroke-width:1.6;fill:none}
+    .lbl{font-size:10px;letter-spacing:.09em}.h{font-size:14px;font-weight:600}
+    .s{font-size:12px}.sm{font-size:11px}.xs{font-size:10px}
+  </style>
+  <rect class="bg" x="0" y="0" width="960" height="340" rx="10"/>
+  <text class="txt h" x="24" y="30">Read the main chain, or follow a subagent</text>
+  <text class="txt xs mono muted" x="24" y="48">Views switch in place; the jump starts from the launching tool call.</text>
+
+  <!-- view switcher -->
+  <rect x="24" y="66" width="88" height="24" rx="3" class="soft"/>
+  <text class="txt sm accent" x="38" y="82">Main chain</text>
+  <text class="txt sm muted" x="128" y="82">All actors</text>
+  <text class="txt sm muted" x="216" y="82">S1</text>
+  <text class="txt xs mono muted" x="936" y="82" text-anchor="end">session a3f1 · 1 subagent · 11 requests</text>
+  <line class="line" x1="24" y1="98" x2="936" y2="98"/>
+
+  <!-- three columns -->
+  <text class="txt lbl muted" x="24" y="122">MAIN CHAIN · DEFAULT</text>
+  <rect class="card" x="24" y="132" width="288" height="154" rx="4"/>
+  <text class="txt xs mono muted" x="36" y="152">6</text>
+  <rect x="50" y="142" width="3" height="16" rx="1.5" class="accent"/>
+  <text class="txt sm mono" x="60" y="154">Agent tool → S1</text>
+  <text class="txt xs mono muted" x="36" y="180">7</text>
+  <rect x="50" y="170" width="3" height="16" rx="1.5" class="assistant"/>
+  <text class="txt sm mono" x="60" y="182">assistant  resumed</text>
+  <text class="txt xs mono muted" x="36" y="208">8</text>
+  <rect x="50" y="198" width="3" height="16" rx="1.5" class="tool"/>
+  <text class="txt sm mono" x="60" y="210">Bash  test suite</text>
+  <rect x="36" y="226" width="264" height="46" rx="3" class="inset"/>
+  <text class="txt xs mono sub" x="46" y="244">Auxiliary requests stay off the chain.</text>
+  <text class="txt xs mono muted" x="46" y="262">The default view keeps reading short.</text>
+
+  <text class="txt lbl muted" x="336" y="122">ALL ACTORS</text>
+  <rect class="card" x="336" y="132" width="288" height="154" rx="4"/>
+  <text class="txt xs mono muted" x="348" y="152">6</text>
+  <rect x="362" y="142" width="3" height="16" rx="1.5" class="accent"/>
+  <text class="txt sm mono" x="372" y="154">main · Agent tool</text>
+  <text class="txt xs mono muted" x="348" y="180">S1</text>
+  <rect x="362" y="170" width="3" height="16" rx="1.5" class="assistant"/>
+  <text class="txt sm mono" x="372" y="182">Explore · Read 3 files</text>
+  <text class="txt xs mono muted" x="348" y="208">7</text>
+  <rect x="362" y="198" width="3" height="16" rx="1.5" class="assistant"/>
+  <text class="txt sm mono" x="372" y="210">main · assistant</text>
+  <rect x="348" y="226" width="264" height="46" rx="3" class="inset"/>
+  <text class="txt xs mono sub" x="358" y="244">Full names appear on first sight.</text>
+  <text class="txt xs mono muted" x="358" y="262">Every actor's steps in order.</text>
+
+  <text class="txt lbl muted" x="648" y="122">S1 ONLY</text>
+  <rect class="card" x="648" y="132" width="288" height="154" rx="4"/>
+  <text class="txt xs mono accent" x="660" y="152">S1</text>
+  <rect x="684" y="142" width="3" height="16" rx="1.5" class="accent"/>
+  <text class="txt sm mono" x="694" y="154">system · Explore</text>
+  <text class="txt xs mono muted" x="660" y="180">S1</text>
+  <rect x="684" y="170" width="3" height="16" rx="1.5" class="tool"/>
+  <text class="txt sm mono" x="694" y="182">Read  src/ingest-core.ts</text>
+  <text class="txt xs mono muted" x="660" y="208">S1</text>
+  <rect x="684" y="198" width="3" height="16" rx="1.5" class="assistant"/>
+  <text class="txt sm mono" x="694" y="210">assistant  summary</text>
+  <rect x="660" y="226" width="264" height="46" rx="3" class="inset"/>
+  <text class="txt xs mono sub" x="670" y="244">One subagent, read on its own.</text>
+  <text class="txt xs mono muted" x="670" y="262">11 requests attributed to S1.</text>
+
+  <!-- jump -->
+  <rect x="24" y="292" width="912" height="30" rx="4" class="soft"/>
+  <text class="txt sm mono accent" x="38" y="312">req 6 · Agent tool</text>
+  <path class="flow" d="M190 307 H246"/>
+  <path d="M246 307 l-7 -4 v8 z" fill="#007AFF"/>
+  <rect x="256" y="297" width="40" height="20" rx="3" fill="#FFFFFF" stroke="#007AFF" stroke-opacity=".4"/>
+  <text class="txt sm mono accent" x="268" y="312">S1</text>
+  <text class="txt xs mono sub" x="310" y="312">The tool chip on the main chain is a link to the subagent it launched.</text>
+
+  <text class="txt xs mono muted" x="24" y="334">Schematic — synthetic steps illustrate the three views.</text>
+</svg>

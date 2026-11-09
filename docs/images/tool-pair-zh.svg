@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 360" width="960" height="360" role="img" aria-labelledby="t d">
+  <title id="t">工具调用与结果配对</title>
+  <desc id="d">工具页配对视图的示意：同一个 call_id 下，调用 JSON 与结果正文并排，箭头指出结果由哪一笔后续请求带回。</desc>
+  <style>
+    .bg{fill:#FAFAFA}.card{fill:#FFFFFF;stroke:#ECECEA;stroke-width:1}
+    .line{stroke:#ECECEA;stroke-width:1}
+    .txt{fill:#171717;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .muted{fill:#A1A1AA}.sub{fill:#52525B}.accent{fill:#007AFF}.bad{fill:#b32e37}
+    .soft{fill:#007AFF;fill-opacity:.07}.inset{fill:#F5F5F4}
+    .flow{stroke:#007AFF;stroke-width:1.6;fill:none}
+    .lbl{font-size:10px;letter-spacing:.09em}.h{font-size:14px;font-weight:600}
+    .s{font-size:12px}.sm{font-size:11px}.xs{font-size:10px}
+  </style>
+  <rect class="bg" x="0" y="0" width="960" height="360" rx="10"/>
+  <text class="txt h" x="24" y="30">一次调用、一次结果，按 call_id 配对</text>
+  <text class="txt xs mono muted" x="24" y="48">合成示例 — 不含真实请求正文。</text>
+
+  <!-- 页签 -->
+  <rect class="card" x="24" y="66" width="912" height="34" rx="4"/>
+  <text class="txt sm accent" x="38" y="87">工具</text>
+  <text class="txt sm muted" x="84" y="87">概览</text>
+  <text class="txt sm muted" x="132" y="87">参数</text>
+  <rect x="180" y="72" width="58" height="22" rx="3" class="soft"/>
+  <text class="txt sm accent" x="192" y="87">配对</text>
+  <text class="txt sm muted" x="258" y="87">Schema</text>
+  <text class="txt xs mono muted" x="922" y="87" text-anchor="end">Bash · 调用 #1 · 307ms</text>
+
+  <!-- 调用侧 -->
+  <text class="txt lbl muted" x="24" y="124">调用 · 第 6 笔 · reply.content[1]</text>
+  <rect class="card" x="24" y="134" width="420" height="112" rx="4"/>
+  <rect class="inset" x="36" y="146" width="396" height="88" rx="3"/>
+  <text class="txt s mono sub" x="48" y="166">{</text>
+  <text class="txt s mono sub" x="48" y="186">  "name": "Bash",</text>
+  <text class="txt s mono sub" x="48" y="206">  "input": { "command": "git diff" }</text>
+  <text class="txt s mono sub" x="48" y="226">}</text>
+  <rect x="36" y="252" width="396" height="24" rx="3" class="soft"/>
+  <text class="txt xs mono accent" x="46" y="268">call_id = toolu_01A7…  ·  两侧同一个 id</text>
+
+  <!-- 结果侧 -->
+  <text class="txt lbl muted" x="516" y="124">结果 · 第 7 笔 · messages[3]</text>
+  <rect class="card" x="516" y="134" width="420" height="112" rx="4"/>
+  <rect class="inset" x="528" y="146" width="396" height="88" rx="3"/>
+  <text class="txt s mono sub" x="540" y="166">exit 1: 索引里没有 diff</text>
+  <text class="txt s mono sub" x="540" y="190">随后的 assistant 行给出修正方案。</text>
+  <rect x="528" y="252" width="396" height="24" rx="3" class="soft"/>
+  <text class="txt xs mono accent" x="538" y="268">由第 7 笔带回，落在消息位置 3</text>
+
+  <!-- 连线 -->
+  <path class="flow" d="M444 240 H472 V276 H516"/>
+  <path d="M516 276 l-7 -4 v8 z" fill="#007AFF"/>
+  <text class="txt xs mono sub" x="450" y="230">下一笔请求</text>
+
+  <!-- 说明 -->
+  <rect x="24" y="288" width="912" height="52" rx="4" class="inset"/>
+  <text class="txt lbl muted" x="38" y="308">为什么分开记</text>
+  <text class="txt sm sub" x="38" y="328">执行段按每次调用计算：结果请求开始减调用请求结束，含客户端处理与人工确认，是上界。</text>
+
+  <text class="txt xs mono muted" x="24" y="352">示意图 — 调用、结果与消息位置用于说明配对视图。</text>
+</svg>

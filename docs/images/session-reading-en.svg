@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 480" width="960" height="480" role="img" aria-labelledby="t d">
+  <title id="t">Tracery session reading</title>
+  <desc id="d">Schematic of one Agent session: a session header with call and token totals, a trace of requests showing message diff, reasoning and execution durations, a subagent jump, and a context composition treemap.</desc>
+  <style>
+    .bg{fill:#FAFAFA}.card{fill:#FFFFFF;stroke:#ECECEA;stroke-width:1}
+    .line{stroke:#ECECEA;stroke-width:1}.divide{stroke:#DEDEDB;stroke-width:1}
+    .txt{fill:#171717;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,sans-serif}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .muted{fill:#A1A1AA}.sub{fill:#52525B}.user{fill:#0066CC}.assistant{fill:#8E44AD}
+    .tool{fill:#B45309}.accent{fill:#007AFF}.good{fill:#167a4f}
+    .t1{fill:#007AFF;fill-opacity:.16}.t2{fill:#007AFF;fill-opacity:.12}
+    .t3{fill:#007AFF;fill-opacity:.08}.t4{fill:#007AFF;fill-opacity:.05}
+    .lbl{font-size:10px;letter-spacing:.09em}.h{font-size:13px;font-weight:600}
+    .s{font-size:12px}.sm{font-size:11px}.xs{font-size:10px}
+  </style>
+
+  <rect class="bg" x="0" y="0" width="960" height="480" rx="10"/>
+  <text class="txt h" x="24" y="30">Session a3f1 · claude-code</text>
+  <text class="txt s mono" x="24" y="50">44 requests   ·   208k tokens   ·   $0.42</text>
+  <text class="txt lbl muted" x="715" y="30">CONTEXT · TOKEN SHARE</text>
+  <line class="line" x1="24" y1="62" x2="936" y2="62"/>
+
+  <!-- session summary strip -->
+  <text class="txt lbl muted" x="24" y="82">REQUEST 6</text>
+  <rect class="card" x="24" y="92" width="672" height="28" rx="4"/>
+  <rect x="24" y="92" width="3" height="28" rx="1.5" class="user"/>
+  <text class="txt s mono" x="38" y="110">system 12,804 tok  ·  user "Fix the failing diff check"</text>
+  <text class="txt xs mono muted" x="560" y="110">ctx 61%</text>
+
+  <rect class="card" x="24" y="126" width="672" height="28" rx="4"/>
+  <rect x="24" y="126" width="3" height="28" rx="1.5" class="assistant"/>
+  <text class="txt s mono" x="38" y="144">assistant → Bash("git diff")</text>
+  <text class="txt xs mono muted" x="560" y="144">reasoning 1.8s</text>
+
+  <rect class="card" x="24" y="160" width="672" height="28" rx="4"/>
+  <rect x="24" y="160" width="3" height="28" rx="1.5" class="tool"/>
+  <text class="txt s mono" x="38" y="178">tool_result  exit 1: no diff in index</text>
+  <text class="txt xs mono muted" x="560" y="178">execution 3.2s</text>
+
+  <rect class="card" x="24" y="196" width="672" height="28" rx="4"/>
+  <rect x="24" y="196" width="3" height="28" rx="1.5" class="assistant"/>
+  <text class="txt s mono" x="38" y="214">assistant "The index is clean — reading the worktree"</text>
+
+  <!-- diff marker -->
+  <rect x="24" y="234" width="672" height="30" rx="4" fill="#F7F7F6" stroke="#DEDEDB" stroke-width="1"/>
+  <text class="txt lbl muted" x="36" y="253">REQUEST 7</text>
+  <text class="txt s mono accent" x="132" y="253">+2 messages vs req 6</text>
+  <rect x="300" y="242" width="60" height="16" rx="8" fill="#007AFF" fill-opacity=".07"/>
+  <text class="txt xs mono accent" x="309" y="254">prefix ✓</text>
+  <text class="txt xs mono sub" x="372" y="254">same branch · chain intact</text>
+  <text class="txt xs mono muted" x="560" y="254">ctx 78%</text>
+
+  <!-- reasoning vs execution key -->
+  <rect class="card" x="24" y="276" width="672" height="60" rx="4"/>
+  <text class="txt lbl muted" x="38" y="296">TWO KINDS OF ELAPSED TIME</text>
+  <rect x="38" y="306" width="9" height="9" rx="2" class="assistant"/>
+  <text class="txt sm mono sub" x="54" y="315">reasoning 1.8s</text>
+  <text class="txt xs muted" x="190" y="315">per request, on the assistant row</text>
+  <rect x="380" y="306" width="9" height="9" rx="2" class="tool"/>
+  <text class="txt sm mono sub" x="396" y="315">execution 3.2s</text>
+  <text class="txt xs muted" x="528" y="315">per call, incl. confirmation</text>
+  <text class="txt xs muted" x="38" y="328">Execution is an upper bound: it includes client-side work and human approval.</text>
+
+  <!-- subagent jump -->
+  <rect x="24" y="348" width="672" height="52" rx="4" fill="#F7F7F6" stroke="#DEDEDB" stroke-width="1"/>
+  <rect x="24" y="348" width="3" height="52" rx="1.5" class="accent"/>
+  <text class="txt lbl muted" x="38" y="367">SUBAGENT</text>
+  <text class="txt s mono" x="38" y="388">req 6 · Agent tool</text>
+  <path d="M188 383 H258" fill="none" stroke="#007AFF" stroke-width="1.5"/>
+  <path d="M258 383 l-7 -4 v8 z" fill="#007AFF"/>
+  <rect x="268" y="369" width="46" height="24" rx="4" fill="#007AFF" fill-opacity=".07" stroke="#007AFF" stroke-opacity=".35"/>
+  <text class="txt s mono accent" x="281" y="386">S1</text>
+  <text class="txt xs mono sub" x="326" y="386">jump to the launched subagent trace</text>
+
+  <!-- context treemap -->
+  <rect class="card" x="712" y="44" width="224" height="356" rx="4"/>
+  <rect class="t1" x="724" y="68" width="92" height="146"/>
+  <rect class="t2" x="820" y="68" width="104" height="88"/>
+  <rect class="t3" x="820" y="160" width="104" height="54"/>
+  <rect class="t2" x="724" y="218" width="56" height="68"/>
+  <rect class="t3" x="784" y="218" width="56" height="68"/>
+  <rect class="t4" x="844" y="218" width="80" height="68"/>
+  <rect class="t4" x="724" y="290" width="200" height="36"/>
+  <text class="txt xs mono sub" x="732" y="86">tool results</text>
+  <text class="txt sm mono" x="732" y="104">41%</text>
+  <text class="txt xs mono sub" x="828" y="86">tools defs</text>
+  <text class="txt sm mono" x="828" y="104">24%</text>
+  <text class="txt xs mono sub" x="828" y="178">skills</text>
+  <text class="txt xs mono sub" x="730" y="236">system</text>
+  <text class="txt xs mono sub" x="790" y="236">memory</text>
+  <text class="txt xs mono sub" x="852" y="236">conversation</text>
+  <text class="txt xs mono sub" x="732" y="312">cache hit 68%  ·  overhead 9,240 tok</text>
+  <text class="txt xs mono muted" x="724" y="344">Project instructions / skills / memory / tool results</text>
+  <text class="txt xs mono muted" x="724" y="360">are visible only in the assembled body.</text>
+  <text class="txt xs mono accent" x="724" y="384">This request carried too much.</text>
+
+  <text class="txt xs mono muted" x="24" y="430">Schematic — labels and numbers illustrate what the reading view shows, not a captured session.</text>
+  <text class="txt xs mono muted" x="24" y="450">REQ 6 → 7: message-level diff  ·  right pane: readings / body / tools / routing</text>
+  <line class="line" x1="24" y1="462" x2="936" y2="462"/>
+  <text class="txt xs mono muted" x="24" y="475">Tracery · local session reading</text>
+</svg>

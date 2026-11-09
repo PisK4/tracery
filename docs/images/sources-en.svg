@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 340" width="960" height="340" role="img" aria-labelledby="t d">
+  <title id="t">How data sources converge</title>
+  <desc id="d">Schematic: OTLP exporters, local agent session files, the magpie gateway and Plugins feed one SQLite ledger; a shared owner claim keeps one call as one request row, read back as one session timeline.</desc>
+  <style>
+    .bg{fill:#FAFAFA}.card{fill:#FFFFFF;stroke:#ECECEA;stroke-width:1}
+    .line{stroke:#ECECEA;stroke-width:1}.divide{stroke:#DEDEDB;stroke-width:1}
+    .txt{fill:#171717;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,sans-serif}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .muted{fill:#A1A1AA}.sub{fill:#52525B}.accent{fill:#007AFF}
+    .soft{fill:#007AFF;fill-opacity:.07}.inset{fill:#F5F5F4}
+    .flow{stroke:#007AFF;stroke-width:1.6;fill:none}
+    .lbl{font-size:10px;letter-spacing:.09em}.h{font-size:14px;font-weight:600}
+    .s{font-size:12px}.sm{font-size:11px}.xs{font-size:10px}
+  </style>
+  <rect class="bg" x="0" y="0" width="960" height="340" rx="10"/>
+  <text class="txt h" x="24" y="30">Four inputs, one request row per call</text>
+  <text class="txt xs mono muted" x="24" y="48">Sources stay independent; claiming happens only at ingest.</text>
+
+  <!-- source cards -->
+  <rect class="card" x="24" y="70" width="212" height="62" rx="4"/>
+  <rect x="24" y="70" width="3" height="62" rx="1.5" class="accent"/>
+  <text class="txt s" x="38" y="90">OTLP</text>
+  <text class="txt xs mono sub" x="38" y="108">/v1/traces · /v1/logs</text>
+  <text class="txt xs muted" x="38" y="124">any Agent harness, GenAI semconv</text>
+
+  <rect class="card" x="24" y="140" width="212" height="62" rx="4"/>
+  <rect x="24" y="140" width="3" height="62" rx="1.5" class="accent"/>
+  <text class="txt s" x="38" y="160">Local session files</text>
+  <text class="txt xs mono sub" x="38" y="178">10 adapters · timed scan</text>
+  <text class="txt xs muted" x="38" y="194">rebuild the message window</text>
+
+  <rect class="card" x="24" y="210" width="212" height="62" rx="4"/>
+  <rect x="24" y="210" width="3" height="62" rx="1.5" class="accent"/>
+  <text class="txt s" x="38" y="230">magpie gateway</text>
+  <text class="txt xs mono sub" x="38" y="248">hook · ledger · routing</text>
+  <text class="txt xs muted" x="38" y="264">three-way evidence</text>
+
+  <rect x="24" y="272" width="212" height="38" rx="4" class="inset"/>
+  <text class="txt s" x="38" y="290">Plugins</text>
+  <text class="txt xs mono sub" x="38" y="304">reading tabs · per-agent parsers</text>
+
+  <!-- flows -->
+  <path class="flow" d="M236 101 H300 Q312 101 312 113 V155 Q312 165 322 165 H372"/>
+  <path class="flow" d="M236 171 H372"/>
+  <path class="flow" d="M236 241 H300 Q312 241 312 229 V175 Q312 165 322 165 H372"/>
+  <path class="flow" d="M236 291 H300 Q312 291 312 280 V175 Q312 165 322 165" stroke-dasharray="4 3"/>
+
+  <!-- ingest core -->
+  <rect x="372" y="120" width="196" height="90" rx="6" fill="#FFFFFF" stroke="#007AFF" stroke-width="1.5"/>
+  <text class="txt lbl accent" x="388" y="142">SHARED INGEST CORE</text>
+  <text class="txt sm sub" x="388" y="162">dedupe → owner claim</text>
+  <text class="txt sm sub" x="388" y="180">→ body chunks → evidence</text>
+  <text class="txt xs mono muted" x="388" y="200">one call · one request row</text>
+
+  <path class="flow" d="M568 165 H640"/>
+
+  <!-- sqlite -->
+  <rect class="card" x="640" y="112" width="132" height="106" rx="4"/>
+  <text class="txt lbl muted" x="654" y="134">LOCAL STORE</text>
+  <rect x="654" y="146" width="104" height="8" rx="4" class="inset"/>
+  <rect x="654" y="160" width="104" height="8" rx="4" class="inset"/>
+  <rect x="654" y="174" width="104" height="8" rx="4" class="inset"/>
+  <text class="txt sm" x="654" y="200">trace.db</text>
+  <text class="txt xs mono muted" x="654" y="212">SQLite · 0600 / 0700</text>
+
+  <!-- output -->
+  <path class="flow" d="M772 165 H820"/>
+  <rect x="820" y="122" width="116" height="86" rx="4" class="soft"/>
+  <text class="txt lbl accent" x="832" y="144">READ</text>
+  <text class="txt sm sub" x="832" y="164">one session</text>
+  <text class="txt sm sub" x="832" y="182">step by step</text>
+  <text class="txt xs mono muted" x="832" y="200">session timeline</text>
+
+  <!-- evidence note -->
+  <rect x="372" y="222" width="564" height="76" rx="4" class="inset"/>
+  <text class="txt lbl muted" x="388" y="242">EVIDENCE STAYS WITH THE ROW</text>
+  <text class="txt sm sub" x="388" y="264">A late ledger entry claims the OTLP row through the shared owner rule.</text>
+  <text class="txt sm sub" x="388" y="284">Each source keeps its own evidence kind; duplicates do not create a second row.</text>
+
+  <text class="txt xs mono muted" x="24" y="328">Schematic — arrows show how sources converge, not a deployed topology.</text>
+</svg>
