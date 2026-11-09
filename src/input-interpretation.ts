@@ -179,7 +179,20 @@ function textBlocks(message: unknown): string[] {
   if (message === null || typeof message !== 'object' || Array.isArray(message)) return [];
   const content = (message as Record<string, unknown>).content;
   if (typeof content === 'string') return content.length > 0 ? [content] : [];
-  if (!Array.isArray(content)) return [];
+  if (!Array.isArray(content)) {
+    // semconv 消息把文本放在 parts[].content；content 缺席时才认 parts，
+    // 既有 anthropic/chat/responses 形状不受影响。
+    const parts = (message as Record<string, unknown>).parts;
+    if (!Array.isArray(parts)) return [];
+    const out: string[] = [];
+    for (const part of parts) {
+      if (part !== null && typeof part === 'object' && !Array.isArray(part)) {
+        const record = part as Record<string, unknown>;
+        if (record.type === 'text' && typeof record.content === 'string' && record.content.length > 0) out.push(record.content);
+      }
+    }
+    return out;
+  }
   const out: string[] = [];
   for (const block of content) {
     if (block === null || typeof block !== 'object' || Array.isArray(block)) continue;

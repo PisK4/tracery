@@ -3,6 +3,7 @@ import { fixture, seedPurposeRequest } from './fixtures';
 import { messageFingerprint } from '../src/fingerprint';
 import { interpretMessage } from '../src/input-interpretation';
 import { isIncrementalRequest, messagesKeyOf, requestItemsOf, withItems } from '../src/protocol-shape';
+import { wireCallsOf, wireResultsIn, messageCountOf } from '../src/protocol-shape';
 import { getBodyPage } from '../src/protocols';
 import { replyTextsOf, systemTextsOf } from '../src/semantics';
 import { restoreBody } from '../src/body';
@@ -191,4 +192,35 @@ test('正文页暴露协议名，系统文本把 instructions 并入其中', () 
   } finally {
     f.close();
   }
+});
+
+// —— genai-semconv：role/parts 形状的工具配对与消息计数 ——
+
+const SEMCONV_REPLY = { messages: [
+  { role: 'assistant', parts: [
+    { type: 'text', content: 'checking' },
+    { type: 'tool_call', id: 'call_synth_1', name: 'get_weather', arguments: { city: 'Synthville' } },
+    { type: 'tool_call', id: 'call_synth_2', name: 'get_time', arguments: {} },
+  ] },
+] };
+const SEMCONV_ITEMS = [
+  { role: 'user', parts: [{ type: 'text', content: 'weather?' }] },
+  { role: 'tool', parts: [{ type: 'tool_call_response', id: 'call_synth_1', response: 'sunny' }] },
+];
+
+test('genai-semconv 工具调用：跨消息 flat ord 唯一，path 精确定位', () => {
+  const calls = wireCallsOf('genai-semconv', SEMCONV_REPLY);
+  expect(calls.map(c => c.id)).toEqual(['call_synth_1', 'call_synth_2']);
+  expect(calls.map(c => c.ord)).toEqual([0, 1]);
+  expect(calls[0]!.path).toBe('reply.messages[0].parts[1]');
+  expect(calls[0]!.input).toEqual({ city: 'Synthville' });
+});
+
+test('genai-semconv 工具结果：按 message ord 定位，无失败通道', () => {
+  const results = wireResultsIn('genai-semconv', SEMCONV_ITEMS);
+  expect(results).toEqual([{ id: 'call_synth_1', ord: 1, path: 'request.messages[1].parts[0]', value: 'sunny', isError: null }]);
+});
+
+test('genai-semconv 消息计数', () => {
+  expect(messageCountOf('genai-semconv', { messages: SEMCONV_ITEMS })).toBe(2);
 });

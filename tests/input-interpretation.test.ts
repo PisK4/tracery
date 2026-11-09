@@ -3,6 +3,7 @@ import {
   interpretMessage, interpretUserText, isOmpArchiveMessage, ompDroppedCharsOf,
   titlePromptText,
 } from '../src/input-interpretation';
+import { messageText } from '../src/input-interpretation';
 
 test('会话外壳与系统提醒被剥掉，用户正文保留', () => {
   const view = interpretUserText(
@@ -374,4 +375,18 @@ test('titlePromptText：Claude 会话壳内取原话，Codex 标记之后取原�
   // 壳未闭合不猜；两个形状都不命中返回 null。
   expect(titlePromptText('<session>没有闭合的用户输入')).toBeNull();
   expect(titlePromptText('普通用户消息，不是标题模板')).toBeNull();
+});
+
+// —— genai-semconv：parts[].content 文本识别，content 形状优先 ——
+
+test('semconv parts 文本识别：text part 的 content 拼接', () => {
+  expect(messageText({ role: 'user', parts: [
+    { type: 'text', content: 'hello' },
+    { type: 'tool_call', id: 'x', name: 'n', arguments: {} },
+    { type: 'text', content: 'world' },
+  ] })).toBe('hello\nworld');
+});
+
+test('content 形状优先：既有 anthropic 消息不受 parts 分支影响', () => {
+  expect(messageText({ role: 'user', content: [{ type: 'text', text: 'hi' }] })).toBe('hi');
 });

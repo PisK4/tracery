@@ -16,6 +16,8 @@ const MESSAGES_KEY: Record<string, MessagesKey> = {
   responses: 'input',
   // droid 转录重建的消息数组与 Anthropic Messages 同形。
   'droid-session': 'messages',
+  // genai-semconv 的 role/parts 消息数组也落在 messages 键。
+  'genai-semconv': 'messages',
 };
 
 /** 已知协议各有一行；名单外协议沿用 `messages`，只在未适配状态使用。 */
@@ -203,11 +205,30 @@ function responsesCalls(reply: unknown): WireCall[] {
   return calls;
 }
 
+/** semconv 回复侧工具调用：parts 里的 tool_call。ord 跨消息 flat 计数，
+ * 保证 (req_id, ord) 唯一（一条消息可含多个并行 tool_call）；path 仍精确定位。 */
+function semconvCalls(reply: unknown): WireCall[] {
+  if (!isRecord(reply) || !Array.isArray(reply.messages)) return [];
+  const calls: WireCall[] = [];
+  for (const [m, message] of reply.messages.entries()) {
+    if (!isRecord(message) || !Array.isArray(message.parts)) continue;
+    for (const [p, part] of message.parts.entries()) {
+      if (!isRecord(part) || part.type !== 'tool_call') continue;
+      const id = textOf(part.id);
+      if (id === null) continue;
+      calls.push({ id, name: textOf(part.name) ?? '', ord: calls.length,
+        path: `reply.messages[${m}].parts[${p}]`, input: part.arguments ?? null });
+    }
+  }
+  return calls;
+}
+
 /** 回复侧工具调用。名单外协议不猜，返回空表。 */
 export function wireCallsOf(protocol: string, reply: unknown): WireCall[] {
   if (protocol === 'anthropic' || protocol === 'droid-session') return anthropicCalls(reply);
   if (protocol === 'chat') return chatCalls(reply);
   if (protocol === 'responses') return responsesCalls(reply);
+  if (protocol === 'genai-semconv') return semconvCalls(reply);
   return [];
 }
 
@@ -262,6 +283,21 @@ function responsesResults(items: readonly unknown[]): WireResult[] {
   return results;
 }
 
+/** semconv 请求侧工具结果：parts 里的 tool_call_response。当前形状无独立失败位。 */
+function semconvResults(items: readonly unknown[]): WireResult[] {
+  const results: WireResult[] = [];
+  for (const [ord, message] of items.entries()) {
+    if (!isRecord(message) || !Array.isArray(message.parts)) continue;
+    for (const [p, part] of message.parts.entries()) {
+      if (!isRecord(part) || part.type !== 'tool_call_response') continue;
+      const id = textOf(part.id);
+      if (id === null) continue;
+      results.push({ id, ord, path: `request.messages[${ord}].parts[${p}]`, value: part.response ?? null, isError: null });
+    }
+  }
+  return results;
+}
+
 /**
  * 已读出消息数组时的工具结果提取。派生按增量稀疏取消息，手上只有数组、
  * 没有完整请求对象，所以形状表要能脱离 `request` 单独工作。
@@ -270,6 +306,7 @@ export function wireResultsIn(protocol: string, items: readonly unknown[]): Wire
   if (protocol === 'anthropic' || protocol === 'droid-session') return anthropicResults(items);
   if (protocol === 'chat') return chatResults(items);
   if (protocol === 'responses') return responsesResults(items);
+  if (protocol === 'genai-semconv') return semconvResults(items);
   return [];
 }
 
