@@ -22,7 +22,7 @@ import type {
   SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionParseResult, SessionTitle,
   SessionUsage,
 } from '../types';
-import { canonicalSessionId, sessionConvKey } from '../types';
+import { canonicalSessionId, sessionConvKey, titleTextOf } from '../types';
 import { expandHome } from './pi-jsonl';
 
 type WorkbuddyMessage = { role: string; content: unknown[] };
@@ -206,10 +206,12 @@ function applyEvent(
   if (line.model !== null) state.model = line.model;
 
   if (line.title !== null) {
+    // 标题行只带会话级元数据，不进消息窗口，也不参与调用归约。
     state.title = line.title;
     state.titleKind = line.titleKind;
     state.titleMs = line.atMs;
     state.titleOffset = event.offset;
+    return result(state);
   }
 
   const calls: SessionCall[] = [];
@@ -332,7 +334,7 @@ export const workbuddyAdapter: SessionAdapter = {
       callOutput: raw.output ?? null,
       status: textOf(raw.status),
       title: type === 'ai-title' || type === 'custom-title'
-        ? textOf(raw.aiTitle) ?? textOf(raw.customTitle) : null,
+        ? titleTextOf(raw.aiTitle) ?? titleTextOf(raw.customTitle) : null,
       titleKind: type === 'ai-title' || type === 'custom-title' ? type : null,
     };
     return {
@@ -377,9 +379,11 @@ export const workbuddyAdapter: SessionAdapter = {
 
   sourceTitle(state, file): SessionTitle | null {
     const current = state as WorkbuddyState;
-    if (current.title === null || current.parentSessionId !== null) return null;
+    if (current.title === null || current.sessionId === null
+      || current.parentSessionId !== null) return null;
     return {
       text: current.title,
+      sessionId: current.sessionId,
       atMs: current.titleMs,
       ref: `${file.name}:${current.titleOffset ?? 0}`,
       facts: { lineType: current.titleKind },

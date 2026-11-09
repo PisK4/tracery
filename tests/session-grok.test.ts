@@ -366,3 +366,21 @@ test('Grok 不认识的行型只跳过，不判坏；多个会话证据键不相
     rmSync(join(root, '..'), { recursive: true, force: true });
   }
 });
+
+test('Grok 来源标题：summary.json 坏 JSON 记 issue，不停游标', async () => {
+  const root = makeRoot();
+  const f = fixture();
+  try {
+    const dir = sessionDir(root);
+    writeFileSync(join(dir, 'summary.json'), '{broken');
+    history(dir, [user('prompt')]);
+    const result = await ingestSessionBatch(f.store, grokAdapter, [root], SALT, T0);
+    expect(result).toMatchObject({ blocked: 0 });
+    expect(f.store.read.query("SELECT COUNT(*) AS n FROM ingest_issue WHERE reason='session_title_failed'").get())
+      .toEqual({ n: 1 });
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM session_title').get()).toEqual({ n: 0 });
+  } finally {
+    f.close();
+    rmSync(join(root, '..'), { recursive: true, force: true });
+  }
+});

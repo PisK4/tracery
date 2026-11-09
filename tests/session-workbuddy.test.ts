@@ -373,3 +373,28 @@ test('WorkBuddy 两个子代理同序号各建一行，ref_key 唯一', async ()
     rmSync(join(root, '..'), { recursive: true, force: true });
   }
 });
+
+test('WorkBuddy 标题行的 content 不进请求窗口', async () => {
+  const root = makeRoot();
+  const f = fixture();
+  try {
+    writeMain(root, [
+      user(T0, 'prompt'),
+      json(base({ timestamp: T0 + 1_000, type: 'ai-title', aiTitle: '标题',
+        content: [{ type: 'text', text: 'extra' }] })),
+      assistant(T0 + 2_000, 'gen-title-body', 'reply', USAGE),
+    ]);
+    const result = await ingestSessionBatch(f.store, workbuddyAdapter, [root], SALT, T0);
+    expect(result).toMatchObject({ calls: 1, invalid: 0, blocked: 0 });
+    expect(f.store.read.query('SELECT conv_key, title FROM session_title').all()).toEqual([
+      { conv_key: json(['session', SESSION_ID]), title: '标题' },
+    ]);
+    const body = readBodyWithMessagesTx(f.store.read, 1)!;
+    expect(body.body.request).toEqual({
+      messages: [{ role: 'user', content: [{ type: 'input_text', text: 'prompt' }] }],
+    });
+  } finally {
+    f.close();
+    rmSync(join(root, '..'), { recursive: true, force: true });
+  }
+});

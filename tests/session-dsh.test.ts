@@ -174,6 +174,24 @@ test('DSH 来源标题：fallback 升 provider 只留一行，seed 与子代理�
   }
 });
 
+test('DSH 来源标题：v1 分叉 seed 前缀不把父标题写到分叉键', async () => {
+  const root = makeRoot();
+  const f = fixture();
+  try {
+    const dir = sessionDir(root, 'dsh-v1-seeded');
+    writeFrames(dir, 'session.v1.jsonl.zstd', [[
+      head('dsh-v1-seeded', { version: 1, isSeeded: true, seedLength: 2 }),
+      title(0, '分叉前缀标题', 'fallback'),
+      user(1, 'seed prompt'),
+    ]]);
+    const result = await ingestSessionBatch(f.store, dshAdapter, [root], SALT, T0);
+    expect(result).toMatchObject({ invalid: 0, blocked: 0 });
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM session_title').get()).toEqual({ n: 0 });
+  } finally {
+    f.close();
+    rmSync(join(root, '..'), { recursive: true, force: true });
+  }
+});
 test('DSH 摄入：父会话调用、分叉 seed 不重复、结束标记后才计自己的调用', async () => {
   const f = fixture();
   const root = makeRoot();

@@ -2718,11 +2718,11 @@ Grok 的 `session_usage` 有 4 行而游标有 6 个，不是漏刷：本机 6 �
 
 ### 合成结果
 
-- 12 个受影响窄测试文件：`bun test` 187 pass / 0 fail / 985 expect；`bun run typecheck` 退出 0。涵盖 `tests/store.test.ts`、`tests/maintenance.test.ts`、`tests/restore-migration.test.ts`、七家来源的会话/解析测试与 `tests/queries.test.ts`。Task 1 单独跑过失败态（缺表报错）；Task 2 起的代码与测试同批落下，没有逐个单独跑红，这一项只按最终绿态计入。
+- 12 个受影响窄测试文件：`bun test` 195 pass / 0 fail / 1003 expect；`bun run typecheck` 退出 0。涵盖 `tests/store.test.ts`、`tests/maintenance.test.ts`、`tests/restore-migration.test.ts`、七家来源的会话/解析测试与 `tests/queries.test.ts`。Task 1 单独跑过失败态（缺表报错）；Task 2 起的代码与测试同批落下，没有逐个单独跑红，这一项只按最终绿态计入。code-review 后补的回归用例同样按最终绿态计入。
 - v16→v17：删表并把 `user_version` 退回 16 后重开，版本升到 17，`request` 一行保持，`session_title` 就位且为空。新装库 34 张业务表包含 `session_title`。
-- 写入：claude 两条重复 `ai-title` 与一条新追加重复行只落一行 `session_title`，`observed_ms` 保持首写值，raw 层三行都在；omp 两次 `title_change`、dsh fallback→provider、workbuddy `ai-title`→`custom-title` 都更新同一行且取最新事件时间；droid `manual=1` 不被后续自动标题覆盖；zcode 子会话读根标题、grok `generated_title` 优先且空值退回 `session_summary`。
+- 写入：claude 两条重复 `ai-title` 与一条新追加重复行只落一行 `session_title`，`observed_ms` 保持首写值，raw 层三行都在；omp 重复 `title` 行与两次 `title_change`共用同一窄行，前者不挪 ref、不刷新观察时间，后者更新标题并取最新事件时间；dsh fallback→provider、workbuddy `ai-title`→`custom-title` 也各留一行；droid `manual=1` 不被后续自动标题覆盖；zcode 子会话读根标题、grok `generated_title` 优先且空值退回 `session_summary`。
 - 隐私与副作用：zcode/grok 标题中的合成 `sk-` 片段落库前变占位符，`evidence_json` 不含标题原文；标题 upsert 不额外合成 `request`、`request_evidence` 或 raw 行，行来源的标题行按原样落 `raw_session_event`；glossary/文档不记录真实标题。
-- 作用域：claude sidechain/subagents、omp/pi artifacts/subagents、dsh seed 前缀/子代理、droid `callingSessionId`、workbuddy subagents 与 zcode 子会话 title 都不覆盖根会话。
+- 作用域与批次边界：claude sidechain/subagents、祖先目录同名文件仍写主会话、omp/pi artifacts/subagents、dsh seed 前缀/子代理/v1 分叉、droid `callingSessionId`、workbuddy subagents 与 zcode 子会话 title 都不改父会话；ai-title 带异 `sessionId` 与末尾 sidechain 行不污染标题的 `conv_key`；坏行阻断批次不写标题；WorkBuddy 标题行的 content 不进请求窗口；grok `summary.json` 坏 JSON 记 issue 但不停游标；当前版本备份包缺 `session_title` 明确拒绝恢复。
 - 读侧：来源标题优先于网关/用户标题，组 dirty 仍可见；`listSessions` full 返回来源标题，`light` 返回空串，直接 `getSessionTitles` 与 full 一致；删空 `session_title` 后，dirty 组下旧候选仍被闸门挡住（既有用例另覆盖 clean 组下旧候选出现与消失）。`EXPLAIN QUERY PLAN` 仍走 `SEARCH request USING COVERING INDEX i_req_session_time`，不含 `SCAN request`。
 
 ### 未执行

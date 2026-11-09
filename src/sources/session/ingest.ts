@@ -281,7 +281,7 @@ function sanitizedPayload(
   return { payloadJson, parsed: parse(payloadJson) };
 }
 
-/** 来源标题窄表：手动优先；标题、manual、事件时间或证据没变就不刷新观察时间。 */
+/** 来源标题窄表：标题、manual 或证据没变就不刷新观察时间，重复行不会顶掉手动标题。 */
 function upsertSessionTitleTx(
   db: Database,
   adapter: SessionAdapter,
@@ -307,7 +307,6 @@ function upsertSessionTitleTx(
        observed_ms=excluded.observed_ms, evidence_json=excluded.evidence_json
      WHERE (session_title.manual=0 OR excluded.manual=1)
        AND (session_title.title<>excluded.title OR session_title.manual<>excluded.manual
-         OR session_title.title_ms IS NOT excluded.title_ms
          OR session_title.evidence_json<>excluded.evidence_json)`,
     [convKey, adapter.sourceKind, text, title.manual === true ? 1 : 0, title.atMs, now, evidenceJson],
   );
@@ -365,7 +364,6 @@ export async function ingestSessionFile(
     }
 
     let state = adapter.emptyState(file);
-    let lastSessionId: string | null = null;
     if (adapter.replaysState && adapter.storesRaw !== false) {
       const replay = db.query<{ payload_json: string; source_kind: string; byte_offset: number }, [string]>(`
         SELECT payload_json, source_kind, byte_offset FROM raw_session_event
@@ -376,7 +374,6 @@ export async function ingestSessionFile(
         if (parsed.kind !== 'event') continue;
         const step = adapter.apply(state, { ...parsed, offset: row.byte_offset, replay: true });
         state = step.state;
-        if (step.sessionId !== null) lastSessionId = step.sessionId;
       }
     }
 
@@ -487,7 +484,6 @@ export async function ingestSessionFile(
         break;
       }
       state = step.state;
-      if (step.sessionId !== null) lastSessionId = step.sessionId;
       for (const call of step.calls) {
         acceptCall(call, call.sortOffset ?? line.offset, rawChanged);
       }
@@ -499,20 +495,21 @@ export async function ingestSessionFile(
     // 再次补发，重复证据按 refreshOnDuplicate 刷新正文。
     const flushed = adapter.flush?.(state);
     if (flushed !== undefined) {
-      if (flushed.sessionId !== null) lastSessionId = flushed.sessionId;
       for (const call of flushed.calls) {
         acceptCall(call, call.sortOffset ?? committed, false);
       }
     }
 
-    // 标题是会话级读侧事实：失败只记 issue，不能把游标停在标题上。
-    try {
-      const title = adapter.sourceTitle?.(state, file) ?? null;
-      if (title !== null && lastSessionId !== null) {
-        upsertSessionTitleTx(db, adapter, sessionConvKey(lastSessionId), title, salt, now);
+    // 标题归属由适配器声明；坏行批次不跑批末副作用，标题失败也只记 issue、不停游标。
+    if (!blocked) {
+      try {
+        const title = adapter.sourceTitle?.(state, file) ?? null;
+        if (title !== null) {
+          upsertSessionTitleTx(db, adapter, sessionConvKey(title.sessionId), title, salt, now);
+        }
+      } catch {
+        recordIssue(db, adapter.issueKind, file.name, 'session_title_failed', now, null);
       }
-    } catch {
-      recordIssue(db, adapter.issueKind, file.name, 'session_title_failed', now, null);
     }
 
     if (!blocked && adapter.afterFile !== undefined) {

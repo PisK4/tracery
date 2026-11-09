@@ -1,12 +1,12 @@
 import { expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fixture } from './fixtures';
 import { readBodyWithMessagesTx } from '../src/body';
 import { ompAdapter } from '../src/sources/session/adapters/omp';
 import { piAdapter } from '../src/sources/session/adapters/pi';
-import { ingestSessionBatch } from '../src/sources/session/ingest';
+import { ingestSessionBatch, ingestSessionFile } from '../src/sources/session/ingest';
 
 const T0 = Date.parse('2026-09-01T10:00:00.000Z');
 const SALT = new Uint8Array(32);
@@ -193,6 +193,28 @@ function titleLine(title: string, updatedAt: number): string {
   return json({ type: 'title', title, updatedAt: iso(updatedAt), v: 3, pad: 'x' });
 }
 
+test('OMP 来源标题：重复 title 不挪 ref、不刷新观察时间', async () => {
+  const root = makeRoot();
+  const f = fixture();
+  try {
+    const path = writeSession(root, `2026-09-01T10-00-00.000Z_${OMP_SESSION}.jsonl`, [
+      sessionLine(T0),
+      titleLine('固定标题', T0 + 1_000),
+    ]);
+    const file = { name: path, path, size: 0, mtimeMs: 0, remaining: 1 };
+    await ingestSessionFile(f.store, ompAdapter, file, SALT, T0);
+    const before = f.store.read.query('SELECT observed_ms, evidence_json FROM session_title').get() as Record<string, unknown>;
+    expect(before.observed_ms).toBe(T0);
+
+    appendFileSync(path, `${titleLine('固定标题', T0 + 2_000)}\n`);
+    await ingestSessionFile(f.store, ompAdapter, file, SALT, T0 + 5_000);
+    const after = f.store.read.query('SELECT observed_ms, evidence_json FROM session_title').get() as Record<string, unknown>;
+    expect(after).toEqual(before);
+  } finally {
+    f.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 test('OMP 来源标题：title_change 更新同一行，事件 id 不写进 raw 会话身份', async () => {
   const root = makeRoot();
   const f = fixture();

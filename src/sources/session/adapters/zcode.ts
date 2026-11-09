@@ -393,7 +393,9 @@ export const zcodeAdapter: SessionAdapter = {
           replyContent: reply,
           cwd: textOf(ownSession?.directory ?? null),
         };
-        lines.push({ offset: row.off, end: row.off, text: JSON.stringify({ call }) });
+        lines.push({ offset: row.off, end: row.off, text: JSON.stringify({
+          call, title: textOf(root?.title ?? null), titleSessionId: rootId,
+        }) });
       }
 
       const seen = db.query<{ max_rowid: number }, [string]>(
@@ -435,16 +437,27 @@ export const zcodeAdapter: SessionAdapter = {
       atMs: numberOrNull(call.startedMs),
       sessionId: textOf(call.sessionId),
       offset: 0,
-      value: call,
+      value: {
+        call,
+        title: textOf(value.title),
+        titleSessionId: textOf(value.titleSessionId),
+      },
     };
   },
 
-  emptyState(): unknown {
-    return {};
+  emptyState(): { title: string | null; titleSessionId: string | null } {
+    return { title: null, titleSessionId: null };
   },
 
   apply(state, event): SessionApplyResult {
-    const call = event.value as SessionCall;
+    const { call, title, titleSessionId } = event.value as {
+      call: SessionCall; title: string | null; titleSessionId: string | null;
+    };
+    const current = state as { title: string | null; titleSessionId: string | null };
+    if (title !== null) {
+      current.title = title;
+      current.titleSessionId = titleSessionId;
+    }
     return {
       state,
       calls: [call],
@@ -453,20 +466,16 @@ export const zcodeAdapter: SessionAdapter = {
     };
   },
 
-  sourceTitle(_state, file): SessionTitle | null {
-    const sessionId = sessionIdOfName(file.name);
-    const db = new Database(file.path, { readonly: true });
-    try {
-      const root = rootSessionOf(db, sessionId, new Map()) ?? null;
-      if (root === null || root.title === null) return null;
-      return {
-        text: root.title,
-        atMs: null,
-        ref: `${file.path}#${root.id}/session.title`,
-        facts: { requestedSession: sessionId },
-      };
-    } finally {
-      db.close();
-    }
+  sourceTitle(state, file): SessionTitle | null {
+    // 标题与 conv_key 都来自 read() 的那一次连接，不另开只读连接重算根。
+    const current = state as { title: string | null; titleSessionId: string | null };
+    if (current.title === null || current.titleSessionId === null) return null;
+    return {
+      text: current.title,
+      sessionId: current.titleSessionId,
+      atMs: null,
+      ref: `${file.path}#${current.titleSessionId}/session.title`,
+      facts: { requestedSession: sessionIdOfName(file.name) },
+    };
   },
 };

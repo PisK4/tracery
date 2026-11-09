@@ -18,7 +18,9 @@ import type {
   SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionKind,
   SessionParseResult, SessionTitle,
 } from '../types';
-import { canonicalSessionId, sessionConvKey } from '../types';
+import {
+  canonicalSessionId, isNestedSessionFile, sessionConvKey, titleTextOf,
+} from '../types';
 
 type JsonlSessionKind = Extract<SessionKind, 'omp_session' | 'pi_session'>;
 
@@ -177,12 +179,13 @@ function applyEvent(
     return { state, calls: [], error: null, sessionId: state.sessionId };
   }
   if (type === 'title' || type === 'title_change') {
-    const title = textOf(record.title);
+    const title = titleTextOf(record.title);
     if (title !== null) {
+      // 重复标题只更新时间与来源，不挪 ref，避免每批刷新 observed_ms。
+      if (title !== state.title) state.titleOffset = event.offset;
       state.title = title;
       state.titleMs = timestampOf(record.timestamp) ?? timestampOf(record.updatedAt) ?? null;
       state.titleSource = textOf(record.source);
-      state.titleOffset = event.offset;
     }
     return { state, calls: [], error: null, sessionId: state.sessionId };
   }
@@ -322,10 +325,11 @@ export function createJsonlSessionAdapter(spec: JsonlSessionSpec): SessionAdapte
 
     sourceTitle(state, file): SessionTitle | null {
       const current = state as JsonlState;
-      const parts = file.path.split('/');
-      if (current.title === null || parts.includes('artifacts') || parts.includes('subagents')) return null;
+      if (current.title === null || current.sessionId === null
+        || isNestedSessionFile(file, ['artifacts', 'subagents'])) return null;
       return {
         text: current.title,
+        sessionId: current.sessionId,
         atMs: current.titleMs,
         ref: `${file.name}:${current.titleOffset ?? 0}`,
         facts: { source: current.titleSource },

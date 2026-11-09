@@ -48,6 +48,70 @@ function aiTitle(text: string, extra: Record<string, unknown> = {}): string {
   return json({ type: 'ai-title', sessionId: SESSION_ID, aiTitle: text, ...extra });
 }
 
+
+const OTHER_ID = '99999999-2222-3333-4444-555555555555';
+
+test('Claude 来源标题归属：ai-title 带异 id 与末尾 sidechain 不污染 conv_key', async () => {
+  const root = makeRoot();
+  const f = fixture();
+  try {
+    writeSession(root, `${SESSION_ID}.jsonl`, [
+      user(iso(T0), [{ type: 'text', text: 'prompt' }]),
+      assistant(iso(T0 + 1_000), 'msg_owner-1', [{ type: 'text', text: 'reply' }]),
+      aiTitle('主会话标题', { sessionId: OTHER_ID }),
+      line('user', iso(T0 + 2_000), { role: 'user', content: [{ type: 'text', text: 'side' }] },
+        { sessionId: OTHER_ID, isSidechain: true }),
+    ]);
+    const result = await ingestSessionBatch(f.store, claudeAdapter, [root], SALT, T0);
+    expect(result).toMatchObject({ invalid: 0, blocked: 0 });
+    expect(f.store.read.query('SELECT conv_key, title FROM session_title').all()).toEqual([
+      { conv_key: json(['session', SESSION_ID]), title: '主会话标题' },
+    ]);
+  } finally {
+    f.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Claude 来源标题路径：祖先目录同名不误杀，空白字段回退', async () => {
+  const base = mkdtempSync(join(tmpdir(), 'atc-claude-ancestor-'));
+  const root = join(base, 'subagents', 'notes');
+  mkdirSync(root, { recursive: true });
+  const f = fixture();
+  try {
+    writeSession(root, `${SESSION_ID}.jsonl`, [
+      user(iso(T0), [{ type: 'text', text: 'prompt' }]),
+      json({ type: 'ai-title', sessionId: SESSION_ID, aiTitle: '   ', title: '备选标题' }),
+    ]);
+    await ingestSessionBatch(f.store, claudeAdapter, [root], SALT, T0);
+    expect(f.store.read.query('SELECT conv_key, title FROM session_title').all()).toEqual([
+      { conv_key: json(['session', SESSION_ID]), title: '备选标题' },
+    ]);
+  } finally {
+    f.close();
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('Claude 来源标题：坏行阻断批次不写标题，也不记标题失败', async () => {
+  const root = makeRoot();
+  const f = fixture();
+  try {
+    writeSession(root, `${SESSION_ID}.jsonl`, [
+      aiTitle('坏行前的标题'),
+      json({ type: 'user', sessionId: SESSION_ID, timestamp: iso(T0), message: null }),
+    ]);
+    const result = await ingestSessionBatch(f.store, claudeAdapter, [root], SALT, T0);
+    expect(result.blocked).toBe(1);
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM session_title').get()).toEqual({ n: 0 });
+    expect(f.store.read.query("SELECT COUNT(*) AS n FROM ingest_issue WHERE reason='session_title_failed'").get())
+      .toEqual({ n: 0 });
+  } finally {
+    f.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('Claude 来源标题：ai-title 进窄表，重复标题不刷新观察时间', async () => {
   const root = makeRoot();
   const f = fixture();

@@ -67,9 +67,9 @@ Status: implemented
 
 `session_title` 是 v17 的 additive 表，主键 `(conv_key, source)`，`WITHOUT ROWID`。`manual` 只由 droid 的手动标记写入；读侧按 `manual DESC, observed_ms DESC, source ASC` 取一条。标题与 `evidence_json` 落库前都过 `redact`，标题按 Unicode 码点截断到 512 字符，证据只记 `source_kind`、`ref` 与附加事实。结构形状见[架构设计](../../../../docs/architecture-design.md#版本与破坏式替换)，运维版本见[运维手册](../../../../docs/operations.md#schema-版本)。
 
-`SessionAdapter.sourceTitle?(state, file)` 是批末同步钩子。`ingestSessionFile` 在 replay、逐行 apply 与 `flush` 后维护 `lastSessionId`，用 `sessionConvKey()` 生成 `conv_key`，在 `flush` 与 `afterFile` 之间调一次钩子。标题、`manual`、`title_ms` 或证据没变时不刷新 `observed_ms`；自动标题不能覆盖 `manual=1`。钩子或写库异常只记 `session_title_failed` issue，不停游标。
+`SessionAdapter.sourceTitle?(state, file)` 是批末同步钩子，返回的 `SessionTitle.sessionId` 由适配器按自己的作用域判定；ingest 用 `sessionConvKey()` 生成 `conv_key`，不从最后一步 apply 猜会话身份。钩子只在没有坏行阻断的批次里跑，位置在 `flush` 与 `afterFile` 之间。标题、手动标记或证据没变时不刷新 `observed_ms`；自动标题不能覆盖 `manual=1`。钩子或写库异常只记 `session_title_failed` issue，不停游标。
 
-元数据来源不依赖 `sanitizedPayload`：zcode 的 `storesRaw:false` 从本地 SQLite 读根会话 `title`，grok 同步读 `summary.json`。标题不写 `request`、不写 `request_evidence`、不标脏 `derive_queue`，也不改 purpose 列。
+元数据来源不依赖 `sanitizedPayload`：zcode 的 `storesRaw:false` 在 `read()` 里连根会话 `title` 与根会话 id 一起交给批末状态，grok 同步读 `summary.json`，两者都不另开第二条连接在批末重算归属。标题不写 `request`、不写 `request_evidence`、不标脏 `derive_queue`，也不改 purpose 列。
 
 ### 3. 读路径
 
@@ -87,7 +87,7 @@ v17 建表不动 `request`，不回填存量标题。文件没有新增字节时
 
 ## Testing
 
-2026-11-10 合成数据验收：12 个受影响窄测试文件 187 pass / 0 fail / 985 expect，`bun run typecheck` 通过。覆盖 v16→v17 additive 迁移、七家标题写入、重复 claude `ai-title` 不刷新观察时间、omp 两次 `title_change` 与 dsh fallback→provider 各留一行且 `title_ms` 取最新、droid manual 优先、zcode/grok 脱敏、子代理与 seed 作用域、读侧 full/light/getSessionTitles 一致、dirty 组可见、删空来源标题后旧候选仍受原闸门约束、查询计划仍走 `i_req_session_time` 且不出现 `SCAN request`。本轮没有部署生产，没有真实流量验收，也没有存量回填；生产副本换名/变短/退兜底统计与上线另行授权。合成结果见[验收记录](../../../../docs/acceptance.md)。
+2026-11-10 合成数据验收：12 个受影响窄测试文件 195 pass / 0 fail / 1003 expect，`bun run typecheck` 通过。覆盖 v16→v17 additive 迁移、七家标题写入、重复 claude `ai-title` 不刷新观察时间、omp 两次 `title_change` 与 dsh fallback→provider 各留一行且 `title_ms` 取最新、droid manual 优先、zcode/grok 脱敏、子代理与 seed 作用域、读侧 full/light/getSessionTitles 一致、dirty 组可见、删空来源标题后旧候选仍受原闸门约束、查询计划仍走 `i_req_session_time` 且不出现 `SCAN request`。本轮没有部署生产，没有真实流量验收，也没有存量回填；生产副本换名/变短/退兜底统计与上线另行授权。合成结果见[验收记录](../../../../docs/acceptance.md)。
 
 ## Alternatives considered
 

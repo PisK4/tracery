@@ -105,6 +105,7 @@ export const droidSessionAdapter: SessionAdapter = {
     if (session === null || session.callingSessionId !== null || session.title === null) return null;
     return {
       text: session.title,
+      sessionId: session.id,
       atMs: null,
       manual: session.isSessionTitleManuallySet,
       ref: `${file.name}:session_start`,

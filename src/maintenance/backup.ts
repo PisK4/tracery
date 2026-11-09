@@ -319,7 +319,7 @@ type BundleManifest = {
 
 /** 恢复后必须能读的关键表；迁移没覆盖到的旧结构在这里现形。 */
 const RESTORE_PROBE_TABLES = [
-  'request', 'request_evidence', 'pending_hook', 'derive_queue', 'collector_state',
+  'request', 'request_evidence', 'pending_hook', 'derive_queue', 'collector_state', 'session_title',
 ] as const;
 
 /**

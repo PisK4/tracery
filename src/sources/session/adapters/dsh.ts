@@ -22,7 +22,7 @@ import type {
   SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionParseResult, SessionTitle,
   SessionUsage,
 } from '../types';
-import { canonicalSessionId, sessionConvKey } from '../types';
+import { canonicalSessionId, sessionConvKey, titleTextOf } from '../types';
 import { expandHome } from './pi-jsonl';
 import { discoverDsh, dshZstdRead } from './dsh-read';
 
@@ -41,6 +41,7 @@ type DshState = {
   seedDone: boolean;
   messages: DshMessage[];
   title: string | null;
+  titleSessionId: string | null;
   titleMs: number | null;
   titleSourceKind: string | null;
   titleSeq: number | null;
@@ -188,12 +189,13 @@ function applyEvent(
       return applyResult(state);
     case 'title': {
       if (state.subagentId !== null || (state.seeding && !state.seedDone)
-        || (state.version < 2 && line.seq !== null && line.seq < state.seedLength)) {
+        || state.isSeeded) {
         return applyResult(state);
       }
-      const title = textOf(line.data.title);
+      const title = titleTextOf(line.data.title);
       if (title !== null) {
         state.title = title;
+        state.titleSessionId = state.sessionId;
         state.titleMs = event.atMs;
         const source = isRecord(line.data.source) ? line.data.source : null;
         state.titleSourceKind = source === null ? null : textOf(source.kind);
@@ -277,7 +279,7 @@ export const dshAdapter: SessionAdapter = {
     return {
       sessionId: null, subagentId: null, parentSessionId: null, cwd: null, model: null,
       version: 0, isSeeded: false, seedLength: 0, seeding: false, seedDone: true, messages: [],
-      title: null, titleMs: null, titleSourceKind: null, titleSeq: null,
+      title: null, titleSessionId: null, titleMs: null, titleSourceKind: null, titleSeq: null,
     };
   },
 
@@ -287,9 +289,11 @@ export const dshAdapter: SessionAdapter = {
 
   sourceTitle(state, file): SessionTitle | null {
     const current = state as DshState;
-    if (current.title === null || current.subagentId !== null) return null;
+    if (current.title === null || current.titleSessionId === null
+      || current.subagentId !== null || current.isSeeded) return null;
     return {
       text: current.title,
+      sessionId: current.titleSessionId,
       atMs: current.titleMs,
       ref: `${file.name}:seq:${current.titleSeq ?? 0}`,
       facts: { sourceKind: current.titleSourceKind },

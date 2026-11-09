@@ -25,7 +25,7 @@ import { recordIssue } from '../../../reconcile';
 import type {
   SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionParseResult, SessionTitle,
 } from '../types';
-import { canonicalSessionId, sessionConvKey } from '../types';
+import { canonicalSessionId, sessionConvKey, titleTextOf } from '../types';
 
 const HISTORY = 'chat_history.jsonl';
 const USAGE = 'usage.json';
@@ -39,11 +39,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function textOf(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
-}
-
-function titleTextOf(value: unknown): string | null {
-  const text = textOf(value);
-  return text === null || text.trim().length === 0 ? null : text;
 }
 
 /** 只认有限数；usage.json 的计数偶尔会是字符串或 null，不猜。 */
@@ -182,6 +177,16 @@ function summaryOf(file: SessionFile): GrokSummary {
     titleField: generated !== null ? 'generated_title'
       : summary !== null ? 'session_summary' : null,
   };
+}
+
+/** 批末标题单独读一次：summary 坏了要记 issue，不让 emptyState 的容错吞掉。 */
+function titleOf(file: SessionFile): { title: string; field: string } | null {
+  const parsed: unknown = JSON.parse(readFileSync(summaryPath(file), 'utf8'));
+  if (!isRecord(parsed)) throw new Error('grok_summary_invalid');
+  const generated = titleTextOf(parsed.generated_title);
+  const summary = titleTextOf(parsed.session_summary);
+  if (generated !== null) return { title: generated, field: 'generated_title' };
+  return summary === null ? null : { title: summary, field: 'session_summary' };
 }
 
 /** 把 chat_history 的一行映射成重建正文里的一条消息；不认识的形状跳过。 */
@@ -398,13 +403,14 @@ export const grokAdapter: SessionAdapter = {
   },
 
   sourceTitle(_state, file): SessionTitle | null {
-    const meta = summaryOf(file);
-    if (meta.title === null) return null;
+    const meta = titleOf(file);
+    if (meta === null) return null;
     return {
       text: meta.title,
+      sessionId: sessionIdOf(file),
       atMs: null,
-      ref: `${summaryPath(file)}:${meta.titleField ?? ''}`,
-      facts: { titleField: meta.titleField },
+      ref: `${summaryPath(file)}:${meta.field}`,
+      facts: { titleField: meta.field },
     };
   },
 
