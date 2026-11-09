@@ -15,8 +15,9 @@
 
 import { esc } from './html.js';
 import { t } from './i18n.js';
+import { icon } from './icons.js';
 import { motion } from './motion.js';
-import { baseNameOf, isPathKind, kk, partLabel, partRank, partShade } from './parts.js';
+import { baseNameOf, isPathKind, kk, partColor, partLabel, partRank } from './parts.js';
 
 /** px²：item 布局面积低于此值并入成员集合（≥2 块才并；并完一类无保留块时整类一块）。 */
 const MERGE_AREA = 950;
@@ -24,12 +25,9 @@ const MERGE_AREA = 950;
 const SPLIT_MIN_EDGE = 24;
 /** 绘制间隙（px）：布局坐标不含间隙，绘制时从每块四周各扣一半。 */
 export const MAP_GAP = 2;
-/** 文字可见阈值：宽度或高度低于行高需求时依次隐藏数值行与全部文字。 */
-const NAME_MIN_H = 24;
-const BOTH_MIN_H = 44;
-const BOTH_MIN_W = 47;
-/** 数值展示预算：只给份额前几名，避免小块逐块标数；完整读数仍在 aria 与图例。 */
-const VALUE_BUDGET = 4;
+/** 文字可见阈值：放得下名字才显示文件名，放得下读数才显示 token 与占比。 */
+const NAME_MIN_W = 30, NAME_MIN_H = 18;
+const VALUE_MIN_W = 50, VALUE_MIN_H = 32;
 
 /** item 的稳定身份：tile、列表行与点击明细共用的匹配键。 @param {string} kind @param {PromptItem} it */
 export const iidOf = (kind, it) => `${kind}\u0001${it.tag ?? ''}\u0001${it.name}`;
@@ -181,18 +179,19 @@ export function tilesOf(p, W, H) {
 /**
  * tile 的展示规格：几何（扣间隙）、文字取舍与 aria 由布局一次算好，
  * 字符串与 DOM 两条渲染路径共用同一份，避免两处各算一套。
+ * 文字按真实像素判定：放不下名字只留色块，信息由 title 与构成明细承担。
  * @param {ReturnType<typeof tilesOf>[number]} tile @param {number} sum
  */
 function tileSpec(tile, sum) {
   const half = MAP_GAP / 2;
   const x = tile.x + half, y = tile.y + half;
   const w = Math.max(0, tile.w - MAP_GAP), h = Math.max(0, tile.h - MAP_GAP);
-  const bare = w < BOTH_MIN_W || h < NAME_MIN_H;
-  const low = !bare && h < BOTH_MIN_H;
+  const showName = h >= NAME_MIN_H && w >= NAME_MIN_W;
+  const showValue = h >= VALUE_MIN_H && w >= VALUE_MIN_W;
   const its = tile.its.map(it => iidOf(tile.kind, it)).join('\u0002');
   const label = tile.item !== null ? `${partLabel(tile.kind)} · ${itemLabel(tile.item)}` : tile.name;
   return {
-    x, y, w, h, bare, low, its,
+    x, y, w, h, showName, showValue, its,
     aria: t('{label}，{tokens} tokens，占提示总量 {pct}%，打开明细', { label, tokens: tile.tokens.toLocaleString('en-US'), pct: Math.round(tile.tokens / sum * 100) }),
   };
 }
@@ -209,17 +208,11 @@ export function contextMapInnerHtml(p, W, H, reqId) {
   const tiles = tilesOf(p, W, H);
   if (tiles.length === 0) return '';
   const sum = p.parts.reduce((a, x) => a + Math.max(0, x.tokens), 0) || 1;
-  // 同值按稳定身份键定序，避免容器尺寸变化时前几名在并列份额间跳动。
-  const topValueKeys = new Set([...tiles]
-    .sort((a, b) => b.tokens - a.tokens || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
-    .slice(0, VALUE_BUDGET)
-    .map(t => t.key));
   return tiles.map(t => {
     const s = tileSpec(t, sum);
-    const showValue = topValueKeys.has(t.key) && !s.bare && !s.low;
-    return `<button type="button" class="ctx-tile${s.bare ? ' bare' : s.low ? ' low' : ''}" style="left:${s.x}px;top:${s.y}px;width:${s.w}px;height:${s.h}px;--c:${partShade(t.tokens, sum)}" data-ctx-key="${esc(t.key)}" data-ctx-kind="${esc(t.kind)}" data-ctx-its="${esc(s.its)}" data-ctx-scope="${t.scope}" data-ctx-req="${reqId}" aria-label="${esc(s.aria)}" title="${esc(s.aria)}">` +
-      `<span class="ctx-tname">${esc(t.name)}</span>` +
-      (showValue ? `<span class="ctx-tval">${kk(t.tokens)} · ${Math.round(t.tokens / sum * 100)}%</span>` : '') +
+    return `<button type="button" class="ctx-tile${s.showName ? '' : ' bare'}" style="left:${s.x}px;top:${s.y}px;width:${s.w}px;height:${s.h}px;--c:${partColor(t.kind)}" data-ctx-key="${esc(t.key)}" data-ctx-kind="${esc(t.kind)}" data-ctx-its="${esc(s.its)}" data-ctx-scope="${t.scope}" data-ctx-req="${reqId}" aria-label="${esc(s.aria)}" title="${esc(s.aria)}">` +
+      (s.showName ? `<span class="ctx-tname">${esc(t.name)}</span>` : '') +
+      (s.showValue ? `<span class="ctx-tval">${kk(t.tokens)} · ${Math.round(t.tokens / sum * 100)}%</span>` : '') +
       `</button>`;
   }).join('');
 }
@@ -258,18 +251,13 @@ export function fillContextMap(container, p, reqId) {
   lastMapContent = content;
   if (tiles.length === 0) { tileCache.clear(); container.replaceChildren(); return; }
   const sum = p.parts.reduce((a, x) => a + Math.max(0, x.tokens), 0) || 1;
-  const topValueKeys = new Set([...tiles]
-    .sort((a, b) => b.tokens - a.tokens || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
-    .slice(0, VALUE_BUDGET)
-    .map(t => t.key));
   const kept = new Set();
   for (const t of tiles) {
     const s = tileSpec(t, sum);
-    const showValue = topValueKeys.has(t.key) && !s.bare && !s.low;
     const cached = tileCache.get(t.key);
     const el = cached !== undefined ? cached.el : document.createElement('button');
     el.type = 'button';
-    el.className = `ctx-tile${s.bare ? ' bare' : s.low ? ' low' : ''}`;
+    el.className = `ctx-tile${s.showName ? '' : ' bare'}`;
     el.setAttribute('data-ctx-key', t.key);
     el.setAttribute('data-ctx-kind', t.kind);
     el.setAttribute('data-ctx-its', s.its);
@@ -279,9 +267,9 @@ export function fillContextMap(container, p, reqId) {
     el.setAttribute('title', s.aria);
     el.style.left = `${s.x}px`; el.style.top = `${s.y}px`;
     el.style.width = `${s.w}px`; el.style.height = `${s.h}px`;
-    el.style.setProperty('--c', partShade(t.tokens, sum));
-    el.innerHTML = `<span class="ctx-tname">${esc(t.name)}</span>` +
-      (showValue ? `<span class="ctx-tval">${kk(t.tokens)} · ${Math.round(t.tokens / sum * 100)}%</span>` : '');
+    el.style.setProperty('--c', partColor(t.kind));
+    el.innerHTML = (s.showName ? `<span class="ctx-tname">${esc(t.name)}</span>` : '')
+      + (s.showValue ? `<span class="ctx-tval">${kk(t.tokens)} · ${Math.round(t.tokens / sum * 100)}%</span>` : '');
     container.append(el);
     if (cached === undefined) {
       motion(el, { opacity: [0, 1] }, 0.18, { clean: true });
@@ -301,9 +289,9 @@ export function fillContextMap(container, p, reqId) {
 }
 
 /**
- * 内容列表：全部类别的 item 跨类按 token 降序，默认前 8 行，其余折叠在
- * 「显示全部」里（details 的开合走既有 data-fold 恢复机制）。行是已保存条目，
- * 数量词写明条目口径，不冒充原始文件或调用总数。无 item 时返回空串。
+ * 构成明细：默认收起为一行「构成明细 · 全部 N 项」，展开后按 token 降序列出
+ * 全部叶子（名称过长省略、块内不换行）。行是已保存条目，数量词写明条目口径，
+ * 不冒充原始文件或调用总数。开合走既有 data-fold 恢复机制。无 item 时返回空串。
  * @param {PromptReading} p
  * @param {number} reqId
  * @returns {string}
@@ -333,10 +321,8 @@ export function contextRowsHtml(p, reqId) {
       <span class="v">${kk(it.tokens)}</span>
     </button>`;
   };
-  const head = rows.slice(0, 8).map(rowHtml).join('');
-  const tail = rows.slice(8);
-  const more = tail.length > 0
-    ? `<details class="ctx-more" data-fold="ctxmore:${reqId}"><summary><span class="when-closed">${t('显示全部 {n} 个已保存条目', { n: rows.length })}</span><span class="when-open">${t('收起')}</span></summary><div class="ctx-rows">${tail.map(rowHtml).join('')}</div></details>`
-    : '';
-  return `<div class="ctx-rows">${head}</div>${more}`;
+  return `<details class="ctx-more" data-fold="ctxmore:${reqId}">
+    <summary>${icon('layers', 11)}<span class="when-closed">${t('构成明细')} · ${t('全部 {n} 项', { n: rows.length })}</span><span class="when-open">${t('收起构成明细')}</span></summary>
+    <div class="ctx-rows">${rows.map(rowHtml).join('')}</div>
+  </details>`;
 }

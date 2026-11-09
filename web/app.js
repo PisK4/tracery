@@ -19,6 +19,7 @@ import {
 import { agentLogoHtml, setAgentLogoFetcher } from './agent-logos.js';
 import { backendStateHtml } from './backend-state.js';
 import { esc } from './html.js';
+import { applyHost, hostOf } from './host.js';
 import { icon } from './icons.js';
 import { motion, settled, prefersReducedMotion } from './motion.js';
 import { partLabel } from './parts.js';
@@ -32,8 +33,8 @@ import { fillContextMap, iidOf, itemLabel } from './context-map.js';
 import { createContextMenu, iidParse } from './context-detail.js';
 import {
   evidenceFoldHtml, kk, ledgerRowsHtml, railFactsHtml, readingChangedNote, renderAttemptChain,
-  resolveSelectedSource, structureFoldHtml, structureMoreParts, structureUnread, systemContextOf, toolOverviewHtml,
-  toolSchemaSection, usageFoldHtml,
+  replyFoldHtml, resolveSelectedSource, structureFoldHtml, structureMoreParts, structureUnread,
+  systemContextOf, toolOverviewHtml, toolSchemaSection, usageFoldHtml,
 } from './rail-facts.js';
 import { compact, EXEC_MS_HINT, secs } from './duration.js';
 import { summaryParts, summaryTargets } from './tool-summary.js';
@@ -56,7 +57,8 @@ import { effectiveView, isAuxRow, isEmptyGroup, projectSteps, projectTailReply, 
 import { renderTurnBand, renderTurnRail, renderTurnRailHead } from './turn-band.js';
 import { demoFromParam, expandFromParam, railTabFromParam, railTabParam, resolveTraceTarget, summaryKindFromParam, traceIdFromParam } from './url-route.js';
 import { RAIL_TABS } from './rail-tabs.js';
-import { todoTabHtml } from './todo-tab.js';
+import { todoOpenCount, todoTabHtml } from './todo-tab.js';
+import { selectionOf, turnUsageOf } from './usage-donuts.js';
 
 if (typeof document !== 'undefined') {
   // store 是唯一的读取缓存：页面同步渲染经 peek* 消费，副本不作第二份真相。
@@ -76,6 +78,8 @@ if (typeof document !== 'undefined') {
       onSessionsChanged: () => { renderSessions(); renderFilters(); renderMain(); } });
   /** @type {Map<string, boolean>} 折叠开合按稳定键保存（键含 req id），重绘后恢复。 */
   const folds = new Map();
+  /** @type {{side: 'token' | 'time', key: string, reqId: number} | null} 双圆环图例的选中分类；只对当前请求生效。 */
+  let usageSel = null;
   /** @type {Map<number, number>} 结构折叠内选中的消息 ord 按 req id 保存：UI 选择留在页面，不进 store。 */
   const structureSelected = new Map();
   /**
@@ -114,6 +118,9 @@ if (typeof document !== 'undefined') {
   const mainView = createMainView(el('main'), { shouldEnter: () => state.revealed });
 
   const qp = new URLSearchParams(location.search);
+  /** 宿主接缝：`?host=desktop` 只决定窗口外壳与顶栏，不参与选择路由。 */
+  const host = hostOf(location.search);
+  applyHost(host);
   // 拍摄直达参数：demo 静默、cue-board 展开、summary 组清单与轮锚点都只消费一次；
   // trace 与 turn 同时给出时 trace 优先，turn 不再改写选中请求。
   const demoMode = demoFromParam(qp.get('demo'));
@@ -160,6 +167,9 @@ if (typeof document !== 'undefined') {
     refreshedAt: /** @type {number | null} */ (null),
     /** 首载窗口是否已准备完成：完成后提交不再以选中组为锚，加载后续不重复居中。 */
     revealed: false,
+    /** 会话指标详情两级开合：外层整块、内层全部明细。切会话都复位为收起。 */
+    cueOpen: false,
+    kpiMore: false,
   };
   /** 导航代次与用户选择代次分别守卫异步导航的收尾。 */
   let navEpoch = 0;
@@ -188,6 +198,20 @@ if (typeof document !== 'undefined') {
     void /** @type {HTMLElement} */ (target).offsetWidth;
     target.classList.add(className);
     setTimeout(() => target.classList.remove(className), ms);
+  }
+
+  /**
+   * 刷新按钮的图标转一圈：只转图标，不转按钮；节点随重绘被替换，所以用
+   * animationend 收尾而不靠定时器。减少动效时直接不转。
+   * @param {Element | null} button
+   */
+  function spinIcon(button) {
+    const art = button === null ? null : button.querySelector('.ico');
+    if (art === null || prefersReducedMotion()) return;
+    art.classList.remove('is-spinning');
+    void /** @type {HTMLElement} */ (art).getBoundingClientRect();
+    art.classList.add('is-spinning');
+    art.addEventListener('animationend', () => art.classList.remove('is-spinning'), { once: true });
   }
   /**
    * 发意图经纯转换改写选择元组并执行效果：所有选择写入都走这里，
@@ -705,6 +729,8 @@ if (typeof document !== 'undefined') {
       view,
       spawnFrom: typeof view === 'number' ? state.spawnFrom : null,
       viewOptions: viewOptionsOf(rows),
+      cueOpen: state.cueOpen,
+      kpiMore: state.kpiMore,
     });
   }
 
@@ -1011,6 +1037,34 @@ if (typeof document !== 'undefined') {
     return store.peekTurns().items.find(item => item.turn === n) ?? null;
   }
 
+  /** 待办页签徽标：未完成项数量；读数未就绪、没有轮次或本轮没有待办时不显示。 */
+  function todoBadgeCount() {
+    if (state.turn === null) return 0;
+    return todoOpenCount(store.peekTodoByTurn());
+  }
+
+  /**
+   * 当前请求所在轮的请求集合：轮次两端 `started_ms` 区间圈同轮请求，与
+   * `turnRequestIds` 同一条规则；不在任何已结算轮里时退化为这一笔。
+   * 只读已载入窗口与已缓存详情，不发起读取。
+   * @param {RequestRow} r
+   */
+  function turnRowsOf(r) {
+    const rows = currentRows();
+    const turns = store.peekTurns();
+    if (turns.status !== 'ready') return [r];
+    const startedOf = (/** @type {number} */ id) => rows.find(row => row.req_id === id)?.started_ms ?? null;
+    for (const turn of turns.items) {
+      const start = startedOf(turn.start_req);
+      const end = startedOf(turn.reply_req);
+      if (start === null || end === null) continue;
+      if (r.started_ms >= start && r.started_ms <= end) {
+        return rows.filter(row => row.started_ms >= start && row.started_ms <= end);
+      }
+    }
+    return [r];
+  }
+
   /** 轮次带：会话头与轨迹之间的一条目录层；无就绪轮次整条不渲染。 */
   function turnBandHtml() {
     const turns = store.peekTurns();
@@ -1178,8 +1232,17 @@ if (typeof document !== 'undefined') {
 
   function railHead() {
     // 页签行在两种阅读态都可见：轮次作用域页签（Todo）在轮次态也要能点。
+    // role=tablist 配 aria-selected 与 aria-controls；tab 序只留当前页签（roving tabindex）。
+    const todoCount = todoBadgeCount();
     const tabs = `<div class="rail-tabs" role="tablist">
-      ${RAIL_TABS.map(tab => `<button role="tab" data-rail="${esc(tab.id)}" aria-pressed="${state.railTab === tab.id}">${t(tab.label)}</button>`).join('')}
+      ${RAIL_TABS.map(tab => {
+        const active = state.railTab === tab.id;
+        const badge = tab.id === 'todo' && todoCount > 0
+          ? `<span class="rail-tab-count">${todoCount}</span>` : '';
+        return `<button role="tab" id="rail-tab-${tab.id}" data-rail="${esc(tab.id)}"`
+          + ` aria-selected="${active}" aria-controls="rail-body" tabindex="${active ? '0' : '-1'}"`
+          + ` title="${t(tab.label)}">${icon(tab.icon, 13)}<span>${t(tab.label)}</span>${badge}</button>`;
+      }).join('')}
     </div>`;
     if (state.turn !== null) {
       const turn = turnOf(state.turn);
@@ -1273,17 +1336,7 @@ if (typeof document !== 'undefined') {
           ${canLoad ? `<div class="conv-tools"><button class="chip-btn ico" data-body-load="${r.req_id}" aria-label="${t('读取正文')}" title="${t('读取正文')}">${icon('read', 20)}</button></div>` : ''}</div>
       </details>`;
     } else {
-      const cls = completeness.key === 'absent' ? 'bad' : 'warn';
-      const right = completeness.key !== 'complete'
-        ? `<span class="fold-count ${cls}">${esc(completeness.label)}</span>`
-        : view.finish !== null ? `<span class="fold-count">finish: ${esc(view.finish)}</span>` : '';
-      const truncNote = completeness.key === 'truncated'
-        ? `<p class="rail-note">${t('回复在长度上限被截断（finish={finish}）。这是成功响应内的完整性状态，请求本身仍算成功。', { finish: esc(view.finish ?? '') })}</p>`
-        : '';
-      replyHtml = `<details class="rail-fold" data-fold="reply:${r.req_id}" open>
-        <summary>${t('本次回复')}${right}</summary>
-        <div class="fold-body">${renderReply(view, tools, String(r.req_id))}${truncNote}</div>
-      </details>`;
+      replyHtml = replyFoldHtml(view, tools, r.req_id, completeness);
     }
     // 选中消息行时结构折叠展开，列表里高亮这条消息；详情只由结构列表内的点击
     // 打开（structureSelected），中栏点击不落进详情。用户之后仍可收起（folds 的
@@ -1313,9 +1366,20 @@ if (typeof document !== 'undefined') {
       evidenceHtml: source.side === 'evidence' || emptySelected ? evidenceFoldHtml(r, detail, meta) : '',
       replyHtml, structureHtml,
       capabilitiesHtml: meta !== null ? renderCapabilities(meta) : '',
-      usageHtml: usageFoldHtml(r, detail, meta),
+      usageHtml: usageFoldHtml(r, detail, meta, usageOf(r)),
       completenessHtml: completenessSection(r),
     });
+  }
+
+  /**
+   * 双圆环读数：轮内请求集合按 `started_ms` 区间圈出（与 `turnRequestIds`
+   * 同一条规则），详情只取已缓存的那几笔。选中高亮是瞬时阅读态，随重绘传入。
+   * @param {RequestRow} r
+   */
+  function usageOf(r) {
+    const rows = turnRowsOf(r);
+    const usage = turnUsageOf(rows, id => store.peekRequest(id)?.detail ?? null);
+    return { ...usage, selected: usageSel !== null && usageSel.reqId === r.req_id ? usageSel : null };
   }
 
   /** 窗口内用请求序号称呼，窗口外保留稳定 req_id 并标注。 @param {number} id */
@@ -1678,7 +1742,21 @@ if (typeof document !== 'undefined') {
     lastRailTab = state.railTab;
     lastRailPhase = phase;
     wireContextMap();
+    applyUsageDim();
     armSpider();
+  }
+
+  /**
+   * 跨图选中落到树状图：图例点选后两张圆环与时间轴已按选中态渲染，
+   * 瓦片按同一分类压暗（Token 侧选中时）；没选中或选的是耗时侧时全部复原。
+   * 只改样式，不重排布局、不重读正文。
+   */
+  function applyUsageDim() {
+    const sel = usageSel !== null && usageSel.reqId === state.reqId && usageSel.side === 'token'
+      ? usageSel.key : null;
+    for (const tile of document.querySelectorAll('#rail-body .ctx-tile')) {
+      tile.classList.toggle('is-dim', sel !== null && tile.getAttribute('data-ctx-kind') !== sel);
+    }
   }
 
   /**
@@ -2156,6 +2234,8 @@ if (typeof document !== 'undefined') {
 
   function updateURL() {
     const p = new URLSearchParams();
+    // 宿主接缝跟着选择路由走：外壳里刷新或换页签不能把自己退回浏览器样式。
+    if (host === 'desktop') p.set('host', 'desktop');
     if (state.session) p.set('session', state.session);
     // 保留 URL 里那个"不在当前窗口"的 id，刷新后还能看到同一条说明。
     const trace = state.reqId ?? state.missingReqId ?? state.offPageReqId;
@@ -2203,6 +2283,9 @@ if (typeof document !== 'undefined') {
     state.spawnFrom = null;
     // 换会话不复用上一场的准备结论与保留投影：它们只服务当场阅读。
     resetReading();
+    // 指标详情是当场阅读态：切会话两级都复位为收起。
+    state.cueOpen = false;
+    state.kpiMore = false;
     if (hold) beginSwitchHold();
     else renderMain();
     const loading = store.selectSession(key, windowLimit());
@@ -2269,6 +2352,13 @@ if (typeof document !== 'undefined') {
 
   document.addEventListener('click', (e) => {
     const target = /** @type {HTMLElement} */ (e.target);
+    // 指标详情展开时点卡片外收起整块；详情内部点击不收，避免选词时被关掉。
+    // 先记状态、本次点击处理完再重绘，节点不在事件中途被替换。
+    if (state.cueOpen && target.closest('.cue-board') === null) {
+      state.cueOpen = false;
+      state.kpiMore = false;
+      queueMicrotask(() => renderMain());
+    }
     // 多目标计数：点一下就地开合弹层，且不触发行选中（触屏没有悬停，点击是唯一入口）。
     const moreChip = /** @type {HTMLElement | null} */ (target.closest('[data-more-key]'));
     if (moreChip !== null) {
@@ -2277,6 +2367,18 @@ if (typeof document !== 'undefined') {
     }
     // 降级标签本身是重新读取入口，标签随读取重建，统一走委托。
     if (target.closest('#backend-state')) { void refreshBackendState(); return; }
+    // 会话指标两级开合：外层整块与内层全部明细都只改展示态，不触发读取。
+    if (target.closest('[data-cue-toggle]')) {
+      state.cueOpen = !state.cueOpen;
+      if (!state.cueOpen) state.kpiMore = false;
+      renderMain();
+      return;
+    }
+    if (target.closest('[data-kpi-more]')) {
+      state.kpiMore = !state.kpiMore;
+      renderMain();
+      return;
+    }
     // 上下文明细：tile、图例与列表行带同一组 data-ctx-*，统一从这里解析范围。
     // 范围以统计为准（kind + item 身份），集合块与整类按类别取目录。
     const ctxSource = /** @type {HTMLElement | null} */ (target.closest('[data-ctx-kind]'));
@@ -2321,7 +2423,12 @@ if (typeof document !== 'undefined') {
     if (target.closest('#copy-session')) { void copySessionId(); return; }
     if (target.closest('summary')) return;
     if (target.closest('#load-later')) { void loadLater(); return; }
-    if (target.closest('#refresh-window')) { void refreshWindow(); return; }
+    if (target.closest('#refresh-window')) {
+      // 刷新是重建窗口的显式动作：图标转一圈给即时反馈，减少动效时不转。
+      spinIcon(target.closest('#refresh-window'));
+      void refreshWindow();
+      return;
+    }
     if (target.closest('#jump-opposite')) {
       const button = /** @type {HTMLButtonElement} */ (target.closest('#jump-opposite'));
       if (state.windowJumping) return;
@@ -2485,6 +2592,25 @@ if (typeof document !== 'undefined') {
     }
     const railReply = target.closest('[data-rail-reply]');
     if (railReply !== null) { dispatch({ kind: 'clear-step' }); return; }
+    // 双圆环图例：点一行点亮同一分类，再点取消；只改阅读态，不重读正文。
+    const usageRow = /** @type {HTMLElement | null} */ (target.closest('.sp-row[data-cat]'));
+    if (usageRow !== null) {
+      const picked = selectionOf(usageRow);
+      const reqId = state.reqId;
+      if (picked !== null && reqId !== null) {
+        const same = usageSel !== null && usageSel.reqId === reqId
+          && usageSel.side === picked.side && usageSel.key === picked.key;
+        usageSel = same ? null : { ...picked, reqId };
+        renderRail();
+      }
+      return;
+    }
+    // 本次回复折叠底部的正文入口：切到正文页签，右栏按整份回复呈现。
+    const railGoto = /** @type {HTMLElement | null} */ (target.closest('[data-rail-goto]'));
+    if (railGoto !== null) {
+      dispatch({ kind: 'select-tab', tab: 'body' });
+      return;
+    }
     const copyMsg = /** @type {HTMLElement | null} */ (target.closest('[data-copy-msg]'));
     if (copyMsg !== null) {
       const ord = Number(copyMsg.dataset.copyMsg);
@@ -2567,11 +2693,12 @@ if (typeof document !== 'undefined') {
       // 页签点击是明确的阅读动作：路由读取经转换统一发出，失败保留未读可重试。
       dispatch({ kind: 'select-tab', tab: String(rail.dataset.rail ?? '') });
       // 下划线从左生长一次：瞬态类只挂用户点击，重绘重建的按钮不重播。
-      markFresh(document.querySelector('.rail-tabs button[aria-pressed="true"]'), 'tab-fresh', 220);
+      markFresh(document.querySelector('.rail-tabs button[aria-selected="true"]'), 'tab-fresh', 220);
       return;
     }
     if (target.closest('#refresh-sessions')) {
       // 显式刷新是目录聚合的两个触发点之一（另一个是启动）；列表重读第一页并合并去重。
+      spinIcon(target.closest('#refresh-sessions'));
       void store.loadSessionAgents();
       void store.loadSessions().then(() => {
         renderSessions(); renderFilters();
@@ -2738,6 +2865,25 @@ if (typeof document !== 'undefined') {
 
   document.addEventListener('keydown', (e) => {
     const target = /** @type {HTMLElement} */ (e.target);
+    // 页签是导航：方向键切换、Home/End 到首尾、Enter/Space 激活（浏览器已对 button 处理）。
+    const tab = target.closest('.rail-tabs [role="tab"]');
+    if (tab !== null) {
+      const index = RAIL_TABS.findIndex(item => item.id === tab.getAttribute('data-rail'));
+      const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      const next = e.key === 'Home' ? 0 : e.key === 'End' ? RAIL_TABS.length - 1
+        : step !== 0 ? (index + step + RAIL_TABS.length) % RAIL_TABS.length : -1;
+      if (next >= 0) {
+        e.preventDefault();
+        const targetTab = RAIL_TABS[next];
+        if (targetTab !== undefined) {
+          // select-tab 的 effects 同步重绘头部：焦点落在重建后的新页签上。
+          dispatch({ kind: 'select-tab', tab: targetTab.id });
+          document.getElementById(`rail-tab-${targetTab.id}`)?.focus();
+          markFresh(document.querySelector('.rail-tabs button[aria-selected="true"]'), 'tab-fresh', 220);
+        }
+        return;
+      }
+    }
     if (target.matches('input, textarea, summary')) return;
     // 行内启动点 chip 是 span（按钮里不能再嵌按钮），键盘入口由这里代理。
     if (e.key === 'Enter' || e.key === ' ') {
@@ -2758,13 +2904,19 @@ if (typeof document !== 'undefined') {
       if (contextMenu.isOpen()) { contextMenu.close(); return; }
       // 条目列表先于工具页退出：它是从折叠区临时打开的会话级视图。
       if (summaryList !== null) { summaryList = null; renderRail(); return; }
+      // 指标详情是页内两级开合：先收全部明细，再收整块。
+      if (state.kpiMore) { state.kpiMore = false; renderMain(); return; }
+      if (state.cueOpen) { state.cueOpen = false; renderMain(); return; }
       dispatch({ kind: 'close-tool', andTab: true });
     }
   });
 
   // 品牌回主页即整页重载：落地到无参数初始态（重读会话列表、选最新会话），
   // 比在页面里重置全部选择字段与在途导航更直接，「刷新」语义也是字面义。
-  el('brand-home').addEventListener('click', () => { location.href = location.pathname; });
+  // 桌面外壳的宿主参数不是选择状态，重载后仍要留在外壳里。
+  el('brand-home').addEventListener('click', () => {
+    location.href = location.pathname + (host === 'desktop' ? '?host=desktop' : '');
+  });
 
   // 视口宽度变化会改变会话头的换行高度：吸顶的轮次带跟着重贴。
   window.addEventListener('resize', syncBandTop);

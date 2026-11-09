@@ -14,13 +14,14 @@ import {
 } from './body-view.js';
 import { esc } from './html.js';
 import { icon } from './icons.js';
-import { isFixedKind, kk, partLabel, partShade } from './parts.js';
+import { isFixedKind, kk, partLabel } from './parts.js';
 import { contextMapShellHtml, contextRowsHtml } from './context-map.js';
 import { messagePathOf, replyView, topSystemText } from './body-model.js';
 import { isErrorText, loadStateText, pairStateText } from './trace-pair.js';
 import { bodyLabelText, bodyStateText } from './row-summary.js';
 import { secs, secsValue, tierOf, TIER_LIMITS } from './duration.js';
 import { t } from './i18n.js';
+import { usagePanelsHtml } from './usage-donuts.js';
 
 // 类别口径与 token 缩写的定义在 parts.js（与 context-map 共用），这里转发既有消费者。
 export { kk, partLabel };
@@ -187,7 +188,7 @@ export function structureFoldHtml(input) {
   const newCount = delta === null ? 0 : delta.size;
   const newLabel = newCount > 0 ? `<span class="fold-count new">${t('新增 {n}', { n: newCount })}</span>` : '';
   return `<details class="rail-fold" data-structure-fold="${reqId}" data-fold="structure:${reqId}"${open ? ' open' : ''}>
-    <summary>${t('请求结构')}<span class="fold-count">${esc(count)}</span>${newLabel}</summary>
+    <summary>${icon('layers', 12)}${t('请求结构')}<span class="fold-count">${esc(count)}</span>${newLabel}</summary>
     <div class="fold-body">${errorNote}${more}${body}</div>
   </details>`;
 }
@@ -571,36 +572,105 @@ export function contextStatsHtml(r, p, detail = null) {
 }
 
 /**
- * 用量与上下文折叠行（读数页末位，默认展开）：四个指标 → treemap → 图例 → 内容列表，
- * 最后是默认收起的「用量明细」（入/出/缓读/缓写/费用与 effort）。
- * 指标行已经回答「多少、多快」，逐项账本只是回看时偶尔要对数的账目，收进二级折叠
- * 把折叠行省下的高度留住。treemap 外壳在此渲染，tile 由 app.js 测量容器后填充；
- * 图例按 token 数降序。异常态才出标签：占用 ≥75% 出「接近占满」、≥90% 出「占满」，
- * 估算行（counted=false）出「本地估计」，两者都挂在指标行；正常态零状态提示。
- * 没有正值类别时不留空的图例容器，四个指标与缺失或估计说明保留。
+ * 缓存命中进圆环标题：单笔口径，与四格「提示词缓存」同一公式。
+ * 入与缓读取圆环中心那一笔，不拿当前请求的行去配别笔的读数。
+ * @param {number | null} cacheRead @param {number | null} inTok
+ */
+function tokenHitText(cacheRead, inTok) {
+  if (cacheRead === null || inTok === null) return '';
+  const total = cacheRead + inTok;
+  return total > 0 ? t('命中 {pct}%', { pct: Math.round(cacheRead / total * 100) }) : '';
+}
+
+/**
+ * 本次回复折叠：摘要只放 finish 与块数（完整性异常时按现有优先级换成短语），
+ * 展开后只有内容块索引与正文入口。完整正文只在正文页签出现一次：
+ * 输出 token、耗时、首 token 都在概要板与用量卡，不在这里重复。
+ * @param {import('./body-model.js').ReplyView} view
+ * @param {{ord: number, name: string, owner: number | null, result_label?: string | null}[]} tools
+ * @param {number} reqId
+ * @param {{key: string, label: string}} completeness
+ * @returns {string}
+ */
+export function replyFoldHtml(view, tools, reqId, completeness) {
+  const cls = completeness.key === 'absent' ? 'bad' : 'warn';
+  const meta = completeness.key !== 'complete'
+    ? `<span class="fold-count ${cls}">${esc(completeness.label)}</span>`
+    : [
+      view.finish !== null ? `<span class="fold-count">finish: ${esc(view.finish)}</span>` : '',
+      `<span class="fold-count">${t('{n} 块', { n: view.blocks.length })}</span>`,
+    ].filter(Boolean).join('');
+  const truncNote = completeness.key === 'truncated'
+    ? `<p class="rail-note">${t('回复在长度上限被截断（finish={finish}）。这是成功响应内的完整性状态，请求本身仍算成功。', { finish: esc(view.finish ?? '') })}</p>`
+    : '';
+  const rows = view.blocks.map(block => {
+    const call = block.kind === 'call'
+      ? tools.find(tool => tool.ord === block.index) ?? null : null;
+    const art = block.kind === 'thinking' ? icon('brain', 12)
+      : block.kind === 'call' ? icon('role-tool', 12) : '';
+    const link = call === null ? ''
+      : `<button type="button" class="fold-link" data-tool-owner="${call.owner ?? reqId}" data-call-ord="${call.ord}">${t('查看工具')}</button>`;
+    const kind = block.kind === 'thinking' ? t('思考') : block.kind === 'call' ? t('调用') : block.kind === 'result' ? t('结果') : t('正文');
+    return `<li class="reply-block ${block.kind}">${art}<div class="rb-body"><div class="rb-head"><span class="rb-kind">${kind}</span>${link}</div>`
+      + `<div class="rb-preview">${esc(block.text)}</div></div></li>`;
+  }).join('');
+  const index = rows === '' ? `<p class="note">${t('回复对象存在，但没有文本内容。')}</p>`
+    : `<ol class="reply-blocks">${rows}</ol>`;
+  return `<details class="rail-fold" data-fold="reply:${reqId}">
+    <summary>${icon('message-square', 12)}${t('本次回复')}${meta}</summary>
+    <div class="fold-body">${index}${truncNote}
+      <div class="conv-tools"><button class="chip-btn" data-rail-goto="body">${t('在正文查看完整回复')}</button></div>
+    </div>
+  </details>`;
+}
+
+/**
+ * 用量与上下文卡（读数页默认展开，末位）：四个指标 → 双圆环 → 矩阵树状图 →
+ * 构成明细（默认收起）→ 用量明细（默认收起）→ 脚注。
+ *
+ * 双圆环按选中的轮次读数，两条口径分开：Token 侧是轮次末笔请求的上下文构成
+ * （输入侧 prompt.parts + 输出侧分类），耗时侧是轮次活跃时长（Σ ms + Σ exec_ms）。
+ * 读数由装配层算好传入（`usage`）；缺输入侧分类时只画有的段，不按长度分摊。
+ * 指标行已经回答「多少、多快」，逐项账本只是回看时偶尔要对数的账目。
  * @param {RequestRow} r
  * @param {RequestDetail | null} detail
  * @param {BodyPage | null} [meta] 正文首片；effort 从 request_fields 取，未读到不显示该行
+ * @param {{
+ *   token: {segs: import('./usage-donuts.js').DonutSeg[], center: string, centerLabel: string,
+ *     cacheRead: number | null, reqId?: number | null, inTok?: number | null},
+ *   time: {segs: import('./usage-donuts.js').DonutSeg[], active: number, speed?: number | null},
+ *   selected?: {side: 'token' | 'time', key: string} | null,
+ *   scope?: string,
+ * } | null} [usage] 轮次口径的双圆环读数；null 表示装配层还没有可用轮次
  * @returns {string}
  */
-export function usageFoldHtml(r, detail, meta = null) {
+export function usageFoldHtml(r, detail, meta = null, usage = null) {
   const p = detail?.prompt ?? null;
   const list = /** @type {import('../src/queries/routes').RoutePromptPart[]} */ (p?.parts ?? []);
   const hasComp = p !== null && !(p.tokens === null && list.length === 0);
-  let comp = contextStatsHtml(r, p, detail);
-  if (hasComp) {
-    // Prompt.calibrate 按总量缩放各类并舍入，已估计的正值类别也可能得到 0；
-    // 零值与缺失类别在图例中均不可见，总量只保留总数口径。
-    const positive = list.filter(x => x.tokens > 0);
-    const sum = list.reduce((a, x) => a + x.tokens, 0) || 1;
-    const mapHtml = positive.length > 0 ? contextMapShellHtml(p, r.req_id) : '';
-    const rowsHtml = positive.length > 0 ? contextRowsHtml(p, r.req_id) : '';
-    const legend = positive.length > 0
-      ? `<div class="comp-legend">${[...positive].sort((a, b) => b.tokens - a.tokens).map(x => `<button type="button" class="name" data-ctx-kind="${esc(String(x.kind))}" data-ctx-req="${r.req_id}" aria-label="${t('{label}，打开明细', { label: esc(partLabel(String(x.kind))) })}"><span>${esc(partLabel(String(x.kind)))}</span></button>
-        <span class="val">${kk(x.tokens)}</span><span class="pct">${Math.round(x.tokens / sum * 100)}%</span>`).join('')}</div>`
-      : '';
-    comp += `${mapHtml}${legend}${rowsHtml}`;
-  }
+  const stats = contextStatsHtml(r, p, detail);
+  const positive = list.filter(x => x.tokens > 0);
+  // 块序按规范：四格 → 双圆环 → 矩阵树状图 → 构成明细（默认收起）。
+  const mapHtml = p !== null && positive.length > 0 ? contextMapShellHtml(p, r.req_id) : '';
+  const rowsHtml = p !== null && positive.length > 0 ? contextRowsHtml(p, r.req_id) : '';
+  const panels = usage === null ? '' : usagePanelsHtml({
+    token: {
+      segs: usage.token.segs,
+      center: usage.token.center,
+      centerLabel: usage.token.centerLabel,
+      side: tokenHitText(usage.token.cacheRead, usage.token.inTok ?? null),
+      title: t('Token 统计：轮次末笔请求的上下文构成，输入侧按 prompt.parts 分类，输出侧按该笔回复分类；中心是两者之和，不跨请求相加'),
+    },
+    time: {
+      segs: usage.time.segs,
+      center: secs(usage.time.active),
+      centerLabel: t('轮次活跃'),
+      side: usage.time.speed !== null && usage.time.speed !== undefined && usage.time.speed > 0
+        ? `${n(usage.time.speed)} tok/s` : '',
+      title: t('耗时统计：整个轮次的活跃时长，Σ ms + Σ exec_ms；只画有计时字段的阶段'),
+    },
+    selected: usage.selected ?? null,
+  });
   const hint = p === null || p.state === 'recomputed' ? '' : [
     t(({ recomputed: '当前结果', retained: '旧结果', missing: '缺失' })[p.state] ?? p.state),
   ].filter(Boolean).join(' · ');
@@ -617,11 +687,24 @@ export function usageFoldHtml(r, detail, meta = null) {
         <summary>${t('用量明细')}</summary>
         ${usageRows}${effortHtml}
       </details>`;
-  return `<details class="rail-fold" data-fold="prompt:${r.req_id}" open>
-    <summary>${t('用量与上下文')}</summary>
+  // 脚注只在 full 密度出现：compact 下会话头已经给过同样的三个数。
+  const ledger = ledgerParts(r, detail).usage;
+  const foot = `<div class="usage-foot">${
+    ['入', '出', '费用'].map(label => {
+      const value = label === '入' ? r.in_tok : label === '出' ? r.out_tok : (r.cost_state === 'priced' || r.cost_state === 'zero') ? r.cost : null;
+      const text = value === null ? '<i class="miss">—</i>'
+        : label === '费用' ? `$${fmtCost(/** @type {number} */ (value))}` : n(/** @type {number} */ (value));
+      return `<span class="uf" title="${t(label === '入' ? '输入 token，不含缓存读取与写入' : label === '出' ? '输出 token' : '费用（上游报告）')}">${text}<b>${t(label)}</b></span>`;
+    }).join('')
+  }</div>`;
+  return `<details class="rail-fold usage-card" data-fold="prompt:${r.req_id}" open>
+    <summary>${icon('ctx-gauge', 13)}${t('用量与上下文')}</summary>
     <div class="fold-body">
       ${hint !== '' ? `<p class="note">${esc(hint)}</p>` : ''}
-      ${comp}
+      ${stats}
+      ${panels}
+      ${mapHtml}${rowsHtml}
+      ${ledger === '' ? '' : foot}
       ${more}
       <p class="rail-note">${esc(note)}</p>
     </div>

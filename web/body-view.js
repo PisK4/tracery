@@ -313,11 +313,12 @@ export function renderCapabilities(page) {
   /**
    * @param {{state: string, items: {name: string}[], reason: string | null}} result
    * @param {string} label @param {string} key @param {string} listHtml @param {Record<string, string>} text
+   * @param {string} art 折叠行图标名：工具清单扳手、技能清单书
    */
-  const row = (result, label, key, listHtml, text) => {
+  const row = (result, label, key, listHtml, text, art) => {
     if (result.state === 'present' && result.items.length > 0) {
       return `<details class="rail-fold" data-fold="${key}">
-        <summary>${label}<span class="fold-count">${result.items.length}</span></summary>
+        <summary>${icon(art, 12)}${label}<span class="fold-count">${result.items.length}</span></summary>
         <div class="fold-body">${listHtml}</div>
       </details>`;
     }
@@ -328,12 +329,12 @@ export function renderCapabilities(page) {
       : t(text[result.state] ?? result.state);
     const chip = result.reason === 'protocol_unsupported' ? t('协议未适配') : t(text[result.state] ?? result.state);
     return `<details class="rail-fold" data-fold="${key}">
-      <summary>${label}<span class="fold-count warn">${esc(chip)}</span></summary>
+      <summary>${icon(art, 12)}${label}<span class="fold-count warn">${esc(chip)}</span></summary>
       <div class="fold-body"><p class="note">${esc(note)}</p></div>
     </details>`;
   };
   return row(view.tools, t('工具清单'), 'cap:tools',
-      `<ol class="cap-list">${view.tools.items.map(renderToolItem).join('')}</ol>`, TOOL_STATE_TEXT)
+      `<ol class="cap-list">${view.tools.items.map(renderToolItem).join('')}</ol>`, TOOL_STATE_TEXT, 'role-tool')
     + row(view.skills, t('技能清单'), 'cap:skills',
-      `<ul class="cap-list">${view.skills.items.map(renderSkillItem).join('')}</ul>`, SKILL_STATE_TEXT);
+      `<ul class="cap-list">${view.skills.items.map(renderSkillItem).join('')}</ul>`, SKILL_STATE_TEXT, 'book-open');
 }

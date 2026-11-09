@@ -443,13 +443,16 @@ export function sessionHiddenItems(rows, hidden) {
 }
 
 /**
- * 会话头双列分组板：左资源、性能、结构，右工具、Skill、写入尝试、读取请求。
+ * 会话头双列分组板：左资源、性能、结构，右工具、写入、读取。每半各三行，
+ * 单行 nowrap 加省略，放不下的 chip 归入 +N；底部一条分隔栏按钮开合指标详情。
  * 分组只在有可展示事实时出现；整列都空时不保留空列与列间分隔线。
  * @param {SessionSummary | null} s @param {'idle' | 'loading' | 'ready' | 'absent'} status
  * @param {RequestRow[]} rows @param {RequestRow[]} hidden
  * @param {string | null} sessionKey @param {boolean} hiddenFoldOpen
+ * @param {boolean} cueOpen 指标详情是否展开
+ * @param {boolean} kpiMore 全部明细是否展开
  */
-function sessionBoard(s, status, rows, hidden, sessionKey, hiddenFoldOpen) {
+function sessionBoard(s, status, rows, hidden, sessionKey, hiddenFoldOpen, cueOpen, kpiMore) {
   const left = [];
   const right = [];
   const resource = resourceGroup(s, status, rows);
@@ -475,9 +478,123 @@ function sessionBoard(s, status, rows, hidden, sessionKey, hiddenFoldOpen) {
   }
   if (left.length === 0 && right.length === 0) return '';
   const solo = left.length === 0 || right.length === 0 ? ' solo' : '';
-  return `<div class="cue-board${solo}">
+  const detail = s === null ? '' : metricsDetailHtml(s, cueOpen, kpiMore);
+  const toggle = s === null ? '' : `<button type="button" class="cue-toggle" data-cue-toggle aria-expanded="${cueOpen}" aria-controls="cue-detail">
+    <span class="cue-chev" aria-hidden="true">${icon('chevron-right', 12)}</span>
+    <span class="cue-toggle-text">${t(cueOpen ? '收起会话指标' : '展开会话指标')}</span></button>`;
+  return `<div class="cue-board${solo}${cueOpen ? ' open' : ''}">
     ${left.length > 0 ? `<div class="cue-account">${left.join('')}</div>` : ''}
     ${right.length > 0 ? `<div class="cue-activity">${right.join('')}</div>` : ''}
+    ${detail}${toggle}
+  </div>`;
+}
+
+/**
+ * 指标条的分段：0 值整段不画，灰段是缺失不是失败。
+ * @param {string} label @param {number} total
+ * @param {{key:string, value:number, tone:string}[]} segments @param {string} ariaNote
+ */
+function metricBar(label, total, segments, ariaNote) {
+  const track = segments.filter(seg => seg.value > 0)
+    .map(seg => `<i class="kpi-seg ${seg.tone}" style="flex:${seg.value}" title="${esc(`${t(seg.key)} · ${seg.value} / ${total}`)}"></i>`).join('');
+  const legend = segments.filter(seg => seg.value > 0)
+    .map(seg => `<span class="kpi-lg ${seg.tone}"><i></i>${t(seg.key)}<b>${seg.value}</b></span>`).join('');
+  return `<div class="kpi-bar">
+    <div class="kpi-bar-head"><span>${t(label)}</span><span class="kpi-bar-total">${total}</span></div>
+    <div class="kpi-track" role="img" aria-label="${esc(`${t(label)} · ${ariaNote}`)}">${track}</div>
+    <div class="kpi-legend">${legend}</div>
+  </div>`;
+}
+
+/**
+ * 指标详情：两条覆盖堆叠条 + 三张重点卡 + 默认收起的全部明细。
+ * 全部字段来自首屏 `SessionSummary`，不发起读取；0 值整格省略，不写 0 也不写 —。
+ * @param {SessionSummary} s @param {boolean} open @param {boolean} more
+ */
+function metricsDetailHtml(s, open, more) {
+  const c = s.coverage;
+  const failed = s.tools.reduce((sum, tool) => sum + tool.errors, 0);
+  const knownOk = Math.max(0, c.calls_error_known - failed);
+  const unknownFlag = Math.max(0, c.calls_total - c.calls_error_known);
+  const factGap = Math.max(0, c.calls_total - c.calls_fact_known);
+  const bars = metricBar('失败位判定', c.calls_total, [
+    { key: '失败', value: failed, tone: 'bad' },
+    { key: '已判定成功', value: knownOk, tone: 'ok' },
+    { key: '未判定', value: unknownFlag, tone: 'unknown' },
+  ], t('灰段是缺失，不是失败；未判定不等于成功'))
+    + metricBar('参数事实覆盖', c.calls_total, [
+      { key: '已提取', value: c.calls_fact_known, tone: 'ok' },
+      { key: '缺口', value: factGap, tone: 'unknown' },
+    ], t('参数事实由当前或已确认兼容的算法提取'));
+  const failReq = s.failures[0]?.req_id ?? null;
+  const interruptReq = s.interrupts.requests[0] ?? null;
+  /** @param {{key:string, value:string, art:string, tone:string, note:string, tip:string, reqId:number|null}} card */
+  const hero = (card) => {
+    const tag = card.reqId === null ? 'div' : 'button type="button"';
+    const attr = card.reqId === null ? '' : ` data-summary-req="${card.reqId}"`;
+    const close = card.reqId === null ? 'div' : 'button';
+    return `<${tag} class="kpi-hero${card.tone === '' ? '' : ` ${card.tone}`}"${attr} title="${esc(card.tip)}">
+      <span class="kpi-hero-top">${icon(card.art, 13)}<span>${t(card.key)}</span></span>
+      <b class="kpi-hero-val">${card.value}</b>
+      <span class="kpi-hero-note">${esc(card.note)}</span></${close}>`;
+  };
+  const heroes = hero({
+    key: '失败调用', value: String(failed), art: 'failure', tone: failed > 0 ? 'bad' : '',
+    note: s.failures_truncated ? t('仅前 200 条') : '',
+    tip: t('失败率＝失败调用 ÷ 已判定失败位的调用；未判定不等于成功'),
+    reqId: failReq,
+  }) + hero({
+    key: '出现中断的请求', value: String(s.interrupts.requests.length), art: 'gap',
+    tone: s.interrupts.requests.length > 0 ? 'bad' : '',
+    note: s.interrupts.unknown > 0 ? t('{n} 笔归属未知', { n: s.interrupts.unknown }) : '',
+    tip: t('同一标记跨请求只计一次'),
+    reqId: interruptReq,
+  }) + hero({
+    key: '工具调用', value: String(c.calls_total), art: 'role-tool', tone: '',
+    note: t('{tools} 种工具 · {skills} 种技能', { tools: s.tools.length, skills: s.skills.length }),
+    tip: t('覆盖与缺口见上方两条堆叠条'),
+    reqId: null,
+  });
+  /** @param {string} key @param {number|string} value @param {string} [tone] */
+  const kv = (key, value, tone = '') => `<span class="cue-kv${tone === '' ? '' : ` ${tone}`}"><i>${t(key)}</i><b>${value}</b></span>`;
+  /** @param {string} label @param {string[]} items */
+  const kvGroup = (label, items) => items.length === 0 ? ''
+    : `<section class="kpi-group"><h4 class="kpi-group-label">${t(label)}</h4><div class="kpi-items">${items.join('')}</div></section>`;
+  const unpaired = Math.max(0, c.calls_total - c.calls_paired);
+  const coverage = kvGroup('覆盖', [
+    kv('已配对', c.calls_paired), unpaired > 0 ? kv('未配对', unpaired) : '',
+    kv('失败位已判定', c.calls_error_known), unknownFlag > 0 ? kv('失败位未判定', unknownFlag) : '',
+    kv('参数事实已提取', c.calls_fact_known), factGap > 0 ? kv('缺口', factGap) : '',
+  ].filter(Boolean));
+  const rate = c.calls_error_known > 0 ? `${Math.round(failed / c.calls_error_known * 100)}%` : null;
+  const anomalies = kvGroup('异常', [
+    failed > 0 ? kv('失败调用', failed, 'bad') : '',
+    rate === null ? '' : kv('失败率', rate, failed > 0 ? 'bad' : ''),
+    s.interrupts.requests.length > 0 ? kv('出现中断的请求', s.interrupts.requests.length, 'bad') : '',
+    s.interrupts.unknown > 0 ? kv('归属未知请求', s.interrupts.unknown) : '',
+    s.dirty ? kv('派生未追上', t('是')) : '',
+    s.totals.cost_absent > 0 ? kv('费用字段缺失', s.totals.cost_absent) : '',
+  ].filter(Boolean));
+  const writeCalls = s.paths.written.reduce((sum, item) => sum + item.count, 0);
+  const readCalls = s.paths.read.reduce((sum, item) => sum + item.count, 0);
+  const scale = kvGroup('规模', [
+    kv('请求', s.structure.requests_total),
+    s.structure.subagent_requests > 0 ? kv('子代理请求', s.structure.subagent_requests) : '',
+    s.structure.subagent_actors > 0 ? kv('子代理 actor', s.structure.subagent_actors) : '',
+    kv('工具种类', s.tools.length), kv('技能种类', s.skills.length),
+    s.paths.written.length > 0 ? kv('写入路径', s.paths.written.length) : '',
+    writeCalls > 0 ? kv('写入调用', writeCalls) : '',
+    s.paths.read.length > 0 ? kv('读取路径', s.paths.read.length) : '',
+    readCalls > 0 ? kv('读取调用', readCalls) : '',
+  ].filter(Boolean));
+  const groups = coverage + anomalies + scale;
+  return `<div class="cue-detail" id="cue-detail"${open ? '' : ' hidden'} role="group" aria-label="${t('会话指标')}">
+    <div class="kpi-visual">${bars}<div class="kpi-hero-grid">${heroes}</div></div>
+    ${groups === '' ? '' : `<div class="kpi-more">
+      <button type="button" class="kpi-more-btn" data-kpi-more aria-expanded="${more}" aria-controls="kpi-detail">
+        ${icon('chevron-right', 10)}<span>${t(more ? '收起全部明细' : '全部明细')}</span></button>
+      <div class="kpi-groups" id="kpi-detail"${more ? '' : ' hidden'}>${groups}</div>
+    </div>`}
   </div>`;
 }
 
@@ -489,6 +606,7 @@ function sessionBoard(s, status, rows, hidden, sessionKey, hiddenFoldOpen) {
  *    hiddenRows?: RequestRow[], hiddenFoldOpen?: boolean,
  *    view?: 'all' | 'main' | number, spawnFrom?: number | null,
  *    viewOptions?: Array<{value: 'all' | 'main' | number, label: string, count: number}> | null,
+ *    cueOpen?: boolean, kpiMore?: boolean,
  *    windowAnchor: 'start' | 'latest'}} input */
 export function sessionHead(input) {
   const {
@@ -527,7 +645,8 @@ export function sessionHead(input) {
     </div>
     ${input.spawnFrom != null && typeof input.view === 'number' ? `<div class="session-note"><span>${t('子代理 S{no} 由请求 {id} 启动', { no: input.view, id: input.spawnFrom })}</span><button class="chip-btn" id="spawn-back">${icon('back', 14)}<span>${t('返回启动点')}</span></button></div>` : ''}
     ${summary !== null && summary.dirty ? `<div class="session-note warn"><span>${t('部分组的派生还没追上输入：这里是上一次完成的结果。')}</span></div>` : ''}
-    ${sessionBoard(summary, summaryStatus, rows, hidden, sessionKey, input.hiddenFoldOpen === true)}
+    ${sessionBoard(summary, summaryStatus, rows, hidden, sessionKey, input.hiddenFoldOpen === true,
+      input.cueOpen === true, input.kpiMore === true)}
     ${unknown ? `<div class="session-note warn"><span>↳</span><span>${t('链接里的会话 key 不在已加载的会话里：可能是已淘汰、从未记录，或者还在后面的会话页。下面没有用别的会话顶替。')}</span></div>` : ''}
     ${missingReqId !== null ? `<div class="session-note warn"><span>↳</span><span>${t('链接里的 Request {id} 在当前库里不存在，也没有别名指向它。下面显示的是本会话的请求，不是那一笔。', { id: missingReqId })}</span></div>` : ''}
     ${offPageReqId !== null ? `<div class="session-note"><span>↳</span><span>${t('链接里的 Request {id} 存在，但不在当前载入窗口，右栏已显示它的详情。不自动扫描全部历史。', { id: offPageReqId })}<button class="chip-btn" id="switch-window">${windowAnchor === 'latest' ? t('回到开头窗口') : t('切到最新窗口')}</button></span></div>` : ''}

@@ -8,8 +8,7 @@ import {
   topSystemText,
 } from '../web/body-model.js';
 import { partLabel, renderAttemptChain } from '../web/rail-facts.js';
-import { partRank } from '../web/parts.js';
-import { partShade } from '../web/parts.js';
+import { partColor, partRank } from '../web/parts.js';
 import { replyCompleteness } from '../web/row-summary.js';
 import { esc, mdToHtml } from '../web/html.js';
 import { summaryParts } from '../web/tool-summary.js';
@@ -689,23 +688,19 @@ test('未知 part kind 保留名称，颜色按份额落档', () => {
   expect(partLabel('<img src=x>')).toBe('<img src=x>');
 });
 
-test('harness 是登记类别：有标签、次序在 skills 之后，份额照常落档', () => {
+test('harness 是登记类别：有标签、次序在 skills 之后，色阶按登记序取', () => {
   expect(partLabel('harness')).toBe('Harness');
   expect(partRank('harness')).toBeGreaterThan(partRank('skills'));
-  expect(partShade(9, 100)).toBe('var(--t2)');
+  expect(partColor('harness')).toBe('var(--cat-8)');
 });
 
-test('partShade 按份额落四档：阈值边界钉住', () => {
-  // 份额阈值 .15/.07/.03 的边界：恰好落在档上归高档。
-  expect(partShade(15, 100)).toBe('var(--t1)');
-  expect(partShade(14.9, 100)).toBe('var(--t2)');
-  expect(partShade(7, 100)).toBe('var(--t2)');
-  expect(partShade(3, 100)).toBe('var(--t3)');
-  expect(partShade(2.9, 100)).toBe('var(--t4)');
-  // 总量为 0 不除零：全落最浅档。
-  expect(partShade(10, 0)).toBe('var(--t4)');
-  // 类别无关：同份额的已知与未知 kind 同档，颜色不再承载分类。
-  expect(partShade(50, 100)).toBe(partShade(50, 100));
+test('partColor 按登记序取单一色阶：未知 kind 落最浅一档', () => {
+  // 位置固定，同一类别在不同请求间取同一色；未知 kind 不另造色相。
+  expect(partColor('system')).toBe('var(--cat-1)');
+  expect(partColor('tools')).toBe('var(--cat-2)');
+  expect(partColor('chat')).toBe('var(--cat-6)');
+  expect(partColor('synthetic_part')).toBe('var(--cat-8)');
+  expect(partColor('skills')).toBe('var(--cat-7)');
   expect(partLabel('skills')).toBe('技能');
   // memory 标签统一显「记忆」：旧行里含未拆出的 skills，行上无标记可区分，不再显示「记忆与技能」。
   expect(partLabel('memory')).toBe('记忆');
