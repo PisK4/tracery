@@ -4,8 +4,9 @@
  * 不变量：
  * - 物理身份 (trace_id, span_id)：同一 span 重发不产生新行（request_evidence
  *   的 otlp_span 证据行判重），幂等重放零副作用。
- * - 与 magpie 三路证据不合并、不抢字段：OTLP 行只写白名单映射列，
- *   agent 标签用 magpie 同值域，用量与模型以 span 实得为准。
+ * - 落库段走共享核心：判重优先，再经统一 owner 认领既有请求行（只写证据、
+ *   不另建行）；OTLP 行只写白名单映射列，agent 标签用 magpie 同值域，
+ *   用量与模型以 span 实得为准。
  * - 脱敏在原始层落盘之前，脱敏实现只有 src/privacy.ts 一个入口。
  * - span 带会话 id 才进派生组（组键与 sessionRef 逐字相同）；没带就只是
  *   独立记录，不猜归属。
@@ -18,10 +19,12 @@
 import type { Store } from '../../store';
 import { redact } from '../../privacy';
 import { PRIVACY_TRANSFORM_VERSION } from '../../privacy';
-import { localDay, modelTimeTitle } from '../../format';
-import { HAVE_OTLP, MATCH_BY_SPAN_IDENTITY, insertEvidenceTx, otlpConv } from '../../evidence';
-import { markRequestInputTx } from '../../derive/state';
-import type { HookAdmission } from '../../hook';
+import { localDay } from '../../format';
+import { HAVE_OTLP, MATCH_BY_SPAN_IDENTITY, otlpConv } from '../../evidence';
+import { ingestRequestTx } from '../../ingest-core';
+import type { ClaimOutcome, HookAdmission, IngestChannel, IngestIdentity } from '../../ingest-core';
+import { findRequestOwnerTx } from '../../owner';
+import type { UsageFingerprint } from '../../owner';
 import type { Database } from 'bun:sqlite';
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
@@ -54,53 +57,36 @@ export function spanRefKey(traceId: Uint8Array, spanId: Uint8Array): string {
   return `${idHex(traceId)}/${idHex(spanId)}`;
 }
 
-/** 兜底时间窗：magpie 行还没写 turn_ref 时，只在同一会话的 turn 窗口内找。 */
-const TURN_DEDUPE_WINDOW_MS = 60_000;
+const OTLP_CHANNEL: IngestChannel = {
+  sourceKind: 'otlp_span', via: 'otlp', haveBit: HAVE_OTLP, sortSource: 'otlp_span',
+  createdRule: MATCH_BY_SPAN_IDENTITY, createdMergeState: 'merged', emptyBodyState: 'summary',
+};
 
-/**
- * 同一 turn 已有 magpie 行时返回它，供 OTLP 只写证据、不另建行。
- *
- * 主键是 `turn_ref`（Codex 请求体 turn_id 与 OTLP turn.id 同值）；magpie 侧
- * 尚未结算指纹时退化为同会话 + turn 时间窗 + 模型。两者都拿不到才放弃，
- * 不按相邻 span 猜。重放的预览也用它，判断 span 会落到哪条既有行。
- */
-export function magpieTurnRequestTx(
-  db: Database,
-  mapping: { agent: string; turnRef: string | null; modelRequested: string | null },
-  convKey: string | null,
-  started: number,
-  endMs: number | null,
-): number | null {
-  if (mapping.turnRef !== null) {
-    const row = db.query<{ req_id: number }, [string, string]>(
-      'SELECT req_id FROM request WHERE turn_ref=? AND agent=? ORDER BY req_id LIMIT 1',
-    ).get(mapping.turnRef, mapping.agent);
-    if (row !== null && row !== undefined) return row.req_id;
-  }
-  if (convKey === null) return null;
-  const from = started - TURN_DEDUPE_WINDOW_MS;
-  const to = (endMs ?? started) + TURN_DEDUPE_WINDOW_MS;
-  const model = mapping.modelRequested;
-  const row = model === null
-    ? db.query<{ req_id: number }, [string, string, number, number]>(`
-        SELECT req_id FROM request
-        WHERE conv_key=? AND agent=? AND via<>'otlp' AND started_ms BETWEEN ? AND ?
-        ORDER BY started_ms, req_id LIMIT 1`).get(convKey, mapping.agent, from, to)
-    : db.query<{ req_id: number }, [string, string, number, number, string, string]>(`
-        SELECT req_id FROM request
-        WHERE conv_key=? AND agent=? AND via<>'otlp' AND started_ms BETWEEN ? AND ?
-          AND (model_requested=? OR model_served=?)
-        ORDER BY started_ms, req_id LIMIT 1`).get(convKey, mapping.agent, from, to, model, model);
-  return row?.req_id ?? null;
+/** 四段用量齐才成指纹；缺任一段不猜（owner 第 3 条线索的入场券）。 */
+export function fingerprintOf(mapping: SpanMapping): UsageFingerprint | null {
+  if (mapping.inTok === null || mapping.outTok === null || mapping.cacheRead === null || mapping.cacheWrite === null) return null;
+  return { input: mapping.inTok, output: mapping.outTok, cacheRead: mapping.cacheRead, cacheWrite: mapping.cacheWrite };
 }
 
-/** 落库段结果：created=false 表示认领了既有 turn 行，没有新建请求。 */
-export type PersistMappedSpanResult = { created: boolean; bodiesWired: number };
+/** OTLP 认领：只走统一 owner（response id 在 Task 4 接入；原生方言靠 turn/指纹/完成时间）。 */
+function claimOtlpTarget(
+  db: Database, mapping: SpanMapping, convKey: string | null, started: number, endMs: number | null,
+): ClaimOutcome {
+  const owner = findRequestOwnerTx(db, {
+    responseIdNorm: null, turnRef: mapping.turnRef, convKey, agent: mapping.agent,
+    startedMs: started, endMs, model: mapping.modelRequested, usage: fingerprintOf(mapping),
+    excludeSourceKind: 'otlp_span',
+  });
+  return { target: owner.reqId, rule: owner.reqId !== null ? owner.rule : null, candidates: [] };
+}
+
+/** 落库段结果：created=false 表示认领了既有行；duplicate=true 表示判重跳过。 */
+export type PersistMappedSpanResult = { created: boolean; bodiesWired: number; duplicate: boolean };
 
 /**
- * 映射后的 span 落库段：认领既有 magpie turn 行或新建请求行、登记证据、
- * 回接 pending body_ref。摄入与重放共用这一段；raw 写入与分类判定
- * （classifySpan）不在这里——重放只读 raw，不重写它。
+ * 映射后的 span 落库段：判重、认领或新建、登记证据、回接 pending body_ref。
+ * 摄入与重放共用这一段；raw 写入与分类判定（classifySpan）不在这里——
+ * 重放只读 raw，不重写它。
  */
 export function persistMappedSpanTx(
   db: Database,
@@ -114,37 +100,19 @@ export function persistMappedSpanTx(
   const conv = otlpConv(mapping.session);
   const started = nanoToMs(span.startNano);
   const endMs = span.endNano === null ? null : nanoToMs(span.endNano);
-  // 同一 thread+turn 已有 magpie 行：证据照写，但不另建行，避免重复计数。
-  const turnOwner = magpieTurnRequestTx(db, mapping, conv?.key ?? null, started, endMs);
-  if (turnOwner !== null) {
-    insertEvidenceTx(db, turnOwner, 'otlp_span', refKey, 'merged', MATCH_BY_SPAN_IDENTITY, now);
-    markRequestInputTx(db, turnOwner);
-    return { created: false, bodiesWired: 0 };
-  }
-  const insert = db.run(
-    `INSERT INTO request(
-       agent,session,conv_key,conv_source,actor,actor_state,
-       started_ms,day,via,stop,model_requested,model_served,
-       in_tok,out_tok,cache_read,cache_write,
-       body_state,derive_version,have,created_at,updated_at,title,title_source,
-       cost_state,attempt_state,sort_source,sort_key,turn_ref
-     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [
-      mapping.agent, mapping.session, conv?.key ?? null, conv?.source ?? null,
-      mapping.session, conv === null ? 'unknown' : 'known',
-      started, localDay(started), 'otlp',
-      mapping.stop, mapping.modelRequested, mapping.modelServed,
-      mapping.inTok, mapping.outTok, mapping.cacheRead, mapping.cacheWrite,
-      'summary', 0, HAVE_OTLP, now, now,
-      modelTimeTitle(mapping.modelRequested, started), 'model_time',
-      'absent', 'known', 'otlp_span', refKey, mapping.turnRef,
-    ],
-  );
-  const reqId = Number(insert.lastInsertRowid);
-  insertEvidenceTx(db, reqId, 'otlp_span', refKey, 'merged', MATCH_BY_SPAN_IDENTITY, now);
-  // 有会话 id 才进派生组；没带的行不进 derive_queue，也不伪造归属。
-  if (conv !== null) markRequestInputTx(db, reqId);
-  // logs 可能先到：span 行一落，回头接等待中的 body_ref 指针。
+  const identity: IngestIdentity = {
+    refKey, agent: mapping.agent, session: mapping.session, conv,
+    responseIdNorm: null, turnRef: mapping.turnRef, model: mapping.modelRequested,
+    startedMs: started, endMs, usage: fingerprintOf(mapping),
+    actorState: conv === null ? 'unknown' : 'known',
+    modelRequested: mapping.modelRequested, modelServed: mapping.modelServed, stop: mapping.stop,
+    inTok: mapping.inTok, outTok: mapping.outTok, cacheRead: mapping.cacheRead, cacheWrite: mapping.cacheWrite,
+    magpieVersion: null,
+  };
+  const result = ingestRequestTx(db, OTLP_CHANNEL, identity, null, null,
+    db2 => claimOtlpTarget(db2, mapping, conv?.key ?? null, started, endMs), now, admission);
+  if (result.duplicate) return { created: false, bodiesWired: 0, duplicate: true };
+  // logs 可能先到：span 证据一落（新建或认领），回头接等待中的 body_ref 指针。
   let bodiesWired = 0;
   for (const pending of db.query<{ request_body_id: string }, [Uint8Array]>(
     "SELECT request_body_id FROM otlp_body_ref WHERE trace_id=? AND state='pending_span'",
@@ -153,7 +121,7 @@ export function persistMappedSpanTx(
       bodiesWired += 1;
     }
   }
-  return { created: true, bodiesWired };
+  return { created: result.created, bodiesWired, duplicate: false };
 }
 
 export function acceptOtlpTraces(

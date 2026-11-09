@@ -421,7 +421,8 @@ test('同一 turn 已有 magpie 行：OTLP 只写证据，不重复建行', () =
       `SELECT merge_state, match_rule FROM request_evidence WHERE source_kind='otlp_span'`,
     ).get() as { merge_state: string; match_rule: string };
     expect(evidence.merge_state).toBe('merged');
-    expect(evidence.match_rule).toBe('trace_span.v1');
+    // 统一 owner 认领：证据记下命中的线索（turn_ref），与 hook 侧 claimed 证据同口径。
+    expect(evidence.match_rule).toBe('turn_ref.v1');
     // 原始 span 仍然落库，证据不因为去重而丢。
     expect((store.store.read.query('SELECT COUNT(*) AS n FROM raw_otlp_span').get() as { n: number }).n).toBe(1);
   } finally {
@@ -429,7 +430,7 @@ test('同一 turn 已有 magpie 行：OTLP 只写证据，不重复建行', () =
   }
 });
 
-test('magpie 行尚未写 turn_ref 时，按同会话 + turn 时间窗 + 模型去重', () => {
+test('magpie 行无 turn_ref：统一 owner 不启用弱开始窗，OTLP 独立建行', () => {
   const store = fixture();
   try {
     store.store.write(db => db.run(`
@@ -442,11 +443,41 @@ test('magpie 行尚未写 turn_ref 时，按同会话 + turn 时间窗 + 模型�
       { resource: { service: 'codex-app-server' }, spans: [CODEX_TURN] },
     ]), 'protobuf');
     const result = acceptOtlpTraces(store.store, decoded, NOW, new Uint8Array(32));
-    expect(result.requestsCreated).toBe(0);
-    expect((store.store.read.query('SELECT COUNT(*) AS n FROM request').get() as { n: number }).n).toBe(1);
+    // span 带完成时间，owner 关掉 ±60 秒弱开始窗；账本行又无 turn_ref/用量指纹，
+    // 没有强身份可认领，宁可多一行也不错并（见 owner.ts 的完成时间基准守卫）。
+    expect(result.requestsCreated).toBe(1);
+    expect((store.store.read.query('SELECT COUNT(*) AS n FROM request').get() as { n: number }).n).toBe(2);
   } finally {
     store.close();
   }
+});
+
+test('OMP span 认领既有 magpie 行：用量指纹命中，一行两证据，用量不相加', () => {
+  const store = fixture();
+  try {
+    store.store.write(db => {
+      // 账本先到：同会话同 agent、四段用量与 OMP_CHAT 相等、started 在 ±2s 内。
+      db.run(`
+        INSERT INTO request(agent,session,conv_key,conv_source,actor,actor_state,
+          started_ms,day,via,model_requested,model_served,in_tok,out_tok,cache_read,cache_write,
+          body_state,derive_version,have,created_at,updated_at,cost_state,attempt_state,sort_source,sort_key)
+        VALUES ('omp',?,?,'session',?,'known',?, '2026-10-26','through','synth-model-lite','synth-model-lite-served',
+          8233,3,128,256,'available',0,7,?,?,'absent','known','ledger','ledger-synth-1')`,
+        [SYNTH.session, JSON.stringify(['session', SYNTH.session]), SYNTH.session,
+          1_792_945_426_098, NOW, NOW]);
+      db.run(`INSERT INTO request_evidence(req_id,source_kind,ref_key,merge_state,match_rule,added_at)
+        VALUES (1,'ledger','ledger-synth-1','merged','response_id_norm.v1',?)`, [NOW]);
+    }, 'test');
+    const decoded = decodeTracesBody(tracesProtobuf([{ resource: { service: 'oh-my-pi' }, spans: [OMP_CHAT] }]), 'protobuf');
+    const result = acceptOtlpTraces(store.store, decoded, NOW, new Uint8Array(32));
+    expect(result.requestsCreated).toBe(0);
+    expect((store.store.read.query('SELECT COUNT(*) AS n FROM request').get() as { n: number }).n).toBe(1);
+    const row = store.store.read.query('SELECT have, in_tok, out_tok FROM request').get() as { have: number; in_tok: number; out_tok: number };
+    expect(row.have & 8).toBe(8);          // OTLP 位补上
+    expect(row.in_tok).toBe(8233);          // 用量仍是账本值，不相加
+    const kinds = store.store.read.query('SELECT source_kind FROM request_evidence ORDER BY source_kind').all() as { source_kind: string }[];
+    expect(kinds.map(k => k.source_kind)).toEqual(['ledger', 'otlp_span']);
+  } finally { store.close(); }
 });
 
 test('暂停档整批拒绝：不写任何行', () => {

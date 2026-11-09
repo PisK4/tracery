@@ -18,10 +18,11 @@ import { loadBoundSaltTx } from '../config';
 import { RAW_TTL_MS } from '../retention';
 import type { Store } from '../store';
 import { otlpConv } from '../evidence';
+import { findRequestOwnerTx } from '../owner';
 import type { OtlpAttrs, OtlpSpan } from '../sources/otlp/decode';
 import { OTLP_MAPPING_VERSION, classifySpan, mapSpan } from '../sources/otlp/mapping';
-import { magpieTurnRequestTx, persistMappedSpanTx, spanRefKey } from '../sources/otlp/ingest';
-import type { HookAdmission } from '../hook';
+import { fingerprintOf, persistMappedSpanTx, spanRefKey } from '../sources/otlp/ingest';
+import type { HookAdmission } from '../ingest-core';
 
 /** 离线重放没有真实磁盘预算：接线 body 时按 normal 档处理。 */
 const NORMAL_ADMISSION: HookAdmission = { mode: 'normal', reason: null };
@@ -83,12 +84,12 @@ function spanOfRaw(row: RawSpanRow, traceId: Uint8Array, spanId: Uint8Array): Ot
   };
 }
 
-/** 只读预览：分类计数加上按当前规则的 turn 认领归属，不做任何写。 */
+/** 只读预览：分类计数加上统一 owner 认领归属，已有 span 证据按判重计，不做任何写。 */
 export function previewOtlpReplay(db: Database, now: number): OtlpReplayPreview {
   const preview: OtlpReplayPreview = { scanned: 0, evidence: 0, wouldCreate: 0, unknownShape: 0, skipped: 0, expired: 0 };
   // 流式迭代：15 万行的 attributes_json 不整表进内存。
-  const rows = db.query<RawSpanRow & { received_at: number }, [number]>(
-    `SELECT service,name,kind,start_ms,end_ms,status_code,attributes_json,received_at
+  const rows = db.query<RawSpanRow & { trace_id: Uint8Array; span_id: Uint8Array; received_at: number }, [number]>(
+    `SELECT service,trace_id,span_id,name,kind,start_ms,end_ms,status_code,attributes_json,received_at
      FROM raw_otlp_span WHERE mapping_version < ?`,
   ).iterate(OTLP_MAPPING_VERSION);
   const emptyId = new Uint8Array(0);
@@ -100,9 +101,17 @@ export function previewOtlpReplay(db: Database, now: number): OtlpReplayPreview 
     if (verdict.kind === 'llm') {
       const mapping = mapSpan(verdict.rule, span);
       const conv = otlpConv(mapping.session);
-      const owner = magpieTurnRequestTx(db, mapping, conv?.key ?? null, row.start_ms, row.end_ms);
-      if (owner !== null) preview.evidence += 1;
-      else preview.wouldCreate += 1;
+      const refKey = spanRefKey(row.trace_id, row.span_id);
+      // 已有 otlp_span 证据：重放是判重，不新建（与核心第一步同口径）。
+      const ev = db.query<{ req_id: number }, [string]>(
+        "SELECT req_id FROM request_evidence WHERE source_kind='otlp_span' AND ref_key=?").get(refKey);
+      if (ev != null) { preview.evidence += 1; continue; }
+      const owner = findRequestOwnerTx(db, {
+        responseIdNorm: null, turnRef: mapping.turnRef, convKey: conv?.key ?? null, agent: mapping.agent,
+        startedMs: row.start_ms, endMs: row.end_ms, model: mapping.modelRequested,
+        usage: fingerprintOf(mapping), excludeSourceKind: 'otlp_span',
+      });
+      if (owner.reqId !== null) preview.evidence += 1; else preview.wouldCreate += 1;
     } else if (verdict.kind === 'unknown') {
       preview.unknownShape += 1;
     } else {
@@ -132,7 +141,9 @@ function replayOneTx(
   if (verdict.kind === 'llm') {
     const mapping = mapSpan(verdict.rule, span);
     const persisted = persistMappedSpanTx(db, mapping, span, refKey, now, salt, NORMAL_ADMISSION);
-    if (persisted.created) report.requestsCreated += 1;
+    // 判重：不新建也不加证据，只升版本。
+    if (persisted.duplicate) { /* 只升版本 */ }
+    else if (persisted.created) report.requestsCreated += 1;
     else report.evidenceAdded += 1;
   } else if (verdict.kind === 'unknown') {
     // 重放会改判 issue 理由（如 service_not_registered → span_shape_unknown）：
