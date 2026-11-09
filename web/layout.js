@@ -15,8 +15,23 @@ function el(id) {
   return element;
 }
 
+/** @type {'system' | 'light' | 'dark'} */
 let themePref = 'system';
-try { themePref = localStorage.getItem('tc.theme') || 'system'; } catch { /* storage may be blocked */ }
+/** @type {((next: 'system' | 'light' | 'dark') => void) | null} */
+let onThemeChange = null;
+/** @type {((next: 'zh' | 'en') => void) | null} */
+let onLangChange = null;
+
+/**
+ * 外观状态由用户设置层单向流入；顶栏的快捷切换也经回调回保存，不在本模块
+ * 写 localStorage，避免与服务端权威形成第二份主题事实。
+ */
+/** @param {'system' | 'light' | 'dark'} next */
+export function setThemePref(next) { themePref = next; }
+/** @param {((next: 'system' | 'light' | 'dark') => void) | null} fn */
+export function setThemeChange(fn) { onThemeChange = fn; }
+/** @param {((next: 'zh' | 'en') => void) | null} fn */
+export function setLangChange(fn) { onLangChange = fn; }
 
 export function applyTheme() {
   if (themePref === 'system') delete document.documentElement.dataset.theme;
@@ -97,20 +112,21 @@ function fitRail() {
  * @param {(() => void) | null} [onLocaleChange] 语言切换后的界面重绘，归控制器。 */
 export function initLayout(onLocaleChange) {
   el('lang-toggle').addEventListener('click', () => {
-    changeLocale(otherLocale());
-    applyLangButton();
-    onLocaleChange?.();
+    const next = otherLocale();
+    if (onLangChange !== null) onLangChange(next);
+    else { changeLocale(next); applyLangButton(); onLocaleChange?.(); }
   });
 
   el('theme-toggle').addEventListener('click', () => {
     const order = ['system', 'light', 'dark'];
     const next = order[(order.indexOf(themePref) + 1) % order.length] ?? 'system';
-    try { localStorage.setItem('tc.theme', next); } catch { /* storage may be blocked */ }
-    themePref = next;
-    // 两帧内禁用全部过渡：主题当帧完成（既有决策），交互底色过渡在其余时刻照常。
-    document.body.classList.add('theme-switching');
-    applyTheme();
-    requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('theme-switching')));
+    if (onThemeChange !== null) onThemeChange(/** @type {'system' | 'light' | 'dark'} */ (next));
+    else {
+      setThemePref(/** @type {'system' | 'light' | 'dark'} */ (next));
+      document.body.classList.add('theme-switching');
+      applyTheme();
+      requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('theme-switching')));
+    }
   });
 
   const resizer = el('rail-resize');

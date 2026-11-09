@@ -1156,6 +1156,24 @@ test('换会话的换场钉住最短驻留，减少动态时不等', () => {
   expect(css).toContain('.col-main[data-switch-state] .session-head,');
 });
 
+test('设置层是外观与语言的唯一权威，面板不摆未接线开关', () => {
+  const settingsJs = readFileSync('web/settings.js', 'utf8');
+  const panel = readFileSync('web/settings-panel.js', 'utf8');
+  const i18n = readFileSync('web/i18n.js', 'utf8');
+  expect(settingsJs).toContain("reader.execute('settings'");
+  expect(settingsJs).toContain("transport.execute('saveSettings'");
+  expect(i18n).not.toContain("localStorage.getItem('tc.lang')");
+  expect(settingsJs).not.toContain("localStorage.setItem('tc.theme'");
+  expect(settingsJs).not.toContain("localStorage.setItem('tc.lang'");
+  // 未接线分类只给事实，不摆开关也不写「已生效」。
+  expect(panel).toContain('data-panel="sources" hidden');
+  expect(panel).toContain('data-panel="history" hidden');
+  expect(panel).not.toContain('data-source=');
+  expect(panel).not.toContain('data-ret=');
+  expect(panel).not.toContain('data-field="notify"');
+  expect(panel).not.toContain('data-field="fullBody"');
+});
+
 test('reduced-motion 判定只有 motion.js 一个来源，CSS 与设置开关同口径', () => {
   const css = readFileSync('web/app.css', 'utf8');
   const motionJs = readFileSync('web/motion.js', 'utf8');

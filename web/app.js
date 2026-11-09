@@ -25,6 +25,8 @@ import { partLabel } from './parts.js';
 import { createReaderStore } from './reader-store.js';
 import { createHttpReadTransport } from './read-http.js';
 import { initLayout, openRail, applyTheme, syncPanelButtons } from './layout.js';
+import { initSettings } from './settings.js';
+import { initSettingsPanel, refreshSettingsPanel } from './settings-panel.js';
 import { t, initLocale, htmlLang } from './i18n.js';
 import { fillContextMap, iidOf, itemLabel } from './context-map.js';
 import { createContextMenu, iidParse } from './context-detail.js';
@@ -62,6 +64,8 @@ if (typeof document !== 'undefined') {
   // 同一 fetcher 交给 logo 懒加载，装配点以外不接触全局 fetch。
   const fetcher = fetch;
   setAgentLogoFetcher(fetcher);
+  // 设置读写与会话读取共用同一个 HTTP adapter 工厂：不新增第二个 fetch 调用点。
+  const settingsTransport = createHttpReadTransport({ fetcher });
   const store = createReaderStore(createHttpReadTransport({ fetcher }),
     // 记录快照异步变化（409 作废、自动重读换新或失败）按影响面响应；迟到响应不进来。
     (/** @type {number} */ id) => { onStoreChange(id); },
@@ -1773,6 +1777,8 @@ if (typeof document !== 'undefined') {
     setAttr('rail-col', 'aria-label', t('请求读数与正文'));
     setAttr('refresh-sessions', 'aria-label', t('刷新会话列表'));
     setAttr('refresh-sessions', 'title', t('重新读取会话列表第一页'));
+    setAttr('set-settings-toggle', 'aria-label', t('设置'));
+    setAttr('set-settings-toggle', 'title', t('设置'));
     const title = document.querySelector('.sessions-title h2');
     if (title) title.textContent = t('会话');
     const listPulse = document.querySelector('#sessions-list > p.sess-empty.pulse');
@@ -1796,6 +1802,7 @@ if (typeof document !== 'undefined') {
     applyStaticTexts();
     applyTheme();
     syncPanelButtons();
+    refreshSettingsPanel();
     applyBackendState(lastAdmission);
     resetReading();
     renderAll();
@@ -2843,6 +2850,10 @@ if (typeof document !== 'undefined') {
   // 骨架先出：会话列表请求在飞时左栏与主栏显示骨架条，不再黑屏等待。
   el('sessions-list').innerHTML = skeletonSessionsHtml();
   void (async () => {
+    // 设置层服务端权威先就位：它决定主题、语言、字号与动效，再装面板。
+    // 服务端不可写时 initSettings 退回降级缓存，页面照常渲染。
+    await initSettings(settingsTransport, applyLocaleChrome, toast);
+    initSettingsPanel(toast);
     let listError = null;
     try {
       await store.loadSessions();

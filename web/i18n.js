@@ -4,6 +4,8 @@
  * 缺 key 回退原文——按文件分批抽取时，没抽到的界面保持中文，不显示 key 名。
  * 偏好存 localStorage('tc.lang')，缺省跟随 navigator.language；语言切换后的
  * 界面重绘归调用点（app.js 的 onLocaleChange），本模块只管文案与偏好。
+ * 服务端设置层是语言选择的权威：启动时由它调用 setLocale，浏览器存储只在
+ * 服务端不可写时作降级缓存，不再决定初始语言。
  */
 
 import { dict } from './i18n-en.js';
@@ -54,11 +56,8 @@ export function otherLocale() { return locale === 'zh' ? 'en' : 'zh'; }
 
 export function htmlLang() { return locale === 'zh' ? 'zh-CN' : 'en'; }
 
-/** 启动时调用一次：偏好优先，缺省跟随 navigator.language。 */
+/** 启动时调用一次：缺省跟随 navigator.language；语言权威由设置层随后注入。 */
 export function initLocale() {
-  let saved = null;
-  try { saved = localStorage.getItem('tc.lang'); } catch { /* storage may be blocked */ }
-  if (saved === 'zh' || saved === 'en') { locale = saved; return; }
   const lang = typeof navigator === 'undefined' ? '' : navigator.language ?? '';
   locale = lang.toLowerCase().startsWith('zh') ? 'zh' : 'en';
 }
