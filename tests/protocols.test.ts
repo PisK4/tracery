@@ -173,6 +173,24 @@ test('回复形状：缺失、不识别、多 choice、缺 ID 工具块、截断
   expect(replyShapeOf('anthropic', { content: [{ type: 'text', text: 'x' }] })).toBe('unknown');
 });
 
+test('回复形状：genai-semconv 按 messages 与 stop_reason 判 final/tools/unknown', () => {
+  // 纯文本最终答复：stop_reason=stop 收尾。
+  expect(replyShapeOf('genai-semconv', {
+    stop_reason: 'stop', messages: [{ role: 'assistant', parts: [{ type: 'text', content: 'done' }] }],
+  })).toBe('final');
+  // 带 tool_call：调用证据判 tools，停止原因缺失也判。
+  expect(replyShapeOf('genai-semconv', {
+    messages: [{ role: 'assistant', parts: [{ type: 'tool_call', id: 'c1', name: 'read', arguments: {} }] }],
+  })).toBe('tools');
+  // 截断不是收尾。
+  expect(replyShapeOf('genai-semconv', {
+    stop_reason: 'length', messages: [{ role: 'assistant', parts: [{ type: 'text', content: 'half' }] }],
+  })).toBe('unknown');
+  // 无停止原因的纯文本不冒充收尾；messages 非数组不识别。
+  expect(replyShapeOf('genai-semconv', { messages: [{ role: 'assistant', parts: [{ type: 'text', content: 'x' }] }] })).toBe('unknown');
+  expect(replyShapeOf('genai-semconv', { stop_reason: 'stop' })).toBe('unknown');
+});
+
 test('回复形状：Responses 的 status 缺失、未完成与缺 call_id 都不下结论', () => {
   expect(replyShapeOf('responses', { output: [] })).toBe('unknown');
   expect(replyShapeOf('responses', { status: 'incomplete', output: [{ type: 'message', content: [{ type: 'output_text', text: 'half' }] }] })).toBe('unknown');
