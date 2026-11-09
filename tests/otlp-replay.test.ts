@@ -56,7 +56,8 @@ test('v3 turn span 重放：认领既有 magpie 行只写证据，版本回写 4
     const evidence = store.read.query<{ req_id: number; match_rule: string }, []>(
       "SELECT req_id, match_rule FROM request_evidence WHERE source_kind='otlp_span'").all();
     expect(evidence).toHaveLength(1);
-    expect(evidence[0]!.match_rule).toBe('trace_span.v1');
+    // 统一 owner 认领：证据记下命中的线索（turn_ref）。
+    expect(evidence[0]!.match_rule).toBe('turn_ref.v1');
     expect(evidence[0]!.req_id).toBe(1);
     // raw 原样保留（received_at 不刷新），只有 mapping_version 前进。
     const raw = store.read.query<{ received_at: number; mapping_version: number }, []>(
@@ -88,6 +89,36 @@ test('无承载行的 v3 turn span 重放新建请求行；skipped span 只升�
       'SELECT agent, turn_ref, via FROM request').get()!;
     expect(row).toEqual({ agent: 'codex', turn_ref: 'turn-synth-0001', via: 'otlp' });
     // 连跑两遍：第二次扫到 0（skipped 的版本也已回写）。
+    expect(replayOtlpMapping(store, NOW, SALT).scanned).toBe(0);
+  } finally {
+    store.close();
+  }
+});
+
+test('重放已有 otlp_span 证据的 raw 行：判重优先，预览计 evidence、apply 不新建也不加证据', () => {
+  const { store } = fixture();
+  try {
+    store.write(db => {
+      // v3 raw 已按老规则建过一行并留下 span 证据；无任何可认领的 magpie 行。
+      // 判重必须先于认领，否则这类无 turn_ref 的跨版本重放会重复建行。
+      insertRawV3(db, SPAN_LLM, 'session_task.turn', TURN_ATTRS, NOW - 1000);
+      db.run(`INSERT INTO request(req_id,agent,session,conv_key,conv_source,actor,actor_state,
+        started_ms,day,via,body_state,derive_version,have,created_at,updated_at,sort_source,sort_key)
+        VALUES (1,'codex','thread-synth-0001',?,'otlp-session','thread-synth-0001','known',
+          ?, '2026-10-26','otlp','summary',0,8,?,?,'otlp_span','x')`,
+      [JSON.stringify(['session', 'thread-synth-0001']),
+        1_792_946_000_000, NOW, NOW]);
+      db.run(`INSERT INTO request_evidence(req_id,source_kind,ref_key,merge_state,match_rule,added_at)
+        VALUES (1,'otlp_span',?,'merged','trace_span.v1',?)`,
+      [`${Buffer.from(SYNTH.traceA).toString('hex')}/${Buffer.from(SPAN_LLM).toString('hex')}`, NOW]);
+    });
+    // 判重优先于认领：预览把这一行算 evidence，不是 wouldCreate。
+    const preview = previewOtlpReplay(store.read, NOW);
+    expect(preview).toEqual({ scanned: 1, evidence: 1, wouldCreate: 0, unknownShape: 0, skipped: 0, expired: 0 });
+    const report = replayOtlpMapping(store, NOW, SALT);
+    expect(report).toEqual({ scanned: 1, evidenceAdded: 0, requestsCreated: 0, unknownShape: 0, skipped: 0, versionBumped: 1 });
+    expect((store.read.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM request').get()?.n ?? 0)).toBe(1);
+    expect((store.read.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM request_evidence').get()?.n ?? 0)).toBe(1);
     expect(replayOtlpMapping(store, NOW, SALT).scanned).toBe(0);
   } finally {
     store.close();

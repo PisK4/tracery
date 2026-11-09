@@ -45,6 +45,8 @@ ingest 接收结果带 `unknownServices` 计数；未登记 `service.name` 的�
 
 [旧扩展提案](../../rejected/feature/2026-10-26-otlp-harness-expansion.md)转 rejected 冻结：三家的规则草案、排序论证与验收断言留在那篇里作底，本文承接决策并把实施范围收敛为 Codex 先行加对外 profile。goose 与 Gemini CLI 缓接不拒接，届时按三份考察档案照抄即可。取证材料不随仓库发布，本文不复制字段清单。
 
+部分取代（2026-11-09）：对外 profile 从单级升为两级（原生方言层 + 全量级），由 [OTLP 全量接入 profile 与共享摄入编排核心](2026-11-09-otlp-full-profile-shared-ingest.md) 交付；全量级把 `gen_ai.input/output.messages` 升为完整正文并加 `gen_ai.response.id` 锚点。「不发明任何键」的立场保持——全量级仍只站 semconv 现有键，费用不进契约。
+
 ## Alternatives considered
 
 **发明私有规范（自己的键名与传输）。** 否决。外部开发者没有理由为一个本机工具兼容私有方言；OTel GenAI semconv 是明确收敛方向且已覆盖我们需要的全部语义位（含捕获开关的标准变量）。profile 是在标准之上圈定子集，不是新造协议——差这一步，规范就从「可照做」变成「不会有人做」。

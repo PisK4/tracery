@@ -2,18 +2,19 @@ import type { Database } from 'bun:sqlite';
 import { convDigestOf } from './conv-digest';
 import type { Store } from './store';
 import { commitUnit } from './store';
-import { persistBodyTx } from './body';
 import type { BodyInput } from './body';
 import { redact } from './privacy';
-import { localDay, modelTimeTitle } from './format';
 import { normalizeResponseId } from './sources/magpie/mapping';
-import { markRequestInputTx } from './derive/state';
 import { SOURCE_PROJECTION_VERSION, projectRequestTx } from './sources/projection';
 import { mergeRequestTx } from './merge';
-import { HAVE_BODY, MATCH_BY_RESPONSE_ID, MATCH_BY_TURN, hookConv, insertEvidenceTx, sessionIdentity } from './evidence';
+import { HAVE_BODY, MATCH_BY_RESPONSE_ID, MATCH_BY_TURN, hookConv, sessionIdentity } from './evidence';
 import type { ConvRef } from './evidence';
 import { findRequestOwnerTx } from './owner';
 import { codexTurnFactsOf } from './harness/codex';
+import { ingestRequestTx } from './ingest-core';
+import type { ClaimOutcome, IngestChannel } from './ingest-core';
+export type { HookAdmission } from './ingest-core';
+import type { HookAdmission } from './ingest-core';
 
 /**
  * hook 回调的接收与证据关联。
@@ -51,12 +52,6 @@ export type HookEnvelope = {
 };
 
 export type AcceptHookResult = { req_id: number; duplicate: boolean };
-
-/**
- * 写前准入结果。`paused` 由 HTTP 层转成 507，本层不决定状态码；
- * `metadata_only` 只跳过正文，证据与关联照常落库。
- */
-export type HookAdmission = { mode: 'normal' | 'metadata_only' | 'paused'; reason: string | null };
 
 export type AcceptOptions = {
   /** 缺省视为 normal：测试与离线重放不需要真实磁盘预算。 */
@@ -118,48 +113,6 @@ function hookRequest(db: Database, hookId: string): HookRequestRow | null {
     WHERE e.source_kind='hook' AND e.ref_key=?`).get(hookId);
 }
 
-function insertHookRequest(
-  db: Database,
-  envelope: HookEnvelope,
-  now: number,
-  responseIdNorm: string | null,
-  convOverride: ConvRef | null = null,
-): number {
-  // 上游的 session 空串表示"没报会话"，不是会话身份：组键、session 与 actor
-  // 都按缺失处理，原始空值只留在 raw_hook。账本或路由后来确认身份时，
-  // COALESCE 才能把真实的会话补进来。
-  const session = sessionIdentity(envelope.session);
-  const conv = convOverride !== null ? convOverride : hookConv(session, envelope.hook_id);
-  // hook 阶段只知道会话，不知道 actor；actor_state 留 unknown，等账本或路由确认。
-  const actor = session;
-  const started = Number.isFinite(envelope.observed_start_ms) ? envelope.observed_start_ms : now;
-  const title = modelTimeTitle(envelope.model, started);
-  const result = db.run(
-    `INSERT INTO request(
-       response_id_norm,agent,session,conv_key,conv_source,actor,actor_state,
-       started_ms,day,via,status,model_requested,model_served,
-       body_state,derive_version,have,created_at,updated_at,title,title_source,
-       cost_state,attempt_state,sort_source,sort_key,magpie_version,parse_state,reply_state
-     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [
-      responseIdNorm, envelope.agent, session, conv.key, conv.source,
-      actor, 'unknown',
-      // HTTP 状态与模型列只来自账本实得；hook 的成功标记进 raw_hook，不合成 200。
-      started, localDay(started), 'hook', null,
-      null, null,
-      envelope.body_omitted ? 'partial' : 'pending', 0, 1, now, now, title, 'model_time',
-      'absent', 'known', 'hook', envelope.hook_id, envelope.magpie_version ?? null, null, null,
-    ],
-  );
-  return Number(result.lastInsertRowid);
-}
-
-/** 相同 hook_id 已有证据：只确认存在，不改任何字段。 */
-function duplicateResult(db: Database, hookId: string): AcceptHookResult | null {
-  const existing = hookRequest(db, hookId);
-  return existing === null ? null : { req_id: existing.req_id, duplicate: true };
-}
-
 function replyIdOf(reply: unknown): string | null {
   if (reply === null || typeof reply !== 'object' || Array.isArray(reply)) return null;
   const value = (reply as Record<string, unknown>).id;
@@ -180,6 +133,38 @@ function savePending(db: Database, envelope: HookEnvelope, responseIdNorm: strin
       candidates.length === 0 ? null : JSON.stringify(candidates),
     ],
   );
+}
+
+const HOOK_CHANNEL: IngestChannel = {
+  sourceKind: 'hook', via: 'hook', haveBit: HAVE_BODY, sortSource: 'hook',
+  createdRule: MATCH_BY_RESPONSE_ID, createdMergeState: 'pending', emptyBodyState: 'pending',
+};
+
+/** hook 认领：路由候选 → OTLP turn 占位 → 统一 owner 回落（弱窗显式关闭）。 */
+function claimHookTarget(
+  db: Database, envelope: HookEnvelope, responseIdNorm: string | null,
+  turnRef: string | null, conv: ConvRef, now: number,
+): ClaimOutcome {
+  const candidates = responseIdNorm === null ? [] : findCandidates(db, responseIdNorm);
+  let target: number | null = candidates.length === 1 ? candidates[0]! : null;
+  let joinedByTurn = false;
+  if (target === null && turnRef !== null) {
+    const rows = db.query<{ req_id: number }, [string]>(`
+      SELECT req_id FROM request WHERE turn_ref=? AND via='otlp' ORDER BY req_id LIMIT 2`,
+    ).all(turnRef);
+    if (rows.length === 1) { target = rows[0]!.req_id; joinedByTurn = true; }
+  }
+  let joinedRule: string | null = null;
+  if (target === null) {
+    const owner = findRequestOwnerTx(db, {
+      responseIdNorm, turnRef, convKey: conv.key, agent: envelope.agent,
+      startedMs: Number.isFinite(envelope.observed_start_ms) ? envelope.observed_start_ms : now,
+      endMs: Number.isFinite(envelope.observed_finish_ms) ? envelope.observed_finish_ms : null,
+      model: envelope.model, usage: null, excludeSourceKind: 'hook', disallowWeakWindow: true,
+    });
+    if (owner.reqId !== null) { target = owner.reqId; joinedRule = owner.rule; }
+  }
+  return { target, rule: joinedRule ?? (joinedByTurn ? MATCH_BY_TURN : null), candidates };
 }
 
 /**
@@ -209,111 +194,32 @@ export function acceptHook(
       throw new Error('hook_id_missing');
     }
     if (envelope.origin !== 'local') throw new Error('hook_origin_rejected');
-    const duplicate = duplicateResult(db, envelope.hook_id);
-    if (duplicate !== null) return duplicate;
 
     const responseIdNorm = normalizeResponseId(replyIdOf(envelope.reply));
-
-    // 有正文时先存文档层；body_omitted 的请求只保留 metadata 与降级原因。
     const bodyBytes = {
       request_bytes: utf8Bytes(envelope.request),
       reply_bytes: utf8Bytes(envelope.reply),
     };
     const omission = envelope.body_omitted ? (envelope.omit_reason ?? 'collector_object_limit') : bodyOmission(bodyBytes);
-
     const redactedRequest = envelope.request === null ? null : redact(envelope.request, salt);
     const redactedReply = envelope.reply === null ? null : redact(envelope.reply, salt);
-
-    // 先决定关联对象，再写请求：已有关联时复用那一条，避免多造一行。
     const turnRef = envelope.request === null ? null : (codexTurnFactsOf(envelope.request)?.turnRef ?? null);
     const conv = digestConv ?? hookConv(sessionIdentity(envelope.session), envelope.hook_id);
-    const joined = responseIdNorm === null ? { candidates: [] as number[], target: null as number | null }
-      : (() => {
-        const candidates = findCandidates(db, responseIdNorm);
-        return { candidates, target: candidates.length === 1 ? candidates[0]! : null };
-      })();
-    // OTLP 先到、magpie 后到：turn 身份唯一时复用 OTLP 占位行，不另建重复行。
-    let joinedByTurn = false;
-    if (joined.target === null && turnRef !== null) {
-      const rows = db.query<{ req_id: number }, [string]>(`
-        SELECT req_id FROM request WHERE turn_ref=? AND via='otlp' ORDER BY req_id LIMIT 2`,
-      ).all(turnRef);
-      if (rows.length === 1) {
-        joined.target = rows[0]!.req_id;
-        joinedByTurn = true;
-      }
-    }
-    // 会话适配器先写、hook 后到：会话行没有 route_id，上面的候选查找看不到它。
-    // route 与 turn 都没认领时回落到统一 owner 查找，只按 response id、turn 与
-    // 完成时间对齐；envelope 的完成时间没有运行时校验，显式关闭弱开始窗，
-    // 缺字段或 NaN 也不能退回 ±60 秒猜测。
-    let joinedRule: string | null = null;
-    if (joined.target === null) {
-      const owner = findRequestOwnerTx(db, {
-        responseIdNorm,
-        turnRef,
-        convKey: conv.key,
-        agent: envelope.agent,
-        startedMs: Number.isFinite(envelope.observed_start_ms) ? envelope.observed_start_ms : now,
-        endMs: Number.isFinite(envelope.observed_finish_ms) ? envelope.observed_finish_ms : null,
-        model: envelope.model,
-        usage: null,
-        excludeSourceKind: 'hook',
-        disallowWeakWindow: true,
-      });
-      if (owner.reqId !== null) {
-        joined.target = owner.reqId;
-        joinedRule = owner.rule;
-      }
-    }
+    const started = Number.isFinite(envelope.observed_start_ms) ? envelope.observed_start_ms : now;
 
-    let reqId: number;
-    if (joined.target !== null) {
-      reqId = joined.target;
-    } else {
-      reqId = insertHookRequest(db, envelope, now, responseIdNorm, conv);
-    }
-    if (turnRef !== null) {
-      db.run('UPDATE request SET turn_ref=COALESCE(turn_ref,?) WHERE req_id=?', [turnRef, reqId]);
-    }
-    if (responseIdNorm !== null) {
-      db.run('UPDATE request SET response_id_norm=COALESCE(response_id_norm,?) WHERE req_id=?',
-        [responseIdNorm, reqId]);
-    }
+    const body: BodyInput = { protocol: envelope.protocol, request: redactedRequest, reply: redactedReply, redact_version: 1 };
+    // 判重、认领、建行/复用、正文落块与降级、证据登记、派生标记交共享核心；
+    // 这里只保留 hook 专属的校验、脱敏、conv 计算与原始层写入。
+    const result = ingestRequestTx(db, HOOK_CHANNEL, {
+      refKey: envelope.hook_id, agent: envelope.agent, session: sessionIdentity(envelope.session),
+      conv, responseIdNorm, turnRef, model: envelope.model, startedMs: started,
+      endMs: Number.isFinite(envelope.observed_finish_ms) ? envelope.observed_finish_ms : null,
+      usage: null, actorState: 'unknown', modelRequested: null, modelServed: null, stop: null,
+      inTok: null, outTok: null, cacheRead: null, cacheWrite: null, magpieVersion: envelope.magpie_version ?? null,
+    }, body, omission, db2 => claimHookTarget(db2, envelope, responseIdNorm, turnRef, conv, now), now, admission);
+    if (result.duplicate) return { req_id: result.reqId, duplicate: true };
 
-    const body: BodyInput = {
-      protocol: envelope.protocol,
-      request: redactedRequest,
-      reply: redactedReply,
-      redact_version: 1,
-    };
-    const current = db.query<{ body_state: string; skeleton_z: Uint8Array | null }, [number]>(
-      'SELECT body_state, skeleton_z FROM request WHERE req_id=?',
-    ).get(reqId);
-    // partial 且没有骨架才算"真的没正文"；只有骨架的 partial 仍能读请求字段。
-    const hasBody = current?.skeleton_z != null;
-    if (omission === null && admission.mode === 'metadata_only') {
-      if (!hasBody) {
-        db.run(
-          `UPDATE request SET body_state='partial', miss_reason='disk_body_paused', updated_at=? WHERE req_id=?`,
-          [now, reqId],
-        );
-      }
-    } else if (omission === null) {
-      persistBodyTx(db, reqId, body);
-      // persistBodyTx 不碰 miss_reason；暂停期间留下的原因要在这里清掉。
-      db.run('UPDATE request SET miss_reason=NULL WHERE req_id=?', [reqId]);
-    } else if (!hasBody) {
-      // 只有本来就没正文时才降级；已有正文的请求不因一次超限回调被抹掉。
-      db.run(
-        `UPDATE request SET body_state='partial', miss_reason=?, updated_at=? WHERE req_id=?`,
-        [omission, now, reqId],
-      );
-    }
-
-    insertEvidenceTx(db, reqId, 'hook', envelope.hook_id,
-      joined.target === null ? 'pending' : 'merged',
-      joinedRule ?? (joinedByTurn ? MATCH_BY_TURN : MATCH_BY_RESPONSE_ID), now);
+    // raw_hook 插入语句原样保留：列与参数逐字搬运，不改值；omission/bodyBytes 仍在作用域。
     db.run(
       `INSERT INTO raw_hook(hook_id,received_at,protocol,path,agent,session,cwd,origin,model,stream,success,duration_ms,
          request_z,response_z,request_bytes,response_bytes,parse_state,reply_state,miss_reason,magpie_version)
@@ -332,13 +238,9 @@ export function acceptHook(
       ],
     );
 
-    if (joined.target === null) savePending(db, envelope, responseIdNorm, joined.candidates, now);
-    db.run(`UPDATE request SET have=have|${HAVE_BODY}, updated_at=? WHERE req_id=?`, [now, reqId]);
-    projectRequestTx(db, reqId, { now, mappingVersion: SOURCE_PROJECTION_VERSION });
-    // 直接命中已有请求与新建请求都要推进修订：hook 证据、正文与降级原因都是派生输入。
-    // metadata-only 分支虽然没写正文，但证据与 miss_reason 变了，同样不能复用旧结论。
-    markRequestInputTx(db, reqId);
-    return { req_id: reqId, duplicate: false };
+    if (result.created) savePending(db, envelope, responseIdNorm, result.claim.candidates, now);
+    projectRequestTx(db, result.reqId, { now, mappingVersion: SOURCE_PROJECTION_VERSION });
+    return { req_id: result.reqId, duplicate: false };
   }, 'hook');
 }
 

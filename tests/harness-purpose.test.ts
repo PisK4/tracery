@@ -210,8 +210,13 @@ test('登记表完整性：span 规则的 agent 都有用途规则，purpose-onl
   const spanAgents = new Set(SPAN_RULES.map(rule => rule.agent));
   const purposeAgents = new Set(PURPOSE_RULES.map(rule => rule.agent));
   // OTLP span 建的行也要过用途判定：span 侧登记的 agent 必须在用途登记里。
-  const missing = [...spanAgents].filter(agent => !purposeAgents.has(agent));
+  // 全量 profile 的 reference 是唯一例外：没有 harness 专属用途指纹，按设计走
+  // 通用语义（静态登记数组不加空壳），见实施计划「范围与解释边界」。
+  const genericOnly = new Set(['reference']);
+  const missing = [...spanAgents].filter(agent => !purposeAgents.has(agent) && !genericOnly.has(agent));
   expect(missing).toEqual([]);
+  // 白名单自身闭环：列出的 agent 确实没有用途规则，且确实登记在 span 侧。
+  expect([...genericOnly].filter(agent => purposeAgents.has(agent) || !spanAgents.has(agent))).toEqual([]);
   // 反向不要求相等：只做用途判定、不走 OTLP 的 harness 是常态。
   // 新增 purpose-only agent 时在此列名；两边都登记的 harness 无需出现。
   const purposeOnly = [...purposeAgents].filter(agent => !spanAgents.has(agent));

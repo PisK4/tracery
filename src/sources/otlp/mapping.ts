@@ -15,12 +15,13 @@
 
 import type { OtlpAttrs, OtlpSpan } from './decode';
 
-export const OTLP_MAPPING_VERSION = 4;
+export const OTLP_MAPPING_VERSION = 5;
 
 /** 属性键按序回退取值；空数组表示该列本版不映射（保持 NULL）。 */
 type AttrKeys = {
   session: readonly string[];
   turn: readonly string[];
+  responseId: readonly string[];
   modelRequested: readonly string[];
   modelServed: readonly string[];
   stop: readonly string[];
@@ -28,6 +29,8 @@ type AttrKeys = {
   outTok: readonly string[];
   cacheRead: readonly string[];
   cacheWrite: readonly string[];
+  inputMessages: readonly string[];
+  outputMessages: readonly string[];
 };
 
 export type SpanRule = {
@@ -52,6 +55,24 @@ export function ruleOwnsService(rule: SpanRule, service: string | null): boolean
   return typeof rule.service === 'string' ? rule.service === service : rule.service.includes(service ?? '');
 }
 
+/** 全量 profile 集成方：一个稳定 service.name + 一行规则即接入。
+ * 键集走 semconv 现有键，不发明私有键；正文键完整导出是发送端契约。 */
+export function fullProfileRule(service: string, agent: string): SpanRule {
+  return {
+    service, agent, ruleId: 'gen_ai_full_profile',
+    matches: span => span.attrs['gen_ai.operation.name'] === 'chat',
+    keys: {
+      session: ['gen_ai.conversation.id'], turn: [],
+      responseId: ['gen_ai.response.id'],
+      modelRequested: ['gen_ai.request.model'], modelServed: ['gen_ai.response.model'],
+      stop: ['gen_ai.response.finish_reasons'],
+      inTok: ['gen_ai.usage.input_tokens'], outTok: ['gen_ai.usage.output_tokens'],
+      cacheRead: ['gen_ai.usage.cache_read.input_tokens'], cacheWrite: ['gen_ai.usage.cache_creation.input_tokens'],
+      inputMessages: ['gen_ai.input.messages'], outputMessages: ['gen_ai.output.messages'],
+    },
+  };
+}
+
 export const SPAN_RULES: readonly SpanRule[] = [
   {
     service: 'claude-code',
@@ -61,6 +82,7 @@ export const SPAN_RULES: readonly SpanRule[] = [
     keys: {
       session: ['gen_ai.conversation.id', 'session.id'],
       turn: [],
+      responseId: [], inputMessages: [], outputMessages: [],
       modelRequested: ['gen_ai.request.model'],
       modelServed: [],
       stop: ['stop_reason'],
@@ -78,6 +100,7 @@ export const SPAN_RULES: readonly SpanRule[] = [
     keys: {
       session: ['gen_ai.conversation.id'],
       turn: [],
+      responseId: [], inputMessages: [], outputMessages: [],
       modelRequested: ['gen_ai.request.model'],
       modelServed: ['gen_ai.response.model'],
       stop: ['gen_ai.response.finish_reasons'],
@@ -103,6 +126,7 @@ export const SPAN_RULES: readonly SpanRule[] = [
       session: ['thread.id'],
       // turn.id 是 OTLP 侧与 magpie 侧共享的去重键；一个 turn 可覆盖多笔请求。
       turn: ['turn.id'],
+      responseId: [], inputMessages: [], outputMessages: [],
       modelRequested: ['model'],
       // Codex 无回复侧模型与终止原因字段；七项用量里 non_cached/reasoning/total
       // 三项不进既有列，留原始层。
@@ -114,6 +138,7 @@ export const SPAN_RULES: readonly SpanRule[] = [
       cacheWrite: ['codex.turn.token_usage.cache_write_input_tokens'],
     },
   },
+  fullProfileRule('tracery-reference', 'reference'),
 ];
 
 export type SpanClassification =
@@ -163,6 +188,7 @@ export type SpanMapping = {
   agent: string;
   session: string | null;
   turnRef: string | null;
+  responseId: string | null;
   modelRequested: string | null;
   modelServed: string | null;
   stop: string | null;
@@ -170,6 +196,8 @@ export type SpanMapping = {
   outTok: number | null;
   cacheRead: number | null;
   cacheWrite: number | null;
+  inputMessages: string | null;
+  outputMessages: string | null;
 };
 
 /**
@@ -182,6 +210,7 @@ export function mapSpan(rule: SpanRule, span: OtlpSpan): SpanMapping {
     agent: rule.agent,
     session: firstString(span.attrs, keys.session),
     turnRef: firstString(span.attrs, keys.turn),
+    responseId: firstString(span.attrs, keys.responseId),
     modelRequested: firstString(span.attrs, keys.modelRequested),
     modelServed: firstString(span.attrs, keys.modelServed),
     stop: stopOf(span.attrs, keys.stop),
@@ -189,5 +218,7 @@ export function mapSpan(rule: SpanRule, span: OtlpSpan): SpanMapping {
     outTok: firstCount(span.attrs, keys.outTok),
     cacheRead: firstCount(span.attrs, keys.cacheRead),
     cacheWrite: firstCount(span.attrs, keys.cacheWrite),
+    inputMessages: firstString(span.attrs, keys.inputMessages),
+    outputMessages: firstString(span.attrs, keys.outputMessages),
   };
 }

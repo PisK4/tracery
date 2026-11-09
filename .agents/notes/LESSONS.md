@@ -60,6 +60,11 @@
 - 防护：提交前跑 `bun run verify:notes:staged`；新增或移动 note 的 commit 不走合并也跑。跨 worktree 的实现批次不能指望主检出里的 note 顶数，要在同一暂存集里带一篇。
 - Seen 2× (2026-11-04, 2026-11-05).
 
+**测试在 open `store.write` 事务里读 writer `db`，不用 `store.read`。**
+- 证据：2026-11-09 共享摄入核心的计划测试代码在 `store.write(db => …)` 回调里用 `store.read.query` 断言刚写的行，实测 writer 见 n=1、只读连接见 n=0——`store.read` 是独立只读连接，WAL 下看不到本事务未提交的写入，提交后两者才一致。
+- 防护：事务内断言用回调传入的 writer `db`；`store.read` 只在 `store.write` 返回（事务提交）后读。`fixture()` 返回 `{store,dir,close}`，播种是 `store.store.write`，不是 `store.write`。
+- Seen 1× (2026-11-09).
+
 **分步交付的提案，收尾那一步负责把 umbrella 提案转 implemented。**
 - 证据：2026-11-08 立前端规则文档时核对，方向 A 六步 note 全部 implemented，umbrella 提案仍滞留 proposed；蜘蛛插画代码已交付，note 也仍 proposed。规则的最新事实被迫去代码注释里找，入站链接还指着 proposed 路径。
 - 防护：分步提案的最后一步交付时，把 umbrella 转 implemented 并同批修入站链接；收尾跑 `rg -l '<提案文件名>' .agents/notes` 核对没有残留的旧路径引用。
