@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Tracery 外壳的默认能力：核心窗口能力，无文件、进程与网络插件。",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
