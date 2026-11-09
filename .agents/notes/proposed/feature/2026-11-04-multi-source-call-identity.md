@@ -134,6 +134,8 @@ zcode 的归一规则：去掉 `sess_` 与 `session_` 前缀，保留 `subagent`
 
 ### 7. OTLP
 
+交付记录（2026-11-09）：本节「删除 `magpieTurnRequestTx`、OTLP 认领切到统一 `findRequestOwnerTx`」已由 [OTLP 全量接入 profile 与共享摄入编排核心](../../implemented/feature/2026-11-09-otlp-full-profile-shared-ingest.md) 落地——OTLP 落库段走共享 `ingestRequestTx`，认领只走统一 owner（`rejected` 排除与候选唯一性由 owner 既有逻辑承接），`magpieTurnRequestTx` 已删除，replay 预览同口径。认领规则本身的后续增强仍归本篇，改 `findRequestOwnerTx` 两条线自动受益。
+
 - Codex 先走 `turn_ref`；当前 span 已经带 `thread.id` 与 `turn.id`，映射版本 4 能取到。生产里那条 `turn_ref=NULL` 的旧行是映射版本 3 写入的，需要一次显式的 OTLP 重放/回填，不能靠新流量自愈。
 - 没有 `turn_ref` 时走第 4、5 步；span 带 token 时用指纹，不带时只用会话 + 时间 + 模型。Claude Code 与 OMP 的 span 只有会话、没有 turn，按这条路径处理。
 - 删除 `magpieTurnRequestTx` 的独立实现，统一调用 `findRequestOwnerTx`；它当前不排除 `rejected`、`LIMIT 1` 不看唯一性，这两处必须随迁移一起修。
@@ -237,6 +239,6 @@ zcode 的归一规则：去掉 `sess_` 与 `session_` 前缀，保留 `subagent`
 
 已落地：`canonicalSessionId` 在账本、路由与本地适配器入口统一归一；`findRequestOwnerTx` 增加 `usage_fingerprint.v1`（同 conv_key、同 agent、±2 秒、四段 token 逐段相等、候选唯一、排除同来源证据）；第 2 步 `turn_ref` 也排除同来源证据，一个 user turn 里的多笔模型调用不会互相认领；投影写用量列改为 `COALESCE`，网关迟到且无用量时不擦掉本地读数。合成覆盖在 `tests/owner-fingerprint.test.ts` 与各会话适配器测试里。
 
-未落地：第 3 步 `(agent, conversationRoot, nativeCallId)`、direct 行入口、OTLP 认领切到统一 owner、弱指纹与序列对齐兜底、旧行的 OTLP 重放/回填。真实流量的多候选比例尚未测。
+未落地：第 3 步 `(agent, conversationRoot, nativeCallId)`、direct 行入口、弱指纹与序列对齐兜底、旧行的 OTLP 重放/回填。真实流量的多候选比例尚未测。OTLP 认领切到统一 owner 已交付（见第 7 节交付记录）。
 
 更新（同日修复）：`usage_fingerprint.v1` 不再比较模型名——网关 `group/auto-…` 与本地 `auto/…` 等值比较必然落空，四段用量已经足够具体。弱时间窗改为模型名归一后比较，缺失或不同都不直接拒绝，候选唯一时仍合并。已落库的重复行由 `maintain dedupe-sessions` 显式并入，来由见 [跨来源模型名不参与调用身份比较](../../implemented/bug-fix/2026-11-04-session-model-name-dedupe.md)。

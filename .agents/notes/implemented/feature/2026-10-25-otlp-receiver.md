@@ -34,6 +34,8 @@ OTLP 本身是稳定标准：规范到 1.11.1，trace / metric / log 三个信�
 
 第一条约束写在最前面：**OTLP 通道不提供正文的权威来源**。正文仍以 hook 或 harness 自己的 `body_ref` 文件为准。OTLP span 里的 `gen_ai.input.messages` 是**结构化摘要**，用于补元数据与工具时序，不用于建块库。唯一的例外是 `body_ref` 文件本身：它按指针读取后走既有正文管线，见「正文的两种形态」。
 
+部分取代（2026-11-09）：这条约束与「第一批不合并」的范围取舍由 [OTLP 全量接入 profile 与共享摄入编排核心](2026-11-09-otlp-full-profile-shared-ingest.md) 承接。原生方言层（Claude Code / OMP / Codex）的摘要纪律不变；新增的全量级在完整性契约下把 `gen_ai.input/output.messages` 升为完整正文并建块库，跨通道去重经共享 `ingestRequestTx` 与统一 owner 落地（`magpieTurnRequestTx` 已删）。本篇的独有事实进读模型、派生层接入等 Deferred 项仍未交付。
+
 ### 传输层必须做 protobuf
 
 这是本 note 最大的工程成本，也是范围判断的关键。
@@ -239,7 +241,7 @@ harness 面的文档级扫描（同日）：
 
 - OTLP 独有事实进读模型列：`query_source_safe`、Claude Code 的 `attempt`、`agent_id` / `parent_agent_id` 结构化子代理关系、工具 span 的精确起止。
 - 会话内按来源过滤或并排展示双通道重复行。
-- 跨通道按 `response_id_norm` 精确去重：锚点已实测（OMP span 属性、Claude Code logs 事件），判重机制与 hook↔账本现有关联同构，合并策略与字段优先级需单独设计。
+- 跨通道按 `response_id_norm` 精确去重：已交付（2026-11-09），经共享 `ingestRequestTx` 与统一 owner 落地，见[OTLP 全量接入 profile 与共享摄入编排核心](2026-11-09-otlp-full-profile-shared-ingest.md)；存量双行仍走 `maintain dedupe-sessions` 显式并入。
 - 其他 harness 的接入：Codex 已交付（见交付记录，决策与对外 profile 归[两步走提案](../../implemented/feature/2026-10-26-otlp-exporter-profile-and-codex.md)）；goose 与 Gemini CLI 缓接，固定提交的考察材料不随仓库发布；Cursor 企业版只导 metrics/logs 且明确不含 CLI 正文，对本通道无会话阅读增量，不接；OpenCode 无原生出口，社区插件不追。逐个按 `(service.name, 选取规则)` 白名单加。
 - 派生层接入（用途判定、工具配对、前驱链）。
 - metrics 信号。第一批只做 traces 与 logs；`gen_ai.client.token.usage` 这类直方图对会话阅读没有增量。
