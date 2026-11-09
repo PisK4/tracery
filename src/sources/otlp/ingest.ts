@@ -12,8 +12,8 @@
  *   独立记录，不猜归属。
  * - 未登记 service.name 的 span 只落原始层，按服务与日聚合记一行
  *   service_not_registered issue（对外 profile 的门铃），不逐 span 刷表。
- * - 暂停档（95%）整批拒绝，不静默丢弃；OTLP 行第一批不写正文，
- *   metadata_only 档对 traces 等价 normal。
+ * - 暂停档（95%）整批拒绝，不静默丢弃；原生方言不带正文，全量 profile
+ *   带 semconv 正文，解析失败降级 summary 并记 issue。正文脱敏先于落块。
  */
 
 import type { Store } from '../../store';
@@ -34,6 +34,8 @@ import { idHex, nanoToMs } from './decode';
 import { OTLP_MAPPING_VERSION, SPAN_RULES, classifySpan, mapSpan, ruleOwnsService } from './mapping';
 import type { SpanMapping } from './mapping';
 import { persistBodyTx } from '../../body';
+import type { BodyInput } from '../../body';
+import { normalizeResponseId } from '../magpie/mapping';
 
 export type AcceptOtlpTracesResult = {
   spans: number;
@@ -68,16 +70,54 @@ export function fingerprintOf(mapping: SpanMapping): UsageFingerprint | null {
   return { input: mapping.inTok, output: mapping.outTok, cacheRead: mapping.cacheRead, cacheWrite: mapping.cacheWrite };
 }
 
-/** OTLP 认领：只走统一 owner（response id 在 Task 4 接入；原生方言靠 turn/指纹/完成时间）。 */
+/** OTLP 认领：只走统一 owner（全量 profile 带 response id；原生方言靠 turn/指纹/完成时间）。 */
 function claimOtlpTarget(
   db: Database, mapping: SpanMapping, convKey: string | null, started: number, endMs: number | null,
+  responseIdNorm: string | null,
 ): ClaimOutcome {
   const owner = findRequestOwnerTx(db, {
-    responseIdNorm: null, turnRef: mapping.turnRef, convKey, agent: mapping.agent,
+    responseIdNorm, turnRef: mapping.turnRef, convKey, agent: mapping.agent,
     startedMs: started, endMs, model: mapping.modelRequested, usage: fingerprintOf(mapping),
     excludeSourceKind: 'otlp_span',
   });
   return { target: owner.reqId, rule: owner.reqId !== null ? owner.rule : null, candidates: [] };
+}
+
+/**
+ * 全量正文：input/output.messages 解析成 semconv 信封；任一键解析失败或 messages
+ * 非数组，整段降级 summary 并记 issue，不冒充 available。原生方言两键为 null，
+ * 直接返回 null（零开销）。正文键从原始 attrs 读出，未经原始层脱敏，返回前先脱敏。
+ */
+function fullProfileBodyTx(
+  db: Database, mapping: SpanMapping, refKey: string, salt: Uint8Array, now: number,
+): BodyInput | null {
+  if (mapping.inputMessages === null && mapping.outputMessages === null) return null;
+  const degrade = (): null => {
+    db.run('INSERT OR IGNORE INTO ingest_issue(source_kind,ref_key,reason,observed_at,byte_length) VALUES (?,?,?,?,NULL)',
+      ['otlp_span', refKey, 'body_parse_failed', now]);
+    return null;
+  };
+  let input: unknown; let output: unknown;
+  try {
+    input = mapping.inputMessages === null ? null : JSON.parse(mapping.inputMessages);
+    output = mapping.outputMessages === null ? null : JSON.parse(mapping.outputMessages);
+  } catch { return degrade(); }
+  if (input !== null && !Array.isArray(input)) return degrade();
+  if (output !== null && !Array.isArray(output)) return degrade();
+  const request = input === null ? null : { messages: input };
+  // stop_reason 进回复信封：replyShapeOf 的 semconv 分支靠它判 final/tools，
+  // 缺它纯文本答复会落 unknown，轮次结算认不出收尾（mapping.stop 取自 finish_reasons）。
+  const reply = output === null ? null : {
+    ...(mapping.responseId !== null ? { id: mapping.responseId } : {}),
+    ...(mapping.stop !== null ? { stop_reason: mapping.stop } : {}),
+    messages: output,
+  };
+  return {
+    protocol: 'genai-semconv',
+    request: request === null ? null : redact(request, salt),
+    reply: reply === null ? null : redact(reply, salt),
+    redact_version: 1,
+  };
 }
 
 /** 落库段结果：created=false 表示认领了既有行；duplicate=true 表示判重跳过。 */
@@ -100,17 +140,19 @@ export function persistMappedSpanTx(
   const conv = otlpConv(mapping.session);
   const started = nanoToMs(span.startNano);
   const endMs = span.endNano === null ? null : nanoToMs(span.endNano);
+  const responseIdNorm = normalizeResponseId(mapping.responseId);
+  const body = fullProfileBodyTx(db, mapping, refKey, salt, now);
   const identity: IngestIdentity = {
     refKey, agent: mapping.agent, session: mapping.session, conv,
-    responseIdNorm: null, turnRef: mapping.turnRef, model: mapping.modelRequested,
+    responseIdNorm, turnRef: mapping.turnRef, model: mapping.modelRequested,
     startedMs: started, endMs, usage: fingerprintOf(mapping),
     actorState: conv === null ? 'unknown' : 'known',
     modelRequested: mapping.modelRequested, modelServed: mapping.modelServed, stop: mapping.stop,
     inTok: mapping.inTok, outTok: mapping.outTok, cacheRead: mapping.cacheRead, cacheWrite: mapping.cacheWrite,
     magpieVersion: null,
   };
-  const result = ingestRequestTx(db, OTLP_CHANNEL, identity, null, null,
-    db2 => claimOtlpTarget(db2, mapping, conv?.key ?? null, started, endMs), now, admission);
+  const result = ingestRequestTx(db, OTLP_CHANNEL, identity, body, null,
+    db2 => claimOtlpTarget(db2, mapping, conv?.key ?? null, started, endMs, responseIdNorm), now, admission);
   if (result.duplicate) return { created: false, bodiesWired: 0, duplicate: true };
   // logs 可能先到：span 证据一落（新建或认领），回头接等待中的 body_ref 指针。
   let bodiesWired = 0;

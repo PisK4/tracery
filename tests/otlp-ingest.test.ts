@@ -89,7 +89,7 @@ test('OMP chat span 落库：via=otlp、have=8、白名单列映射、conv 与 m
     expect(row.out_tok).toBe(3);
     expect(row.cache_read).toBe(128);
     expect(row.cache_write).toBe(256);
-    // 第一批不写锚点列：跨通道去重是 Deferred，不提前用掉。
+    // 原生方言不映射锚点；全量 profile 才写 response_id_norm
     expect(row.response_id_norm).toBeNull();
     expect(row.sort_source).toBe('otlp_span');
     expect(row.cost_state).toBe('absent');
@@ -478,6 +478,88 @@ test('OMP span 认领既有 magpie 行：用量指纹命中，一行两证据，
     const kinds = store.store.read.query('SELECT source_kind FROM request_evidence ORDER BY source_kind').all() as { source_kind: string }[];
     expect(kinds.map(k => k.source_kind)).toEqual(['ledger', 'otlp_span']);
   } finally { store.close(); }
+});
+
+const FULL_MESSAGES_IN = JSON.stringify([
+  { role: 'user', parts: [{ type: 'text', content: 'synth question' }] },
+]);
+const FULL_MESSAGES_OUT = JSON.stringify([
+  { role: 'assistant', parts: [
+    { type: 'text', content: 'synth answer' },
+    { type: 'tool_call', id: 'call_synth_full', name: 'synth_tool', arguments: { q: 1 } },
+  ] },
+]);
+const FULL_SPAN = {
+  traceId: SYNTH.traceA, spanId: SYNTH.spanLLM, name: 'chat synth-model-lite', kind: 3,
+  startNano: SYNTH.msToNano(1_792_945_426_098), endNano: SYNTH.msToNano(1_792_945_428_830),
+  attrs: {
+    'gen_ai.operation.name': 'chat',
+    'gen_ai.conversation.id': SYNTH.session,
+    'gen_ai.request.model': 'synth-model-lite',
+    'gen_ai.response.model': 'synth-model-lite-served',
+    'gen_ai.response.id': SYNTH.responseId,
+    'gen_ai.response.finish_reasons': { arr: ['stop'] },
+    'gen_ai.usage.input_tokens': { int: 100 }, 'gen_ai.usage.output_tokens': { int: 20 },
+    'gen_ai.usage.cache_read.input_tokens': { int: 0 }, 'gen_ai.usage.cache_creation.input_tokens': { int: 0 },
+    'gen_ai.input.messages': FULL_MESSAGES_IN,
+    'gen_ai.output.messages': FULL_MESSAGES_OUT,
+  },
+};
+
+test('全量 profile span 建行：正文 available、response_id_norm 落列、semconv 解析', () => {
+  const fx = fixture();
+  try {
+    const decoded = decodeTracesBody(tracesProtobuf([{ resource: { service: 'tracery-reference' }, spans: [FULL_SPAN] }]), 'protobuf');
+    const result = acceptOtlpTraces(fx.store, decoded, NOW, new Uint8Array(32));
+    expect(result.requestsCreated).toBe(1);
+    const row = fx.store.read.query<{ body_state: string; response_id_norm: string | null; via: string;
+      have: number; cost_state: string; parse_state: string | null }, []>(
+      `SELECT body_state, response_id_norm, via, have, cost_state, parse_state FROM request`).get()!;
+    expect(row.body_state).toBe('available');
+    expect(row.response_id_norm).toBe('synth-0001abcdef0123456789'); // normalizeResponseId 去 chatcmpl- 前缀
+    expect(row.via).toBe('otlp');
+    expect(row.have & 8).toBe(8);
+    expect(row.cost_state).toBe('absent');
+    expect(row.parse_state).toBe('ok');
+    const blocks = fx.store.read.query('SELECT COUNT(*) AS n FROM request_block').get() as { n: number };
+    expect(blocks.n).toBeGreaterThan(0);
+  } finally { fx.close(); }
+});
+
+test('全量 profile 正文 JSON 解析失败：降级 summary 加 issue，不标 available', () => {
+  const fx = fixture();
+  try {
+    const bad = { ...FULL_SPAN, attrs: { ...FULL_SPAN.attrs, 'gen_ai.input.messages': '{"truncated":' } };
+    const decoded = decodeTracesBody(tracesProtobuf([{ resource: { service: 'tracery-reference' }, spans: [bad] }]), 'protobuf');
+    acceptOtlpTraces(fx.store, decoded, NOW, new Uint8Array(32));
+    const row = fx.store.read.query('SELECT body_state FROM request').get() as { body_state: string };
+    expect(row.body_state).toBe('summary');
+    const issue = fx.store.read.query<{ reason: string }, [string]>(
+      "SELECT reason FROM ingest_issue WHERE source_kind=?").all('otlp_span') as { reason: string }[];
+    expect(issue.some(i => i.reason === 'body_parse_failed')).toBe(true);
+  } finally { fx.close(); }
+});
+
+test('全量 span 按 response_id 认领账本行：双方向都只一行', () => {
+  const fx = fixture();
+  try {
+    fx.store.write(db => {
+      db.run(`INSERT INTO request(response_id_norm,agent,session,conv_key,conv_source,actor,actor_state,
+        started_ms,day,via,body_state,derive_version,have,created_at,updated_at,cost_state,attempt_state,sort_source,sort_key)
+        VALUES (?,'reference',?,?,'session',?,'known',?, '2026-10-26','through','available',0,7,?,?,'absent','known','ledger','ledger-full-1')`,
+        ['synth-0001abcdef0123456789', SYNTH.session, JSON.stringify(['session', SYNTH.session]), SYNTH.session,
+          1_792_945_426_098, NOW, NOW]);
+      db.run(`INSERT INTO request_evidence(req_id,source_kind,ref_key,merge_state,match_rule,added_at)
+        VALUES (1,'ledger','ledger-full-1','merged','response_id_norm.v1',?)`, [NOW]);
+    }, 'test');
+    const decoded = decodeTracesBody(tracesProtobuf([{ resource: { service: 'tracery-reference' }, spans: [FULL_SPAN] }]), 'protobuf');
+    const result = acceptOtlpTraces(fx.store, decoded, NOW, new Uint8Array(32));
+    expect(result.requestsCreated).toBe(0);
+    expect((fx.store.read.query('SELECT COUNT(*) AS n FROM request').get() as { n: number }).n).toBe(1);
+    const ev = fx.store.read.query<{ source_kind: string }, []>(
+      'SELECT source_kind FROM request_evidence ORDER BY source_kind').all() as { source_kind: string }[];
+    expect(ev.map(e => e.source_kind)).toEqual(['ledger', 'otlp_span']);
+  } finally { fx.close(); }
 });
 
 test('暂停档整批拒绝：不写任何行', () => {
