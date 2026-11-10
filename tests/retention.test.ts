@@ -346,7 +346,7 @@ test('原始层过期先标证据再删原文，长期读数不动', () => {
     });
     const pruned = pruneRaw(f.store, 100, 100);
     expect(pruned).toEqual({
-      ledger: 1, route: 1, hook: 1, otlpSpan: 0, otlpLog: 0, session: 0,
+      ledger: 1, route: 1, hook: 1, otlpSpan: 0, otlpLog: 0, session: 0, costRun: 0,
     });
     expect(f.store.read.query('SELECT route_id FROM raw_ledger ORDER BY route_id').all()).toEqual([{ route_id: 7 }]);
     expect(f.store.read.query('SELECT route_id FROM raw_route ORDER BY route_id').all()).toEqual([{ route_id: 8 }]);
@@ -393,7 +393,7 @@ test('原始层过期在同一事务推进修订，证据族转expired', () => {
     f.store.write(db => db.run('UPDATE request SET purpose_pending=0'));
 
     expect(pruneRaw(f.store, 100, 100)).toEqual({
-      ledger: 1, route: 0, hook: 0, otlpSpan: 0, otlpLog: 0, session: 0,
+      ledger: 1, route: 0, hook: 0, otlpSpan: 0, otlpLog: 0, session: 0, costRun: 0,
     });
     const after = f.store.write(db => projectRequestTx(db, 1, {
       now: 3, mappingVersion: SOURCE_PROJECTION_VERSION,
@@ -434,7 +434,7 @@ test('OTLP 原始层同受 TTL：span 证据转 expired，log 直接删，请求
     });
     const pruned = pruneRaw(f.store, 100, 100);
     expect(pruned).toEqual({
-      ledger: 0, route: 0, hook: 0, otlpSpan: 1, otlpLog: 1, session: 0,
+      ledger: 0, route: 0, hook: 0, otlpSpan: 1, otlpLog: 1, session: 0, costRun: 0,
     });
     expect(f.store.read.query('SELECT COUNT(*) AS n FROM raw_otlp_span').get()).toEqual({ n: 0 });
     expect(f.store.read.query('SELECT COUNT(*) AS n FROM raw_otlp_log').get()).toEqual({ n: 0 });
@@ -463,7 +463,7 @@ test('原始层 TTL：孤儿代际与封口代际可清，追加代际保留重�
                ('claude_session','/live.jsonl','gen-live',1,1,0,NULL,NULL,10,0,1)`);
     });
     expect(pruneRaw(f.store, 100, 100)).toEqual({
-      ledger: 0, route: 0, hook: 0, otlpSpan: 0, otlpLog: 0, session: 2,
+      ledger: 0, route: 0, hook: 0, otlpSpan: 0, otlpLog: 0, session: 2, costRun: 0,
     });
     expect(f.store.read.query(
       'SELECT file_generation FROM raw_session_event ORDER BY file_generation').all())
@@ -477,7 +477,7 @@ test('原始层 TTL：孤儿代际与封口代际可清，追加代际保留重�
       ]);
     const before = f.store.writeStats.count;
     expect(pruneRaw(f.store, 100, 100)).toEqual({
-      ledger: 0, route: 0, hook: 0, otlpSpan: 0, otlpLog: 0, session: 0,
+      ledger: 0, route: 0, hook: 0, otlpSpan: 0, otlpLog: 0, session: 0, costRun: 0,
     });
     expect(f.store.writeStats.count).toBe(before);
   } finally {
@@ -607,6 +607,31 @@ test('单个 raw 表按载荷预算截断，不把整批大 payload 一次删完
   }
 });
 
+test('未匹配 cost-run 观测按 raw TTL 清理，已匹配证据与未到期行保留', () => {
+  const f = fixture();
+  try {
+    f.store.write(db => {
+      const insert = db.prepare(
+        'INSERT INTO cost_observation(ref_key,observed_at,projection_hash,payload_json) VALUES (?,?,?,?)');
+      insert.run('["cost-run","run-1",0,0]', 10, 'h1', '{"cost":1}');
+      insert.run('["cost-run","run-1",0,1]', 10, 'h2', '{"cost":2}');
+      insert.run('["cost-run","run-1",0,2]', 200, 'h3', '{"cost":3}');
+      insert.run('["file","gen:0",0]', 10, 'h4', '{"cost":4}');
+    });
+
+    expect(pruneRaw(f.store, 100, 100)).toEqual({
+      ledger: 0, route: 0, hook: 0, otlpSpan: 0, otlpLog: 0, session: 0, costRun: 2,
+    });
+    expect(f.store.read.query(
+      'SELECT ref_key,observed_at FROM cost_observation ORDER BY ref_key,observed_at').all()).toEqual([
+      { ref_key: '["cost-run","run-1",0,2]', observed_at: 200 },
+      { ref_key: '["file","gen:0",0]', observed_at: 10 },
+    ]);
+  } finally {
+    f.close();
+  }
+});
+
 function seedOneAvailableBody(f: ReturnType<typeof fixture>): void {
   f.store.write(db => {
     db.run(
@@ -705,6 +730,57 @@ test('磁盘压力用独立目标，按可回收上界继续淘汰而不是每�
   }
 });
 
+test('准入停在 disk_budget 时，跌破 80% 后仍继续回收到 75% 目标', () => {
+  const f = fixture();
+  try {
+    const requests = 500;
+    f.store.write(db => {
+      const insert = db.prepare(
+        "INSERT INTO request(req_id,started_ms,day,via,body_state,derive_version,have,created_at,updated_at) VALUES (?,?,'2026-10-19','hook','pending',0,1,1,1)");
+      for (let i = 1; i <= requests; i++) insert.run(i, i);
+      for (let i = 1; i <= requests; i++) {
+        const text = `synthetic body ${i} ${Buffer.from(crypto.getRandomValues(new Uint8Array(4096))).toString('base64')}`;
+        persistBodyTx(db, i, {
+          protocol: 'anthropic',
+          request: { messages: [{ role: 'user', content: [{ type: 'text', text }] }] },
+          reply: { id: `msg_${i}`, content: [{ type: 'text', text: 'ok' }] },
+          redact_version: 1,
+        });
+      }
+    });
+    f.store.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    const before = measureStorage(f.store, f.dir);
+    const targetTotal = 12 * MiB;
+    if (before.total_bytes < targetTotal) {
+      writeFileSync(join(f.dir, 'padding.bin'), Buffer.alloc(targetTotal - before.total_bytes, 1));
+    }
+    const total = measureStorage(f.store, f.dir);
+    // 当前占用约 79%，落在准入恢复线（75%）与回收触发线（80%）之间。
+    const diskLimit = Math.ceil(total.total_bytes / 0.79);
+    const limits = { bodyBudget: 1_000_000_000, diskLimit };
+    const oneBatch = { maxBatches: 1, wallMs: 60_000 };
+
+    // 正常态低于 80% 不回收。
+    expect(enforceBodyBudget(f.store, f.dir, limits, { invalidate: () => {} }, oneBatch)).toBe(0);
+    // 降级状态下，单轮只删一批；连续调用要接着删，而不是跌破 80% 就收手。
+    const first = enforceBodyBudget(f.store, f.dir, limits,
+      { invalidate: () => {} }, { ...oneBatch, diskPressure: true });
+    expect(first).toBe(100);
+    expect(measureStorage(f.store, f.dir).total_bytes).toBeGreaterThan(diskLimit * 0.75);
+    let evicted = first;
+    for (let round = 0; round < 10; round++) {
+      const more = enforceBodyBudget(f.store, f.dir, limits,
+        { invalidate: () => {} }, { ...oneBatch, diskPressure: true });
+      if (more === 0) break;
+      evicted += more;
+    }
+    expect(evicted).toBeGreaterThan(first);
+    expect(measureStorage(f.store, f.dir).total_bytes).toBeLessThanOrEqual(diskLimit * 0.75);
+  } finally {
+    f.close();
+  }
+});
+
 test('回收统计包含独占块字节，不计仍被引用的共享块', () => {
   const f = fixture();
   try {
@@ -784,7 +860,7 @@ test('带正文且无法迁移的hook原文不被过期规则删掉', () => {
       ]);
     });
     expect(pruneRaw(f.store, 100, 100)).toEqual({
-      ledger: 0, route: 0, hook: 0, otlpSpan: 0, otlpLog: 0, session: 0,
+      ledger: 0, route: 0, hook: 0, otlpSpan: 0, otlpLog: 0, session: 0, costRun: 0,
     });
     expect(f.store.read.query("SELECT hook_id FROM raw_hook WHERE hook_id='hook-body'").get()).toEqual({ hook_id: 'hook-body' });
     expect(f.store.read.query('SELECT reason FROM ingest_issue').all()).toEqual([{ reason: 'raw_hook_body_unlinked' }]);

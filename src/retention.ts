@@ -53,6 +53,7 @@ export type AdmissionLimits = { bodyBudget: number; diskLimit: number };
 export type EvictResult = { requests: number; blocks: number; releasedLogicalBytes: number; day: string | null };
 export type PruneResult = {
   ledger: number; route: number; hook: number; otlpSpan: number; otlpLog: number; session: number;
+  costRun: number;
 };
 export type ResumeResult = { recoverable: number; unrecoverable: number };
 
@@ -324,7 +325,15 @@ export function createAdmissionGate(
  * 单次调用按批限量，批间检查墙钟；单批事务仍同步执行，不能抢占。
  * 磁盘目标不可达时停止为磁盘压力淘汰，正文预算独立执行。返回回收的请求数。
  */
-export type RetentionBudget = { maxBatches?: number; wallMs?: number; shrink?: ShrinkBudget };
+export type RetentionBudget = {
+  maxBatches?: number; wallMs?: number; shrink?: ShrinkBudget;
+  /**
+   * 准入仍停在磁盘降级时续跑：触发线以下也继续回收到目标线。
+   * 没有它，一轮 2 秒的回收跌回 80% 以下就收手，准入要等 75% 才恢复，
+   * 中间这段死带会让正文一直停着。
+   */
+  diskPressure?: boolean;
+};
 
 export function enforceBodyBudget(store: Store, dataDir: string,
   limits: { bodyBudget: number; diskLimit: number },
@@ -337,9 +346,13 @@ export function enforceBodyBudget(store: Store, dataDir: string,
   const diskTrigger = limits.diskLimit * DISK_METADATA_RATIO;
   const diskTarget = limits.diskLimit * DISK_EVICT_TARGET_RATIO;
 
+  const pressure = budget.diskPressure === true;
   let usage = measureStorage(store, dataDir);
   const bodyFull = usage.body_bytes >= bodyTarget;
-  let diskTight = usage.total_bytes >= diskTrigger;
+  // 降级状态下把目标线当触发线：已经越线的回收要跑到准入能恢复为止。
+  const diskLow = (): boolean =>
+    usage.total_bytes >= diskTrigger || (pressure && usage.total_bytes > diskTarget);
+  let diskTight = diskLow();
   if (!bodyFull && !diskTight) return 0;
 
   let shrunk = false;
@@ -349,7 +362,7 @@ export function enforceBodyBudget(store: Store, dataDir: string,
     shrinkStorage(store, budget.shrink);
     shrunk = true;
     usage = measureStorage(store, dataDir);
-    diskTight = usage.total_bytes >= diskTrigger;
+    diskTight = diskLow();
     if (!bodyFull && !diskTight) {
       hooks.invalidate();
       return 0;
@@ -460,6 +473,7 @@ export function evictOldestBodyBatch(store: Store, now: number, limit = EVICT_BA
  */
 type PruneCursor = {
   ledger: number; route: number; hook: number; otlpSpan: number; otlpLog: number; session: number;
+  costRun: number;
 };
 
 type LedgerCandidate = { source_kind: string; file_generation: string; byte_offset: number };
@@ -468,6 +482,7 @@ type HookCandidate = { hook_id: string };
 type OtlpSpanCandidate = { trace_id: Uint8Array; span_id: Uint8Array };
 type OtlpLogCandidate = { record_hash: Uint8Array };
 type SessionCandidate = { file_generation: string; byte_offset: number };
+type CostRunCandidate = { ref_key: string; observed_at: number };
 type PruneCandidates = {
   ledger: LedgerCandidate[];
   route: RouteCandidate[];
@@ -475,29 +490,32 @@ type PruneCandidates = {
   otlpSpan: OtlpSpanCandidate[];
   otlpLog: OtlpLogCandidate[];
   session: SessionCandidate[];
+  costRun: CostRunCandidate[];
 };
 
 const emptyCandidates = (): PruneCandidates => ({
-  ledger: [], route: [], hook: [], otlpSpan: [], otlpLog: [], session: [],
+  ledger: [], route: [], hook: [], otlpSpan: [], otlpLog: [], session: [], costRun: [],
 });
 
 function emptyResult(): PruneResult {
-  return { ledger: 0, route: 0, hook: 0, otlpSpan: 0, otlpLog: 0, session: 0 };
+  return { ledger: 0, route: 0, hook: 0, otlpSpan: 0, otlpLog: 0, session: 0, costRun: 0 };
 }
 
 function zeroCursor(): PruneCursor {
-  return { ledger: 0, route: 0, hook: 0, otlpSpan: 0, otlpLog: 0, session: 0 };
+  return { ledger: 0, route: 0, hook: 0, otlpSpan: 0, otlpLog: 0, session: 0, costRun: 0 };
 }
 
 function hasCandidates(candidates: PruneCandidates): boolean {
   return candidates.ledger.length + candidates.route.length + candidates.hook.length
-    + candidates.otlpSpan.length + candidates.otlpLog.length + candidates.session.length > 0;
+    + candidates.otlpSpan.length + candidates.otlpLog.length + candidates.session.length
+    + candidates.costRun.length > 0;
 }
 
 function hasRemaining(candidates: PruneCandidates, cursor: PruneCursor): boolean {
   return cursor.ledger < candidates.ledger.length || cursor.route < candidates.route.length
     || cursor.hook < candidates.hook.length || cursor.otlpSpan < candidates.otlpSpan.length
-    || cursor.otlpLog < candidates.otlpLog.length || cursor.session < candidates.session.length;
+    || cursor.otlpLog < candidates.otlpLog.length || cursor.session < candidates.session.length
+    || cursor.costRun < candidates.costRun.length;
 }
 
 type SourceCursorRow = { fingerprint: string | null; last_ok_ms: number };
@@ -569,6 +587,13 @@ function prepareRawPrune(db: Database, beforeMs: number, limit: number): PruneCa
   candidates.otlpLog = db.query<OtlpLogCandidate, [number, number]>(`
     SELECT record_hash FROM raw_otlp_log WHERE received_at < ? LIMIT ?`)
     .all(beforeMs, limit);
+
+  // 未匹配的费用行只有暂存键 ["cost-run",...]，按方案随 raw 层 7 天规则清理。
+  // PK 是 (ref_key, observed_at)，前缀区间走主键扫描，不做全表 LIKE。
+  candidates.costRun = db.query<CostRunCandidate, [string, string, number, number]>(`
+    SELECT ref_key, observed_at FROM cost_observation
+    WHERE ref_key >= ? AND ref_key < ? AND observed_at < ?
+    LIMIT ?`).all('["cost-run"', '["cost-rv"', beforeMs, limit);
 
   // 追加文件的重放需要当前代际的完整原始行，不能按年龄删；这里只清两类
   // 已不可达的代际：游标已换代留下的孤儿，以及内容不会变的封口文件。
@@ -756,6 +781,26 @@ function prunePreparedRawTx(db: Database, beforeMs: number, candidates: PruneCan
   }
   consumed += processed;
 
+  // 未匹配的费用观测没有归属请求，删除后不需要重算投影；已匹配的证据键
+  // 不以 ["cost-run" 开头，不会被这条前缀区间命中。
+  const costRunSize = db.prepare(
+    'SELECT length(CAST(payload_json AS BLOB)) AS n FROM cost_observation WHERE ref_key=? AND observed_at=?',
+  );
+  const deleteCostRun = db.prepare('DELETE FROM cost_observation WHERE ref_key=? AND observed_at=?');
+  let costRun = 0;
+  processed = 0;
+  used = 0;
+  while (cursor.costRun < candidates.costRun.length && processed < limit) {
+    const row = candidates.costRun[cursor.costRun]!;
+    const size = (costRunSize.get(row.ref_key, row.observed_at) as { n: number } | null)?.n ?? 0;
+    if (processed > 0 && used + size > payloadBudget) break;
+    cursor.costRun += 1;
+    processed += 1;
+    used += size;
+    costRun += deleteCostRun.run(row.ref_key, row.observed_at).changes;
+  }
+  consumed += processed;
+
   const sessionSize = db.prepare(
     'SELECT length(CAST(payload_json AS BLOB)) AS n FROM raw_session_event WHERE file_generation=? AND byte_offset=?',
   );
@@ -785,7 +830,7 @@ function prunePreparedRawTx(db: Database, beforeMs: number, candidates: PruneCan
     markRequestInputTx(db, reqId);
   }
   return {
-    result: { ledger, route, hook, otlpSpan, otlpLog, session },
+    result: { ledger, route, hook, otlpSpan, otlpLog, session, costRun },
     consumed,
   };
 }
@@ -844,6 +889,7 @@ export async function pruneRawBounded(store: Store, beforeMs: number,
     total.otlpSpan += outcome.result.otlpSpan;
     total.otlpLog += outcome.result.otlpLog;
     total.session += outcome.result.session;
+    total.costRun += outcome.result.costRun;
     if (outcome.consumed === 0) break;
     await yieldToEventLoop();
     if (performance.now() - started >= wallMs) break;

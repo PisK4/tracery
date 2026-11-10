@@ -315,10 +315,14 @@ export async function startCollector(
   });
 
   const retentionTick = guard('retention', () => {
+    // 准入还停在 disk_budget 降级时，回收要跑到目标线，不能跌回 80% 就收手。
+    const admission = gate.check(0);
     const evicted = enforceBodyBudget(store, config.dataDir, {
       bodyBudget: config.bodyBudget,
       diskLimit: config.diskLimit,
-    }, { invalidate: () => gate.invalidate() });
+    }, { invalidate: () => gate.invalidate() }, {
+      diskPressure: admission.mode !== 'normal' && admission.reason === 'disk_budget',
+    });
     if (evicted > 0) process.stderr.write(`retention_evicted:${evicted}\n`);
   });
 
@@ -326,7 +330,7 @@ export async function startCollector(
     const now = Date.now();
     const pruned = await pruneRawBounded(store, now - RAW_TTL_MS);
     if (pruned.ledger + pruned.route + pruned.hook + pruned.otlpSpan + pruned.otlpLog
-      + pruned.session > 0) shrinkStorage(store);
+      + pruned.session + pruned.costRun > 0) shrinkStorage(store);
   });
 
   const gapTick = guard('gap', () => {

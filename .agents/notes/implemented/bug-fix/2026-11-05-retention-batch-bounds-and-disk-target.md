@@ -22,7 +22,7 @@ Status: implemented
 
 **物理收缩有显式上限。** `shrinkStorage` 按轮数（`SHRINK_MAX_ROUNDS = 32`）、每轮页数（`SHRINK_PAGES_PER_ROUND = 256`）与批间墙钟（`SHRINK_WALL_BUDGET_MS = 500`）停止；checkpoint 受连接 `busy_timeout` 约束，忙时如实返回 `busy`。
 
-**磁盘压力有独立目标。** 触发仍是 `diskLimit × 0.8`，目标改为 `diskLimit × 0.75`（`DISK_EVICT_TARGET_RATIO`），与暂停后恢复正常的回落线一致。触顶后先 `incremental_vacuum` 收空闲页并重测；若已回到触发线以下且正文未满，直接收手。仍紧时用「空闲页字节 + `capacity_meter` 里 block/request 的可淘汰逻辑字节」判断缺口能否补齐；不够就停止为磁盘压力淘汰，正文预算仍独立执行。够时只按缺口淘汰，累计已释放逻辑字节达标即停。
+**磁盘压力有独立目标。** 触发仍是 `diskLimit × 0.8`，目标改为 `diskLimit × 0.75`（`DISK_EVICT_TARGET_RATIO`），与暂停后恢复正常的回落线一致。触顶后先 `incremental_vacuum` 收空闲页并重测；正常准入下回到触发线以下且正文未满就收手，准入仍停在 `disk_budget` 降级时由 `diskPressure` 续跑到 75% 目标，见[跨 tick 死带](2026-11-10-retention-dead-band-and-cost-run-prune.md)。仍紧时用「空闲页字节 + `capacity_meter` 里 block/request 的可淘汰逻辑字节」判断缺口能否补齐；不够就停止为磁盘压力淘汰，正文预算仍独立执行。够时只按缺口淘汰，累计已释放逻辑字节达标即停。
 
 **回收统计修正。** `evictOldestBodyBatch` 先删本批 `request_block` 引用，再统计真正失去最后一个引用的块字节，`releasedLogicalBytes` 从此包含独占块；仍被其他请求引用的共享块不计。
 
@@ -36,7 +36,7 @@ export function shrinkStorage(store, budget?: ShrinkBudget): ShrinkResult
 export function capacityMeterEvictableBytes(db): number
 ```
 
-`main.ts` 的接线不变：`retentionTick` 继续调 `enforceBodyBudget`，`rawPruneTick` 继续 `await pruneRawBounded(...)` 后按需 `shrinkStorage(store)`；所有新参数都有缺省值，`ShrinkBudget` 由 `enforceBodyBudget` 透传，不需要在 main 里拆开配置。
+`main.ts` 的接线：`retentionTick` 调 `enforceBodyBudget`，准入停在 `disk_budget` 时传 `diskPressure`；`rawPruneTick` 继续 `await pruneRawBounded(...)` 后按需 `shrinkStorage(store)`；所有新参数都有缺省值，`ShrinkBudget` 由 `enforceBodyBudget` 透传，不需要在 main 里拆开配置。
 
 ## Alternatives considered
 
