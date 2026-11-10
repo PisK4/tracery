@@ -2816,3 +2816,26 @@ master `0b5c9a1`（`--no-ff` 合并 `feat/desktop-ui`）。合并后主检出的
 - 没有构造新一轮 80% 触顶来观察生产上的 `diskPressure` 续跑；该路径只有合成回归覆盖。若再次触顶，预期是每 30 秒一轮持续淘汰正文到 75%，err 日志连续出现 `retention_evicted`。
 - 没有在生产页面走查顶部状态标签；状态来自 `/api/stats.admission`，与本轮读到的 `normal` 同源。
 - 一次性清理顺带暴露出小时级 `raw_prune` 的存量缺口（170,131 行超期 raw 行），本轮只清存量，没有调整 `rawPruneTick` 的批次或墙钟预算；后续按真实到期速率观察是否需要提高。
+
+## 前端样式以 demo 定稿为准：部署与真实流量只读验收（2026-11-10）
+
+前提：worktree `atc-demo-parity`，分支 `feat/demo-parity`，基线 `ce5062b`。改动范围与理由见[前端样式以桌面定稿样张为准](../.agents/notes/implemented/feature/2026-11-10-demo-visual-parity.md)。合成验收在合并前做，部署与真实流量验收在合并后做，两处结果分开记。
+
+### 合成验收
+
+- `bun run typecheck` 退出 0；`bun test tests/web.test.ts` 69 pass / 0 fail / 538 expect，`bun test tests/http.test.ts` 29 pass / 0 fail / 2229 expect；Agent Note 格式 271 篇、归档封印 8 个冻结产物、暂存与 range 两道变更闸门均通过。
+- 合成页跑在 worktree 自己的 8791 端口（8770 被另一会话占用），全部数据由 `prototypes/synthetic-server.ts` 生成，验收完毕把端口常量改回 8770 并停掉临时进程。1440×900 读计算样式：色板令牌 `--page:#FAFAFB`、`--text:#1F2124`、`--shadow` 解析成三层卡片影；147 枚 `svg.ico` 均为 `0 0 48 48` / `stroke-width:4`（两枚 8px TINY 标记除外）；`.fold-card` 119px 包住四个子折叠，证据折叠与用量卡留在卡外；选中会话 50px 白底带卡片影；用量卡头部 32px / 9.5px / 大写；中栏白、两侧灰；Agent 选中 `rgb(231,233,235)` 且无 accent 竖条；分段选中白底带卡片影；轮次带白底、`scrollbar-width:none`；滚动条占位 8px；右栏头与页签底色为 `--page`。
+- 暗色令牌 `#17181A/#232427/#F2F3F4`，`--accent` 不被暗色块覆写（用户预设仍由 `web/settings.js` 启动时写入）。1180×760 得 `data-density=compact`，`rail-body` 639/639（本轮 643/643），无横向溢出。暗色切换有 120ms 背景过渡，稳态颜色必须等过渡结束再读。
+
+### 部署与真实流量验收
+
+- master `e4c8cf3` 以 `--no-ff` 合并 `feat/demo-parity`（提交 `3fe22e6`）；`bun run service restart` 重启 launchd 托管的采集器，pid 86739，端口 8320，用时 1 秒。
+- 生产页 `http://127.0.0.1:8320/?host=desktop` 只读打开：`app.css`、`app.js`、`icons.js`、`rail-facts.js`、`layout.js`、`tracery-light.svg`、`tracery-dark.svg` 全部 200；`/index.html` 返回 404，入口页面由导航响应提供，不是静态白名单文件，不按缺陷处理。
+- 真实会话列表 16 行，三栏都在，147 枚 `svg.ico` 取 `0 0 48 48` / `stroke-width:4`；`--page:#FAFAFB`、`--ui` 首项 Inter、`--chev-right` 是 48 网格 data URI；`.fold-card` 1 张、右栏页签 5 个，无横向溢出。页面标题属真实会话标题，没有把正文写进验收记录或截图文件。
+- 1440×900 与 1180×760 各走亮暗两态：亮色 `--page:#FAFAFB` / `--text:#1F2124` / 选中会话白底；暗色 `#17181A` / `#F2F3F4` / 选中会话 `rgb(35,36,39)`，并卡阴影换成暗色线。1440×900 的 `rail-body` 779/779，1180×760 得 `data-density=compact` 且 639/639，四种组合均无横向溢出。截图 `/tmp/atc-style-audit/prod-demoparity-light.png`，未入库。
+
+### 未覆盖
+
+- 双圆环面板生产实测 136px，样张 129px，差 7px 来自图例行高，没有隐藏指标；未继续压缩。
+- 真实 Tauri 外壳窗口内仍未取到截图（`screencapture -l` 此前失败），本轮证据来自 headless Chrome 打开生产页面。
+- 样张里需要改生成器的 DOM 模块（`.bd-*` 构成明细、`.req-list` 请求结构、`.block-list` 回复块索引、`.set-preview` 设置预览、`data-compact` 开关）与 15 枚未调用备用几何没有迁入；中英双语文案与三档字号只验了机制未被破坏，没有逐个组合截图。
