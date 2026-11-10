@@ -2860,7 +2860,31 @@ master `0b5c9a1`（`--no-ff` 合并 `feat/desktop-ui`）。合并后主检出的
 
 ### 未覆盖
 
-- 生产部署与真实流量验收：尚未部署，也未在真实流量上启用自动清理。
+- 生产部署与自动清理：预演只验证副本删除，不代替生产验收；部署与真实流量复核见下一节，自动清理仍未启用。
 - 页面走查：历史与空间面板的启用流程、数字、中英字典、1440/1180 宽度、键盘与 `prefers-reduced-motion` 尚未人工走查。
 - `runMode` 只保存不执行：浏览器宿主下只读显示当前值，桌面宿主、LaunchAgent 安装器与随 App 模式属于阶段 4。
 - 6–12 个月合成 soak 未跑；首次启用的存量追赶按 2 秒/分钟估算约两小时，尚无真实启用数据。
+
+## 会话保留生产部署与真实流量只读验收（2026-11-10）
+
+前提：master `c83b42b`（`--no-ff` 合并 `feat/session-retention`，分支提交 `3ac669b`），schema v18。部署前状态、预演与合成验收见上一节；本节只记部署、迁移与真实流量上的只读复核，自动清理尚未启用。
+
+### 部署
+
+- 停服务后 `maintain bundle` 备份到数据目录外：`bundle-2026-11-10-session-retention-v18`，退出 0，用时 58 秒。`maintain precheck` 报 `state=in_place`、`db_version=17`、`code_version=18`。
+- `bun run service start` 完成 v17→v18 原地迁移，首次启动 17 秒（建 `purged_conversation` 与三条索引）；随后一次重启 466 毫秒，不再迁移。
+- 迁移后 `PRAGMA user_version=18`、`integrity_check=ok`。`maintain verify` 首次报 `dangling_blocks=1248`：这批无引用块在部署前已存在，不是本次迁移产生；停服务后用与 `sweepOrphanBlocks` 相同的 `DELETE FROM block WHERE NOT EXISTS (...)` 一次清掉 1,248 行，再跑 `verify` 为 `ok=true`、`dangling_blocks=0`、`duplicate_evidence=0`、`pending_derivations=0`、`purged_conversation_residue=0`。
+- `maintain capacity-check` 四源 `byte_delta=0`、`row_delta=0`：`block` 1.636 GB / 370,637 行、`request` 2.414 GB / 183,510 行、`raw_hook` 0 / 39,845 行、`raw_session_event` 2.407 GB / 383,129 行。
+
+### 真实流量只读复核
+
+- `/api/stats` 的准入为 `normal`、`reason=null`；分层占用 `readable_body_bytes=4.05 GB`、`session_raw_bytes=2.41 GB`、`raw_hook_bytes=0`。`raw_session_event` 不再计入正文预算，准入没有因为原始层停在 `metadata_only`。
+- `GET /api/settings` 返回默认值 `retentionDays=30`、`retentionConfigured=false`、`runMode=always`，`overrides={}`；`config/settings.json` 仍是 `{}`。`GET /api/retention/preview?keep-days=30` 返回 200，与 `maintain retention-preview --keep-days 30` 完全一致：421 个会话 / 35,155 笔请求，首末日 2026-08-20 至 2026-11-10，`bytes.readable_body=267,864,355`、`session_raw=574,571,361`、`raw_hook=0`，`skipped` 四项全 0；`limits` 为 16 GB / 10 GB。
+- 部署后 `purged_conversation=0`、`retention_event=3`（均为既有手动清理记录），err 日志没有 `retention_sessions_deleted`、`retention_backlog` 或 `retention_disk_cap_deleted`：自动清理确实只预览，没有删任何会话。数据目录 11.479 GB，为 16 GB 上限的 71.74%。
+- 服务状态 running，端口 8320，`/api/stats` 6 毫秒，代码未落后；错误日志尾部只有正常态 `hook_absent_marked`。
+
+### 未覆盖
+
+- 自动清理的真实删除：用户尚未在面板保存保留期，`retentionConfigured` 仍为 `false`；启用后的首批 421 个会话、追赶重试、`retention_purge_ms_max` 与事件循环影响都要另记一轮。
+- 页面走查：历史与空间面板的启用流程、数字与中英字典尚未人工走查；本轮只验了 API 与静态资源可达。
+- `runMode` 的实际执行、桌面宿主与 LaunchAgent 安装器、6–12 个月 soak 均未做。
