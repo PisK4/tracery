@@ -84,6 +84,10 @@ _Avoid_: merge_state（证据关联状态）
 
 **淘汰（purge）**：维护操作显式移除选定数据，并阻止对应来源回放使其重新出现；区别于预算回收与按保留期过期。
 
+**保留期（retention window）**：用户设置的整会话保留时长，从该 `conv_key` 最后一笔请求开始算；到期整条删除，正文仍可能先受空间预算回收。规则见[会话保留](docs/architecture-design.md#会话保留)。
+
+**会话墓碑（purged conversation）**：删除一条会话后留下的 `conv_key` 与 `purged_at` 记录，用来跳过早于删除时间的来源回放；晚于它的新调用仍会入库。
+
 ## kind 三族
 
 **调用用途（kind）**：上游报告的调用用途，对应 raw_ledger.kind；与一次尝试是否转交给其他上游无关。

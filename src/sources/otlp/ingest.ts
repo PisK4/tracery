@@ -154,6 +154,8 @@ export function persistMappedSpanTx(
   const result = ingestRequestTx(db, OTLP_CHANNEL, identity, body, null,
     db2 => claimOtlpTarget(db2, mapping, conv?.key ?? null, started, endMs, responseIdNorm), now, admission);
   if (result.duplicate) return { created: false, bodiesWired: 0, duplicate: true };
+  // 已淘汰会话的迟到 span 不建行；body_ref 指针留给显式来源重置，不在这里接线。
+  if (result.purged_skip) return { created: false, bodiesWired: 0, duplicate: false };
   // logs 可能先到：span 证据一落（新建或认领），回头接等待中的 body_ref 指针。
   let bodiesWired = 0;
   for (const pending of db.query<{ request_body_id: string }, [Uint8Array]>(

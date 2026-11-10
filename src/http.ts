@@ -10,6 +10,7 @@ import type { SummaryEntriesQuery } from './queries/session-summary';
 import { getRequest, listRequests } from './queries/requests';
 import { getRoute } from './queries/routes';
 import { getStats } from './queries/stats';
+import { previewSessionRetention } from './queries/retention-preview';
 import { listSessions, getSessionTitles, listSessionAgents } from './queries/sessions';
 import type { LiveActivity } from './activity';
 import { listTurns } from './queries/turns';
@@ -596,6 +597,19 @@ export function createHandler(
       }
 
       if (path === '/api/stats') return json(getStats(store));
+
+      // 会话保留预览：keep-days 限 1..3650 整数，超出直接拒绝，不让查询按未来截止时间误报。
+      if (path === '/api/retention/preview') {
+        const raw = url.searchParams.get('keep-days');
+        const days = raw !== null && /^\d+$/.test(raw) ? Number(raw) : NaN;
+        if (!Number.isInteger(days) || days < 1 || days > 3650) {
+          return json({ error: 'invalid_input' }, 400);
+        }
+        return json({
+          ...previewSessionRetention(store.read, days),
+          limits: { disk_limit_bytes: config.diskLimit, body_budget_bytes: config.bodyBudget },
+        });
+      }
 
       if (path === '/api/agents') return json(listSessionAgents(store));
 

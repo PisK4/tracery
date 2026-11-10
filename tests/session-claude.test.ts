@@ -6,6 +6,7 @@ import { fixture } from './fixtures';
 import { readBodyWithMessagesTx } from '../src/body';
 import { claudeAdapter } from '../src/sources/session/adapters/claude';
 import { ingestSessionBatch, ingestSessionFile } from '../src/sources/session/ingest';
+import { purgeSession } from '../src/session-retention';
 
 const T0 = Date.parse('2026-09-01T10:00:00.000Z');
 const SALT = new Uint8Array(32);
@@ -336,6 +337,47 @@ test('Claude 脱敏：敏感片段不进原始层与正文块', async () => {
     expect(raw.some(row => row.payload_json.includes(secret))).toBe(false);
     const body = readBodyWithMessagesTx(f.store.read, 1);
     expect(JSON.stringify(body!.messages)).not.toContain(secret);
+  } finally {
+    f.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('整会话墓碑：删除后回放跳过旧调用，只建删除后的新片段', async () => {
+  const root = makeRoot();
+  const f = fixture();
+  try {
+    const path = writeSession(root, `${SESSION_ID}.jsonl`, [
+      user(iso(T0), [{ type: 'text', text: 'old prompt' }]),
+      assistant(iso(T0 + 1_000), 'msg-old-1', [{ type: 'text', text: 'old reply' }]),
+    ]);
+    const first = await ingestSessionBatch(f.store, claudeAdapter, [root], SALT, T0);
+    expect(first.calls).toBe(1);
+    // 真实运行时淘汰发生在派生组干净、用途已结算的窗口；这里把合成组标到同一状态。
+    f.store.write(db => {
+      db.run("UPDATE derive_queue SET state='clean'");
+      db.run('UPDATE request SET purpose_pending=0');
+    });
+    const conv = json(['session', SESSION_ID]);
+    const deleted = purgeSession(f.store, conv, {
+      cutoffMs: T0 + 60_000, now: T0 + 60_000, reason: 'retention',
+    });
+    expect(deleted.skipped).toBeNull();
+    expect(deleted.deleted).toBe(1);
+
+    appendFileSync(path, `${[
+      user(iso(T0 + 120_000), [{ type: 'text', text: 'new prompt' }]),
+      assistant(iso(T0 + 121_000), 'msg-new-1', [{ type: 'text', text: 'new reply' }]),
+    ].join('\n')}\n`);
+    const second = await ingestSessionBatch(f.store, claudeAdapter, [root], SALT, T0 + 130_000);
+    expect(second.purged_skip).toBe(1);
+    expect(second.calls).toBe(1);
+    expect(f.store.read.query('SELECT started_ms,conv_key FROM request ORDER BY started_ms').all())
+      .toEqual([{ started_ms: T0 + 120_000, conv_key: conv }]);
+    // 旧事件只进内存解析状态，原文不再回写；新片段的两行正常落原始层。
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM raw_session_event').get()).toEqual({ n: 2 });
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM purged_conversation').get())
+      .toEqual({ n: 1 });
   } finally {
     f.close();
     rmSync(root, { recursive: true, force: true });

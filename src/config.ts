@@ -1,8 +1,8 @@
 import type { Database } from 'bun:sqlite';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, statfsSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 /**
  * 切片派生的预算。
@@ -116,16 +116,70 @@ export function defaultDataDir(
   return join(env.XDG_DATA_HOME?.trim() || join(home, '.local', 'share'), name);
 }
 
-export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
+// 容量优先级：先给系统留余量，再从余量切出正文预算，最后才谈保留期。
+// 单位沿用配置层既有 GB（十进制 1e9），与环境变量 parseSize 的 "GB" 一致。
+export const SYSTEM_DISK_MARGIN_BYTES = 5 * GB;
+export const MIN_DISK_LIMIT_BYTES = 2 * GB;
+export const MAX_DISK_LIMIT_BYTES = 16 * GB;
+export const MAX_BODY_BUDGET_BYTES = 10 * GB;
+export const BODY_BUDGET_RATIO = 0.625;
+export const DISK_FREE_WARN_BYTES = 7 * GB;
+
+/**
+ * 按磁盘剩余空间推导容量上限。非有限数无法推导，退回写死上限（16/10 GB），
+ * 不让 NaN 流进配置与校验。
+ */
+export function deriveCapacityLimits(freeBytes: number): {
+  diskLimit: number; bodyBudget: number; diskFreeLow: boolean;
+} {
+  if (!Number.isFinite(freeBytes)) {
+    return { diskLimit: MAX_DISK_LIMIT_BYTES, bodyBudget: MAX_BODY_BUDGET_BYTES, diskFreeLow: false };
+  }
+  const diskLimit = Math.min(
+    MAX_DISK_LIMIT_BYTES,
+    Math.max(MIN_DISK_LIMIT_BYTES, freeBytes - SYSTEM_DISK_MARGIN_BYTES),
+  );
+  const bodyBudget = Math.min(MAX_BODY_BUDGET_BYTES, Math.floor(diskLimit * BODY_BUDGET_RATIO));
+  return { diskLimit, bodyBudget, diskFreeLow: freeBytes < DISK_FREE_WARN_BYTES };
+}
+
+/** 沿 dirname 上溯到最近一个已存在祖先，读它的可用空间；不创建目录，任何错误返回 null。 */
+export function freeBytesAt(path: string): number | null {
+  let current = path;
+  for (;;) {
+    try {
+      const { bavail, bsize } = statfsSync(current);
+      return bavail * bsize;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return null;
+      const parent = dirname(current);
+      if (parent === current) return null; // 上溯到根仍不存在
+      current = parent;
+    }
+  }
+}
+
+export function loadConfig(
+  env: Record<string, string | undefined> = process.env,
+  options?: { freeBytes?: number | null },
+): Config {
   const home = homedir();
+  const freeBytes = options?.freeBytes;
+  const derived = typeof freeBytes === 'number' && Number.isFinite(freeBytes)
+    ? deriveCapacityLimits(freeBytes)
+    : null;
   const config: Config = {
     dataDir: env.ATC_DATA_DIR?.trim() || defaultDataDir(env, process.platform, home),
     port: env.ATC_PORT === undefined ? DEFAULT_PORT : parsePort(env.ATC_PORT),
     ledgerPath: env.ATC_LEDGER_PATH?.trim() || join(home, '.config', 'magpie', 'usage.jsonl'),
     routingDir: env.ATC_ROUTING_DIR?.trim() || join(home, '.config', 'magpie', 'routing'),
     magpieUrl: env.ATC_MAGPIE_URL?.trim() || 'http://127.0.0.1:3425',
-    bodyBudget: env.ATC_BODY_BUDGET === undefined ? 10 * GB : parseSize('body_budget', env.ATC_BODY_BUDGET),
-    diskLimit: env.ATC_DISK_LIMIT === undefined ? 16 * GB : parseSize('disk_limit', env.ATC_DISK_LIMIT),
+    bodyBudget: env.ATC_BODY_BUDGET === undefined
+      ? (derived?.bodyBudget ?? 10 * GB)
+      : parseSize('body_budget', env.ATC_BODY_BUDGET),
+    diskLimit: env.ATC_DISK_LIMIT === undefined
+      ? (derived?.diskLimit ?? 16 * GB)
+      : parseSize('disk_limit', env.ATC_DISK_LIMIT),
     gatewayTimeoutMs: 2000,
   };
   if (config.bodyBudget >= config.diskLimit) throw new Error('body_budget_not_below_disk_limit');

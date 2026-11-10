@@ -39,6 +39,12 @@ import {
   resumeSourceGaps,
   shrinkStorage,
 } from './retention';
+import {
+  DISK_FALLBACK_PROTECT_MS,
+  purgeExpiredSessions,
+  runSessionRetentionTick,
+  type SessionRetentionRun,
+} from './session-retention';
 import { maintenanceLockPresent } from './maintenance/lock';
 
 const LEDGER_INTERVAL_MS = 5000;
@@ -49,7 +55,13 @@ const COST_INTERVAL_MS = 60_000;
 const PROBE_INTERVAL_MS = 60_000;
 const DERIVE_INTERVAL_MS = 2000;
 const RETENTION_INTERVAL_MS = 30_000;
+const SESSION_RETENTION_INTERVAL_MS = 60 * 60_000;
+/** 一次没删完（首次启用存量或大会话撑过墙钟）就 1 分钟后继续，不等下一个小时。 */
+export const SESSION_RETENTION_RETRY_MS = 60_000;
 const RAW_PRUNE_INTERVAL_MS = 60 * 60_000;
+/** 小时 tick 的追赶预算；没清完就置 backlog 并在 5 分钟后重试。 */
+export const RAW_PRUNE_TICK_BUDGET = { maxBatches: 10, wallMs: 1000 };
+export const RAW_PRUNE_RETRY_MS = 5 * 60_000;
 /** 停止时等在飞派生落库的上限；与 `bun run service stop` 的 30 s 轮询对齐。 */
 const STOP_DERIVE_WAIT_MS = 30_000;
 
@@ -80,6 +92,26 @@ export type CollectorOptions = {
    * 单测注入临时目录或关闭，不能读真实数据目录。
    */
   communityPlugins?: false | string;
+  /**
+   * 测试注入的重试定时器与时钟：backlog 追赶不靠真等 5 分钟。
+   * backlog 落在进程内指标（/api/metrics 与 /api/ingest-metrics 都能看到），不额外写库。
+   */
+  rawPruneRetry?: {
+    set(task: () => void, ms: number): ReturnType<typeof setTimeout>;
+    clear(handle: ReturnType<typeof setTimeout>): void;
+    now(): number;
+  };
+  /** 会话保留 tick 的测试注入：间隔、时钟、单轮墙钟与 backlog 重试。 */
+  sessionRetention?: {
+    intervalMs?: number;
+    now?: () => number;
+    wallMs?: number;
+    retryMs?: number;
+    retry?: {
+      set(task: () => void, ms: number): ReturnType<typeof setTimeout>;
+      clear(handle: ReturnType<typeof setTimeout>): void;
+    };
+  };
 };
 
 /** 当前检出的代码版本；读不到 git 时退回环境变量，再退回 unknown（不编造版本）。 */
@@ -314,7 +346,19 @@ export async function startCollector(
     if (marked > 0) process.stderr.write(`hook_absent_marked:${marked}\n`);
   });
 
-  const retentionTick = guard('retention', () => {
+  const recordRetention = (run: SessionRetentionRun, at: number): void => {
+    metrics.retention.record({
+      at_ms: at,
+      deleted_sessions: run.deleted_sessions,
+      deleted_requests: run.deleted_requests,
+      pending_skipped: run.pending_skipped,
+      oldest_skip_reason: run.oldest_skip_reason,
+      timed_out: run.timed_out,
+      purge_ms_max: run.purge_ms_max,
+    });
+  };
+
+  const retentionTick = guard('retention', async () => {
     // 准入还停在 disk_budget 降级时，回收要跑到目标线，不能跌回 80% 就收手。
     const admission = gate.check(0);
     const evicted = enforceBodyBudget(store, config.dataDir, {
@@ -324,13 +368,97 @@ export async function startCollector(
       diskPressure: admission.mode !== 'normal' && admission.reason === 'disk_budget',
     });
     if (evicted > 0) process.stderr.write(`retention_evicted:${evicted}\n`);
+    // 95% 硬上限的最后一招：时间保留之外唯一会删会话的路径。触发看准入是否
+    // 仍暂停（回滞要跌回 90% 以下才恢复写入），至少保护最近 7 天；每个会话
+    // 写 reason='disk_cap' 事件。降到 90% 以下即停。
+    if (admission.mode !== 'paused' || admission.reason !== 'disk_budget') return;
+    const now = Date.now();
+    const run = await purgeExpiredSessions(store, {
+      cutoffMs: now - DISK_FALLBACK_PROTECT_MS, now, reason: 'disk_cap',
+      inFlight: key => live.inflight(key),
+    });
+    recordRetention(run, now);
+    if (run.deleted_sessions > 0) {
+      process.stderr.write(`retention_disk_cap_deleted:${run.deleted_sessions}\n`);
+      shrinkStorage(store);
+      gate.invalidate();
+    }
   });
 
+  let rawPruneRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  const rawPruneRetry = options?.rawPruneRetry ?? {
+    set: (task: () => void, ms: number) => setTimeout(task, ms),
+    clear: (handle: ReturnType<typeof setTimeout>) => clearTimeout(handle),
+    now: () => Date.now(),
+  };
+  const scheduleRawPruneRetry = (): void => {
+    if (rawPruneRetryTimer !== undefined) return;
+    rawPruneRetryTimer = rawPruneRetry.set(() => {
+      rawPruneRetryTimer = undefined;
+      void rawPruneTick();
+    }, RAW_PRUNE_RETRY_MS);
+  };
+
   const rawPruneTick = guard('raw_prune', async () => {
-    const now = Date.now();
-    const pruned = await pruneRawBounded(store, now - RAW_TTL_MS);
+    // 启动、小时 tick 与 backlog 重试共用这份预算：10 批 / 1 秒，没清完置 backlog。
+    const now = rawPruneRetry.now();
+    const pruned = await pruneRawBounded(store, now - RAW_TTL_MS, RAW_PRUNE_TICK_BUDGET);
     if (pruned.ledger + pruned.route + pruned.hook + pruned.otlpSpan + pruned.otlpLog
       + pruned.session + pruned.costRun > 0) shrinkStorage(store);
+    metrics.rawPrune.setBacklog(!pruned.exhausted);
+    if (pruned.exhausted) {
+      if (rawPruneRetryTimer !== undefined) {
+        rawPruneRetry.clear(rawPruneRetryTimer);
+        rawPruneRetryTimer = undefined;
+      }
+    } else {
+      scheduleRawPruneRetry();
+    }
+  });
+
+  let sessionRetentionRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  const sessionRetentionRetry = options?.sessionRetention?.retry ?? {
+    set: (task: () => void, ms: number) => setTimeout(task, ms),
+    clear: (handle: ReturnType<typeof setTimeout>) => clearTimeout(handle),
+  };
+  const clearSessionRetentionRetry = (): void => {
+    if (sessionRetentionRetryTimer === undefined) return;
+    sessionRetentionRetry.clear(sessionRetentionRetryTimer);
+    sessionRetentionRetryTimer = undefined;
+  };
+  const scheduleSessionRetentionRetry = (): void => {
+    if (sessionRetentionRetryTimer !== undefined) return;
+    process.stderr.write('retention_backlog\n');
+    sessionRetentionRetryTimer = sessionRetentionRetry.set(() => {
+      sessionRetentionRetryTimer = undefined;
+      void sessionRetentionTick();
+    }, options?.sessionRetention?.retryMs ?? SESSION_RETENTION_RETRY_MS);
+  };
+
+  const sessionRetentionTick = guard('session_retention', async () => {
+    // 每轮重读设置文件：面板保存后下一轮生效，不需要重启采集器。
+    const policy = loadSettings(config.dataDir, diagnostics).settings;
+    const result = await runSessionRetentionTick(store, policy, {
+      now: options?.sessionRetention?.now?.() ?? Date.now(),
+      inFlight: key => live.inflight(key),
+      wallMs: options?.sessionRetention?.wallMs,
+    });
+    if (result === null) {
+      clearSessionRetentionRetry();
+      return;
+    }
+    recordRetention(result.run, Date.now());
+    if (result.run.deleted_sessions > 0) {
+      process.stderr.write(`retention_sessions_deleted:${result.run.deleted_sessions}\n`);
+    }
+    if (result.run.deleted_sessions > 0
+      || result.orphans.titles + result.orphans.usage > 0) {
+      shrinkStorage(store);
+      gate.invalidate();
+    }
+    // 首次启用有存量、大会话撑过 2 s 墙钟时继续追赶；否则回到小时节奏。
+    if (result.run.timed_out || result.run.may_have_more) scheduleSessionRetentionRetry();
+    else clearSessionRetentionRetry();
   });
 
   const gapTick = guard('gap', () => {
@@ -387,6 +515,8 @@ export async function startCollector(
   timers.push(setInterval(pendingTick, intervalOf(config, 'pending', LEDGER_INTERVAL_MS)));
   timers.push(setInterval(retentionTick, intervalOf(config, 'retention', RETENTION_INTERVAL_MS)));
   timers.push(setInterval(rawPruneTick, intervalOf(config, 'rawPrune', RAW_PRUNE_INTERVAL_MS)));
+  timers.push(setInterval(sessionRetentionTick,
+    options?.sessionRetention?.intervalMs ?? SESSION_RETENTION_INTERVAL_MS));
   timers.push(setInterval(gapTick, intervalOf(config, 'gap', LEDGER_INTERVAL_MS)));
   void ledgerTick();
   void routeTick();
@@ -396,6 +526,10 @@ export async function startCollector(
   void gapTick();
   // 启动时就评估一次：上一个进程可能是在暂停状态下退出的，不必等一个周期。
   void retentionTick();
+  // 到期 raw 存量也要在启动时追一轮；没清完由 tick 自己排 5 分钟重试。
+  void rawPruneTick();
+  // 保留清理同样在启动追一轮：App 模式可能活不过一个完整小时。
+  void sessionRetentionTick();
   // 监听已起来，第一轮会话扫描异步跑，不挡页面读已有库。
   void sessionsTick();
 
@@ -405,6 +539,11 @@ export async function startCollector(
     const stopStarted = performance.now();
     for (const timer of timers) clearInterval(timer);
     clearTimeout(deriveTimer);
+    if (rawPruneRetryTimer !== undefined) {
+      rawPruneRetry.clear(rawPruneRetryTimer);
+      rawPruneRetryTimer = undefined;
+    }
+    clearSessionRetentionRetry();
     metrics.eventLoop.stop();
     // 等在飞的那一轮派生走完落库段再关：计算在 Worker 里，此时也只是拒绝新请求。
     // 上限只包这里的等待，不砍 deriveUnit.run 的计算预算：正常大组派生可能超过
@@ -443,9 +582,12 @@ export async function startCollector(
 }
 
 if (import.meta.main) {
-  const { loadConfig } = await import('./config');
+  const { defaultDataDir, freeBytesAt, loadConfig } = await import('./config');
   const { startupBanner } = await import('./banner');
-  const config = loadConfig();
+  // 容量上限按数据目录所在盘的剩余空间推导；用户显式环境变量仍优先。
+  // 数据目录可能尚未创建，freeBytesAt 会沿父目录上溯。
+  const dataDirHint = process.env.ATC_DATA_DIR?.trim() || defaultDataDir(process.env);
+  const config = loadConfig(process.env, { freeBytes: freeBytesAt(dataDirHint) });
   const collector = await startCollector(config);
   // 横幅只上屏，不碰 `collector_listening`：容量脚本按这一行解析端口。
   process.stdout.write(startupBanner({ ...config, port: collector.port }, process.stdout.isTTY === true));

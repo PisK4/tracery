@@ -1,7 +1,8 @@
 import { expect, test } from 'bun:test';
 import { fixture } from './fixtures';
 import {
-  CAPACITY_SOURCES, exactCapacitySums, readCapacityMeter,
+  CAPACITY_SOURCES, capacityLayers, capacityMeterBodyBytes, capacityMeterEvictableBytes,
+  capacityMeterSessionRawBytes, exactCapacitySums, readCapacityMeter,
 } from '../src/capacity-meter';
 import { createAdmissionGate, measureBodyBytes } from '../src/retention';
 import type { Store } from '../src/store';
@@ -46,8 +47,20 @@ test('四源计数逐来源等于全表求和：TEXT按字节、单边正文与�
     expect(meter.sources.block).toEqual({ bytes: 64, row_count: 1 });
     expect(meter.sources.request).toEqual({ bytes: encoder.encode(chinese).length, row_count: 2 });
     expect(meter.sources.raw_hook).toEqual({ bytes: 30, row_count: 2 });
-    expect(meter.sources.raw_session_event.bytes).toBe(encoder.encode(payload).length);
-    expect(meter.body_bytes).toBe(64 + encoder.encode(chinese).length + 30 + encoder.encode(payload).length);
+    const rawSessionBytes = encoder.encode(payload).length;
+    expect(meter.sources.raw_session_event.bytes).toBe(rawSessionBytes);
+    // 可读正文只算 block + request + raw_hook；会话原始层单独成层。
+    expect(meter.body_bytes).toBe(64 + encoder.encode(chinese).length + 30);
+    expect(meter.session_raw_bytes).toBe(rawSessionBytes);
+    expect(capacityMeterBodyBytes(f.store.read)).toBe(meter.body_bytes);
+    expect(capacityMeterSessionRawBytes(f.store.read)).toBe(rawSessionBytes);
+    expect(capacityMeterEvictableBytes(f.store.read)).toBe(64 + encoder.encode(chinese).length);
+    expect(capacityLayers({ ok: true, ...meter })).toEqual({
+      readable_body_bytes: meter.body_bytes,
+      session_raw_bytes: rawSessionBytes,
+      raw_hook_bytes: 30,
+    });
+    expect(capacityLayers({ ok: false, error: 'capacity_meter_missing' })).toBeNull();
   } finally {
     f.close();
   }

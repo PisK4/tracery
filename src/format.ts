@@ -5,6 +5,9 @@
  * 协议无关，归这里，不 import 仓库内其他模块。
  */
 
+/** 一天的毫秒数；保留期按精确时长算，不按自然日边界切。 */
+export const RETENTION_DAY_MS = 86_400_000;
+
 /** 本地时区日键（YYYY-MM-DD）；账本与路由的 day 列共用，不引入 UTC 换算。 */
 export function localDay(ms: number): string {
   const date = new Date(ms);

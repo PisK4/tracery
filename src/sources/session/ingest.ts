@@ -13,7 +13,7 @@ import type { Database } from 'bun:sqlite';
 import type { Store } from '../../store';
 import { PRIVACY_TRANSFORM_VERSION, redact } from '../../privacy';
 import {
-  HAVE_BODY, HAVE_SESSION, MATCH_ABSENT, MATCH_AMBIGUOUS, insertEvidenceTx,
+  HAVE_BODY, HAVE_SESSION, MATCH_ABSENT, MATCH_AMBIGUOUS, insertEvidenceTx, sessionIdentity,
 } from '../../evidence';
 import { localDay, modelTimeTitle } from '../../format';
 import { persistBodyTx } from '../../body';
@@ -22,6 +22,7 @@ import { findRequestOwnerTx } from '../../owner';
 import { markRequestInputTx } from '../../derive/state';
 import { emptySourceFacts, readSourceFacts, serializeFacts } from '../facts';
 import type { SourceRead } from '../files';
+import { purgedConversationAt } from '../raw';
 import { observeSourceOffset, readFileCursor, recordIssue, upsertSourceCursorTx } from '../../reconcile';
 import type { SessionAdapter, SessionCall, SessionFile, SessionParseResult, SessionTitle } from './types';
 import { sessionConvKey } from './types';
@@ -34,6 +35,8 @@ export type SessionIngestResult = {
   refreshed: number;
   invalid: number;
   blocked: number;
+  /** 命中整会话墓碑、只推进游标的旧调用数。 */
+  purged_skip: number;
   sideEffects: number;
   bytes: number;
   /** 封口文件本次分块后还剩多少解压字节；0 表示这个文件已读完。 */
@@ -43,7 +46,7 @@ export type SessionIngestResult = {
 export function emptySessionIngestResult(): SessionIngestResult {
   return {
     files: 0, calls: 0, merged: 0, duplicates: 0, refreshed: 0,
-    invalid: 0, blocked: 0, sideEffects: 0, bytes: 0, remaining: 0,
+    invalid: 0, blocked: 0, purged_skip: 0, sideEffects: 0, bytes: 0, remaining: 0,
   };
 }
 
@@ -381,6 +384,11 @@ export async function ingestSessionFile(
     // 下一笔直接复制块引用，避免 O(调用数 × 历史消息数) 的重复序列化与插入。
     const bodyPrefixes = new Map<string, BodyPrefix>();
     const acceptCall = (call: SessionCall, lineOffset: number, rawChanged: boolean): void => {
+      // 整会话墓碑优先于判重与刷新：删除后来源回放只推进游标，不建行、不合并。
+      if (purgedConversationAt(db, call.convKey, call.startedMs) !== null) {
+        result.purged_skip += 1;
+        return;
+      }
       const refKey = evidenceRef(call);
       const owned = db.query<{ req_id: number }, [string, string]>(
         'SELECT req_id FROM request_evidence WHERE source_kind=? AND ref_key=?',
@@ -436,9 +444,14 @@ export async function ingestSessionFile(
         : { state, calls: [], error: parsedEvent.reason, sessionId: null };
 
       // 同一物理位置的新 payload 只在可更新来源上替换；追加文件保持首份原文。
-      // 不落原始层的来源连查询都省掉。
+      // 不落原始层的来源连查询都省掉。墓碑内的旧事件只进内存状态，原文不再回写。
+      const eventSession = sanitized.parsed.kind === 'event'
+        ? sessionIdentity(sanitized.parsed.sessionId) : null;
+      const eventAt = sanitized.parsed.kind === 'event' ? sanitized.parsed.atMs : null;
+      const purgedEvent = eventSession !== null && eventAt !== null
+        && purgedConversationAt(db, sessionConvKey(eventSession), eventAt) !== null;
       let rawChanged = false;
-      if (adapter.storesRaw !== false) {
+      if (adapter.storesRaw !== false && !purgedEvent) {
         if (adapter.mutable) {
           const previous = db.query<{ payload_json: string }, [string, string, number]>(
             'SELECT payload_json FROM raw_session_event WHERE source_kind=? AND file_generation=? AND byte_offset=?',
@@ -599,6 +612,7 @@ export async function ingestSessionFiles(
       total.refreshed += result.refreshed;
       total.invalid += result.invalid;
       total.blocked += result.blocked;
+      total.purged_skip += result.purged_skip;
       total.sideEffects += result.sideEffects;
       total.bytes += result.bytes;
       // 预算按实际读到的字节记，不按 remaining 估：大文件首轮只读一个分批，

@@ -98,8 +98,9 @@ test('响应头包含no-store与nosniff且无CORS', async () => {
     // open_gaps 单独给出未了缺口数：gaps 是明细，前端统计不必自己数状态。
     // cost_health 是费用时钟冲突的计数与阻塞时点，正常时为 null。
     // admission 是存储准入的最近切换，未记录时为 null；界面只在降级时显示。
+    // capacity_layers 是可读正文 / 会话原始 / raw_hook 的分层占用，健康页据此指出是哪一层顶到水位。
     expect(Object.keys(body).sort()).toEqual([
-      'admission', 'body_states', 'cost_health', 'cursors', 'gaps', 'issues', 'open_gaps', 'pending_hooks', 'probe', 'requests',
+      'admission', 'body_states', 'capacity_layers', 'cost_health', 'cursors', 'gaps', 'issues', 'open_gaps', 'pending_hooks', 'probe', 'requests',
     ]);
   } finally {
     f.close();
@@ -774,6 +775,41 @@ test('同 key 并发会话列表共享一次计算；参数错误广播；完成
     // 出表后重新执行（多了一行，活跃判定随之多调一次）；若是跨请求缓存，这里仍是 0。
     expect(calls).toBeGreaterThan(0);
   } finally { f.close(); }
+});
+
+test('会话保留预览：成功合并 limits、无令牌 401、非法 keep-days 400', async () => {
+  const f = fixture();
+  try {
+    const config = loadConfig({ ATC_DISK_LIMIT: '1000000', ATC_BODY_BUDGET: '500000' });
+    const handler = createHandler(f.store, config, 'synthetic-read-token');
+    const authed = (query: string) => new Request(
+      `http://127.0.0.1:8320/api/retention/preview${query}`,
+      { headers: { host: '127.0.0.1:8320', authorization: 'Bearer synthetic-read-token' } });
+
+    const ok = await handler(authed('?keep-days=30'));
+    expect(ok.status).toBe(200);
+    const body = await ok.json() as Record<string, unknown>;
+    expect(body.keep_days).toBe(30);
+    expect(body.sessions).toBe(0);
+    expect(body.last_cleanup).toBeNull();
+    expect(body.limits).toEqual({ disk_limit_bytes: 1000000, body_budget_bytes: 500000 });
+
+    // 缺令牌走读路径鉴权，不落到路由逻辑。
+    const denied = await handler(new Request(
+      'http://127.0.0.1:8320/api/retention/preview?keep-days=30',
+      { headers: { host: '127.0.0.1:8320' } }));
+    expect(denied.status).toBe(401);
+
+    // 越界、非整数、缺失、非数字一律 400，不进查询。
+    for (const query of ['?keep-days=0', '?keep-days=3651', '?keep-days=1.5',
+      '?keep-days=abc', '?keep-days=-1', '?keep-days=', '']) {
+      const bad = await handler(authed(query));
+      expect(bad.status).toBe(400);
+      expect(await bad.json()).toEqual({ error: 'invalid_input' });
+    }
+  } finally {
+    f.close();
+  }
 });
 
 test('todo 路由纳入慢请求模板，缺轮号与非数字轮号显式 400', async () => {

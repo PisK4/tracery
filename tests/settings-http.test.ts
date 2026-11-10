@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fixture } from './fixtures';
 import { loadConfig } from '../src/config';
 import { createHandler } from '../src/http';
-import { DEFAULT_SETTINGS, ACCENTS } from '../src/settings';
+import { DEFAULT_SETTINGS, ACCENTS, type Settings } from '../src/settings';
 
 const HOST = { host: '127.0.0.1:8320', origin: 'http://127.0.0.1:8320' };
 
@@ -29,9 +29,12 @@ test('GET 设置走具名读取契约，响应只含设置值与 overrides', asy
   await withDir(async (_dir, handler) => {
     const response = await get(handler);
     expect(response.status).toBe(200);
-    const parsed = await response.json() as { settings: unknown; overrides: unknown };
+    const parsed = await response.json() as { settings: Settings; overrides: unknown };
     expect(parsed.settings).toEqual(DEFAULT_SETTINGS);
     expect(parsed.overrides).toEqual({});
+    expect(parsed.settings.retentionDays).toBe(30);
+    expect(parsed.settings.retentionConfigured).toBe(false);
+    expect(parsed.settings.runMode).toBe('always');
     expect(JSON.stringify(parsed)).not.toContain('synthetic-read-token');
     expect(JSON.stringify(parsed)).not.toContain('ATC_');
   });
@@ -49,6 +52,45 @@ test('POST 保存固定字段并落盘，GET 随后读到同一份生效值', as
       accentSoft: ACCENTS.sea.accentSoft, fontSize: 'relaxed', lang: 'en' });
     const after = await get(handler);
     expect((await after.json() as { settings: unknown }).settings).toEqual(next);
+  });
+});
+
+test('POST 完整新字段返回生效值并落盘，GET 随后读到同一份', async () => {
+  await withDir(async (dir, handler) => {
+    const next: Settings = {
+      ...DEFAULT_SETTINGS, preset: 'sea', accent: ACCENTS.sea.accent,
+      accentSoft: ACCENTS.sea.accentSoft, fontSize: 'relaxed', lang: 'en',
+      retentionDays: 90, retentionConfigured: true, runMode: 'app',
+    };
+    const saved = await post(handler, next);
+    expect(saved.status).toBe(200);
+    const body = await saved.json() as { settings: typeof DEFAULT_SETTINGS; overrides: Partial<typeof DEFAULT_SETTINGS> };
+    expect(body.settings).toEqual(next);
+    expect(body.settings.retentionDays).toBe(90);
+    expect(body.settings.retentionConfigured).toBe(true);
+    expect(body.settings.runMode).toBe('app');
+    expect(body.overrides.retentionDays).toBe(90);
+    expect(body.overrides.retentionConfigured).toBe(true);
+    expect(body.overrides.runMode).toBe('app');
+    const onDisk = JSON.parse(readFileSync(join(dir, 'config', 'settings.json'), 'utf8'));
+    expect(onDisk).toEqual({
+      preset: 'sea', accent: ACCENTS.sea.accent,
+      accentSoft: ACCENTS.sea.accentSoft, fontSize: 'relaxed', lang: 'en',
+      retentionDays: 90, retentionConfigured: true, runMode: 'app',
+    });
+    const after = await get(handler);
+    expect((await after.json() as { settings: unknown }).settings).toEqual(next);
+  });
+});
+
+test('POST 非法保留期与非法 runMode 走 400，文件不动', async () => {
+  await withDir(async (dir, handler) => {
+    expect((await get(handler)).status).toBe(200);
+    const unchanged = readFileSync(join(dir, 'config', 'settings.json'), 'utf8');
+    expect((await post(handler, { ...DEFAULT_SETTINGS, retentionDays: 45 })).status).toBe(400);
+    expect((await post(handler, { ...DEFAULT_SETTINGS, runMode: 'weekly' })).status).toBe(400);
+    expect((await post(handler, { ...DEFAULT_SETTINGS, retentionConfigured: 'yes' })).status).toBe(400);
+    expect(readFileSync(join(dir, 'config', 'settings.json'), 'utf8')).toBe(unchanged);
   });
 });
 

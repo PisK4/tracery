@@ -1,6 +1,18 @@
 import { expect, test } from 'bun:test';
 import { createHttpReadTransport } from '../web/read-http.js';
 
+/** 一份形状完整的合成预览响应，供编码与顶层校验两处共用。 */
+const RETENTION_PREVIEW_BODY = {
+  keep_days: 30, cutoff_ms: 1000,
+  sessions: 0, requests: 0,
+  first_ms: null, last_ms: null, oldest_ms: null,
+  bytes: { readable_body: 0, session_raw: 0, raw_hook: 0 },
+  skipped: { dirty: 0, purpose_pending: 0, source_gap: 0, in_flight: 0 },
+  usage: { readable_body_bytes: 0, session_raw_bytes: 0, raw_hook_bytes: 0 },
+  last_cleanup: null,
+  limits: { disk_limit_bytes: 1000, body_budget_bytes: 500 },
+};
+
 /** 注入式 fetcher：记录 URL 与 signal，按队列回放响应或异常。 */
 function scriptedFetch(
   script: Array<{ url?: string; status?: number; body?: unknown; raw?: string; throw?: Error }>,
@@ -310,6 +322,39 @@ test('页面与目录响应的顶层形状校验', async () => {
     } catch (error) {
       expect((error as { code?: string }).code).toBe('invalid_response');
     }
+  }
+});
+
+test('会话保留预览编码 keep-days 并校验顶层形状', async () => {
+  const signal = () => new AbortController().signal;
+  const clean = { ...RETENTION_PREVIEW_BODY,
+    last_cleanup: { at_ms: 900, request_count: 2, reason: 'manual:30d' } };
+  const { fetcher, calls } = scriptedFetch([{ body: clean }, { body: RETENTION_PREVIEW_BODY }]);
+  const transport = createHttpReadTransport({ fetcher });
+  const page = await transport.execute('retentionPreview', { keepDays: 30 }, { signal: signal() });
+  expect(calls[0]!.url).toBe('/api/retention/preview?keep-days=30');
+  expect(page.last_cleanup).toEqual({ at_ms: 900, request_count: 2, reason: 'manual:30d' });
+  await transport.execute('retentionPreview', { keepDays: 7 }, { signal: signal() });
+  expect(calls[1]!.url).toBe('/api/retention/preview?keep-days=7');
+
+  // 顶层字段、bytes/skipped、last_cleanup 与 limits 任一处畸形都按 invalid_response 拒绝。
+  const cases: unknown[] = [
+    { ...RETENTION_PREVIEW_BODY, keep_days: 0 },
+    { ...RETENTION_PREVIEW_BODY, cutoff_ms: 'x' },
+    { ...RETENTION_PREVIEW_BODY, sessions: -1 },
+    { ...RETENTION_PREVIEW_BODY, requests: 1.5 },
+    { ...RETENTION_PREVIEW_BODY, bytes: { readable_body: -1, session_raw: 0, raw_hook: 0 } },
+    { ...RETENTION_PREVIEW_BODY, skipped: { dirty: 0, purpose_pending: 0, source_gap: 0 } },
+    { ...RETENTION_PREVIEW_BODY, usage: { readable_body_bytes: -1, session_raw_bytes: 0, raw_hook_bytes: 0 } },
+    { ...RETENTION_PREVIEW_BODY, last_cleanup: { at_ms: 1, request_count: 1 } },
+    { ...RETENTION_PREVIEW_BODY, limits: { disk_limit_bytes: 1 } },
+    null,
+  ];
+  for (const body of cases) {
+    const scripted = scriptedFetch([{ body }]);
+    const t = createHttpReadTransport({ fetcher: scripted.fetcher });
+    await expect(t.execute('retentionPreview', { keepDays: 30 }, { signal: signal() }))
+      .rejects.toMatchObject({ code: 'invalid_response' });
   }
 });
 

@@ -18,8 +18,10 @@ export type Preset = 'paper' | 'sea' | 'moss';
 export type Appearance = 'system' | 'light' | 'dark';
 export type FontSize = 'compact' | 'regular' | 'relaxed';
 export type Lang = 'zh' | 'en';
+export type RetentionDays = 7 | 30 | 90 | 180 | 365;
+export type RunMode = 'always' | 'app';
 
-/** 第一阶段的可见设置；采集来源、保留时长与隐藏词等未接线的开关不进这里。 */
+/** 第一阶段的可见设置，含已接线的历史保留；采集来源与隐藏词等未接线的开关不进这里。 */
 export type Settings = {
   preset: Preset;
   appearance: Appearance;
@@ -28,6 +30,9 @@ export type Settings = {
   fontSize: FontSize;
   reduceMotion: boolean;
   lang: Lang;
+  retentionDays: RetentionDays;
+  retentionConfigured: boolean;
+  runMode: RunMode;
 };
 
 /** 一条可查 issue：键名与固定原因码，不写入原始取值或任意路径。 */
@@ -37,6 +42,8 @@ const PRESETS: readonly Preset[] = ['paper', 'sea', 'moss'];
 const APPEARANCES: readonly Appearance[] = ['system', 'light', 'dark'];
 const FONT_SIZES: readonly FontSize[] = ['compact', 'regular', 'relaxed'];
 const LANGS: readonly Lang[] = ['zh', 'en'];
+const RETENTION_DAYS: readonly RetentionDays[] = [7, 30, 90, 180, 365];
+const RUN_MODES: readonly RunMode[] = ['always', 'app'];
 
 /** 强调色预设：选一项就换一组受控令牌，页面不接收任意 CSS。 */
 export const ACCENTS: Record<Preset, { accent: string; accentSoft: string }> = {
@@ -51,6 +58,7 @@ const RGBA = /^rgba\(\d{1,3},\d{1,3},\d{1,3},0?\.\d{1,2}\)$/;
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   ...ACCENTS.paper, preset: 'paper' as Preset, appearance: 'system' as Appearance,
   fontSize: 'regular' as FontSize, reduceMotion: false, lang: 'zh' as Lang,
+  retentionDays: 30 as RetentionDays, retentionConfigured: false, runMode: 'always' as RunMode,
 });
 
 const VALIDATORS: {
@@ -63,6 +71,9 @@ const VALIDATORS: {
   fontSize: (v): v is FontSize => typeof v === 'string' && FONT_SIZES.includes(v as FontSize),
   reduceMotion: (v): v is boolean => typeof v === 'boolean',
   lang: (v): v is Lang => typeof v === 'string' && LANGS.includes(v as Lang),
+  retentionDays: (v): v is RetentionDays => typeof v === 'number' && RETENTION_DAYS.includes(v as RetentionDays),
+  retentionConfigured: (v): v is boolean => typeof v === 'boolean',
+  runMode: (v): v is RunMode => typeof v === 'string' && RUN_MODES.includes(v as RunMode),
 };
 
 export const SETTINGS_KEYS: readonly (keyof Settings)[] = Object.keys(VALIDATORS) as (keyof Settings)[];

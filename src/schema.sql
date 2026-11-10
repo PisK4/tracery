@@ -440,6 +440,18 @@ CREATE TABLE purged_evidence (
   PRIMARY KEY(source_kind,ref_key)
 ) WITHOUT ROWID;
 
+-- 会话级墓碑：整会话淘汰后阻止来源回放把旧调用重新建出来。
+-- 早于 purged_at 的调用跳过；晚于 purged_at 的调用按新片段入库。
+CREATE TABLE purged_conversation (
+  conv_key       TEXT PRIMARY KEY,
+  purged_at      INTEGER NOT NULL,
+  first_ms       INTEGER,
+  last_ms        INTEGER,
+  request_count  INTEGER NOT NULL,
+  reason         TEXT NOT NULL,
+  source_kinds   TEXT NOT NULL
+) WITHOUT ROWID;
+
 CREATE TABLE cost_observation (
   ref_key TEXT NOT NULL,
   observed_at INTEGER NOT NULL,

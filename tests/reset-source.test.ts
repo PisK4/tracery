@@ -25,6 +25,10 @@ function seed(store: ReturnType<typeof fixture>['store']): void {
               payload_json,privacy_version)
             VALUES ('hermes_session','g1',1,'message','{}',1),
                    ('claude_session','g2',2,'message','{}',1)`);
+    db.run(`INSERT INTO purged_conversation(conv_key,purged_at,first_ms,last_ms,request_count,
+              reason,source_kinds)
+            VALUES ('k1',10,1,1,9,'retention','["hermes_session_call"]'),
+                   ('k3',10,3,3,9,'retention','["claude_session_call"]')`);
   });
 }
 
@@ -75,6 +79,9 @@ test('重置一个来源：独占行删除、混合行保留并清会话位，�
       .toEqual([{ source_kind: 'claude_session' }]);
     // 重置的目的就是让同一批调用重新落库，不留给重放拦截用的墓碑。
     expect(f.store.read.query('SELECT COUNT(*) AS n FROM purged_evidence').get()).toEqual({ n: 0 });
+    // 会话墓碑只清掉包含本来源证据类型的那条，其它来源的墓碑保留。
+    expect(f.store.read.query('SELECT conv_key FROM purged_conversation ORDER BY conv_key').all())
+      .toEqual([{ conv_key: 'k3' }]);
     expect(f.store.read.query(
       'SELECT action, reason, approval_id FROM retention_event').get()).toEqual({
       action: 'reset_source', reason: 'source_reset:hermes_session',

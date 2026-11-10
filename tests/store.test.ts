@@ -38,7 +38,7 @@ test('事务失败不留下证据或游标', () => {
   }
 });
 
-test('建库包含34个业务表且使用AUTOINCREMENT', () => {
+test('建库包含35个业务表且使用AUTOINCREMENT', () => {
   const f = fixture();
   try {
     const names = (f.store.read.query(
@@ -48,8 +48,8 @@ test('建库包含34个业务表且使用AUTOINCREMENT', () => {
       'bg_job', 'block', 'capacity_meter', 'collector_state', 'cost_observation',
       'derive_call_work', 'derive_chain_work', 'derive_generation', 'derive_queue',
       'derive_request_result', 'derive_result_work', 'derive_role_work', 'derive_tool_result',
-      'ingest_issue', 'otlp_body_ref', 'pending_hook', 'purged_evidence', 'raw_hook',
-      'raw_ledger', 'raw_otlp_log', 'raw_otlp_span', 'raw_route', 'raw_session_event',
+      'ingest_issue', 'otlp_body_ref', 'pending_hook', 'purged_conversation', 'purged_evidence',
+      'raw_hook', 'raw_ledger', 'raw_otlp_log', 'raw_otlp_span', 'raw_route', 'raw_session_event',
       'request', 'request_alias', 'request_block', 'request_evidence', 'retention_event',
       'route_summary', 'session_title', 'session_usage', 'source_cursor', 'source_gap', 'tool_call',
     ]);
@@ -448,6 +448,30 @@ test('v16库原地升到当前版本：来源标题表就位，既有请求不�
       expect(store.read.query('PRAGMA user_version').get()).toEqual({ user_version: CODE_SCHEMA_VERSION });
       expect(store.read.query('SELECT COUNT(*) AS n FROM request').get()).toEqual({ n: 1 });
       expect(store.read.query('SELECT COUNT(*) AS n FROM session_title').get()).toEqual({ n: 0 });
+    } finally { store.close(); }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('v17迁移只补会话墓碑表且保留现有请求', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'atc-store-v17-'));
+  try {
+    const path = join(dir, 'trace.db');
+    const seed = openStore(path);
+    seed.write(db => db.run(
+      `INSERT INTO request(started_ms, day, via, body_state, derive_version, have, created_at, updated_at)
+       VALUES (1, '2026-11-10', 'session', 'pending', 0, 16, 1, 1)`));
+    seed.close();
+    // 模拟 v17 库：会话墓碑表还没建，版本停在 17。
+    const raw = new Database(path);
+    raw.exec('DROP TABLE IF EXISTS purged_conversation; PRAGMA user_version=17');
+    raw.close();
+    const store = openStore(path);
+    try {
+      expect(store.read.query('PRAGMA user_version').get()).toEqual({ user_version: CODE_SCHEMA_VERSION });
+      expect(store.read.query('SELECT COUNT(*) AS n FROM request').get()).toEqual({ n: 1 });
+      expect(store.read.query('SELECT COUNT(*) AS n FROM purged_conversation').get()).toEqual({ n: 0 });
     } finally { store.close(); }
   } finally {
     rmSync(dir, { recursive: true, force: true });

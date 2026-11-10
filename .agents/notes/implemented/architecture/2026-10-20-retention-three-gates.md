@@ -41,3 +41,7 @@ Status: implemented
 - 账本暂停留下 `source_gap`，补齐后标 `filled`；文件换代导致补不回来的缺口标 `unrecoverable` 并一直可见。
 - 批量回收与 checkpoint 会增加写延迟；每批上限与回收到 90% 的目标共同限制单次停顿。
 - 95% 档的 507 让 hook 明确失败，采集器不写半份数据；恢复要等磁盘回落到 90% 以下。
+
+## Related
+
+[按完整会话的时间淘汰](../../implemented/feature/2026-11-10-session-retention.md)部分取代本文的「元数据保留全部历史」与「raw 会话层只清孤儿代际与封口代际」；三门槛水位、正文回收与来源缺口记录仍由本文持有。

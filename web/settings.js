@@ -45,7 +45,10 @@ function isSettings(value) {
     && typeof v.accentSoft === 'string' && RGBA.test(v.accentSoft)
     && ['compact', 'regular', 'relaxed'].includes(String(v.fontSize))
     && typeof v.reduceMotion === 'boolean'
-    && ['zh', 'en'].includes(String(v.lang));
+    && ['zh', 'en'].includes(String(v.lang))
+    && typeof v.retentionDays === 'number' && [7, 30, 90, 180, 365].includes(v.retentionDays)
+    && typeof v.retentionConfigured === 'boolean'
+    && ['always', 'app'].includes(String(v.runMode));
 }
 
 /** 把一份完整设置写到 CSS 变量与语言/主题状态，不触碰页面内容区。
@@ -134,6 +137,7 @@ export async function initSettings(reader, chromeRedraw, localeRedraw, toast) {
       preset: 'paper', appearance: 'system', accent: PRESET_ACCENTS.paper.accent,
       accentSoft: PRESET_ACCENTS.paper.accentSoft, fontSize: 'regular',
       reduceMotion: false, lang: currentLocale(),
+      retentionDays: 30, retentionConfigured: false, runMode: 'always',
     };
   }
   apply(current, true);
@@ -170,4 +174,20 @@ export async function set(next) {
 /** 主题预设带一组受控强调色；单独点强调色时预设记为 custom 由面板表达。 */
 export function presetAccents(/** @type {keyof typeof PRESET_ACCENTS} */ name) {
   return PRESET_ACCENTS[name];
+}
+
+/**
+ * 会话保留预览：只读具名操作。面板打开历史与空间页时调用，失败返回 null，
+ * 由调用方显示「统计失败」，不把失败写成一串 0。
+ * @param {number} keepDays
+ * @returns {Promise<import('../src/read-contract').ReadOutput<'retentionPreview'> | null>}
+ */
+export async function previewRetention(keepDays) {
+  if (transport === null) return null;
+  try {
+    return await transport.execute('retentionPreview', { keepDays },
+      { signal: new AbortController().signal });
+  } catch {
+    return null;
+  }
 }

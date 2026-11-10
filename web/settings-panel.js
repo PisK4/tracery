@@ -2,14 +2,14 @@
 /**
  * 设置面板 DOM：从窗口右侧压入，四类页签按接线状态分工。
  *
- * 外观六项即时生效；采集来源、历史与空间、异常提醒这些未接线的开关不摆进
- * 界面，界面也不声称已经生效。接入页只读渲染运维手册里的片段，令牌由装配处
+ * 外观六项即时生效；历史与空间已接自动清理；采集来源、异常提醒这些未接线的
+ * 开关不摆进界面，界面也不声称已经生效。接入页只读渲染运维手册里的片段，令牌由装配处
  * 注入，不进设置文件、日志或 fixture。所有文案走 t()，中英两份同改。
  */
 import { esc } from './html.js';
 import { icon } from './icons.js';
-import { t } from './i18n.js';
-import { settings, set, presetAccents } from './settings.js';
+import { t, currentLocale } from './i18n.js';
+import { settings, set, presetAccents, previewRetention } from './settings.js';
 
 /** @typedef {import('../src/settings').Settings} Settings */
 
@@ -41,9 +41,19 @@ const SNIPPETS = {
 };
 
 const CATS = /** @type {const} */ (['appearance', 'sources', 'history', 'connect']);
+const RETENTION_DAYS = /** @type {const} */ (['7', '30', '90', '180', '365']);
+const RETENTION_LABELS = /** @type {const} */ (['7 天', '30 天', '90 天', '180 天', '365 天']);
 let tab = 'appearance';
 let tool = 'claude';
 let open = false;
+/** 未启用时先选的保留期；点「启用」才连同 retentionConfigured 一起保存。
+ * @type {Settings['retentionDays'] | null} */
+let pendingDays = null;
+/** 最近一次预览结果与正在加载的保留期，切换页签不重复请求同一档。
+ * @type {import('../src/read-contract').ReadOutput<'retentionPreview'> | null} */
+let preview = null;
+/** @type {number | null} */
+let loadingDays = null;
 /** @type {(message: string) => void} */
 let toast = () => {};
 
@@ -108,10 +118,101 @@ function sourcesPanel() {
     + `</div>`;
 }
 
-function historyPanel() {
+/** 未启用时界面显示待选档位，已启用时显示生效档位。 @param {Settings} s */
+function retentionDaysOf(s) {
+  return s.retentionConfigured ? s.retentionDays : (pendingDays ?? s.retentionDays);
+}
+
+/** @param {number} bytes */
+function bytesOf(bytes) {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+  return unit === 0 ? `${Math.round(value)} ${units[0]}` : `${value.toFixed(1)} ${units[unit]}`;
+}
+
+/** @param {number} ms */
+function dateOf(ms) {
+  return new Date(ms).toLocaleDateString(currentLocale() === 'zh' ? 'zh-CN' : 'en');
+}
+
+function historyPanel(/** @type {Settings} */ s) {
+  const configured = s.retentionConfigured;
   return `<div class="set-panel" data-panel="history" hidden>`
-    + group(t('历史与空间'), `<p class="set-note">${esc(t('保留时长与额外隐藏词尚未接线，暂不提供开关。'))}</p>`)
+    + group(t('保留期'), segment('retention', RETENTION_DAYS, RETENTION_LABELS),
+      t('按会话最后活动时间计算；正文仍受空间预算约束。'))
+    + group(t('当前占用'), `<div class="set-note" id="set-retention-usage"></div>`)
+    + group(t('待清理'), `<div class="set-note" id="set-retention-preview"></div>`
+      + (configured
+        ? `<div class="set-note">${esc(t('每小时检查一次；删除不可恢复。'))}</div>`
+        : `<div><button class="set-mini" id="set-retention-enable">${esc(t('启用自动清理'))}</button></div>`
+          + `<div class="set-note">${esc(t('启用后按完整会话删除超过保留期的历史，删除不可恢复。'))}</div>`))
+    + group(t('最近一次清理'), `<div class="set-note" id="set-retention-last"></div>`)
+    + group(t('运行方式'),
+      `<div class="set-note">${esc(t(s.runMode === 'always' ? '常驻后台' : '随 App 运行'))}</div>`,
+      t('当前由 bun run service 管理；桌面宿主与安装器接入后才能在这里切换。'))
     + `</div>`;
+}
+
+/** 预览异步返回后就地填数字，不重绘整块面板，避免焦点丢失。 @param {Settings} s */
+function renderRetentionDetail(s) {
+  const previewEl = document.getElementById('set-retention-preview');
+  if (previewEl === null) return;
+  const usageEl = document.getElementById('set-retention-usage');
+  const lastEl = document.getElementById('set-retention-last');
+  if (loadingDays !== null && (preview === null || preview.keep_days !== loadingDays)) {
+    previewEl.textContent = t('正在统计…');
+    if (usageEl !== null) usageEl.textContent = '';
+    if (lastEl !== null) lastEl.textContent = '';
+    return;
+  }
+  if (preview === null) {
+    previewEl.textContent = t('统计失败，稍后重试。');
+    if (usageEl !== null) usageEl.textContent = '';
+    if (lastEl !== null) lastEl.textContent = '';
+    return;
+  }
+  const days = retentionDaysOf(s);
+  const range = preview.first_ms !== null && preview.last_ms !== null
+    ? ` ${t('（{from} 至 {to}）', { from: dateOf(preview.first_ms), to: dateOf(preview.last_ms) })}` : '';
+  const skipped = preview.skipped.dirty + preview.skipped.purpose_pending
+    + preview.skipped.source_gap + preview.skipped.in_flight;
+  previewEl.textContent = t('保留 {days} 天：将删除 {sessions} 个会话、{requests} 个请求',
+    { days, sessions: preview.sessions, requests: preview.requests })
+    + range
+    + ` ${t('释放约 {bytes}', { bytes: bytesOf(preview.bytes.readable_body
+      + preview.bytes.session_raw + preview.bytes.raw_hook) })}`
+    + (skipped > 0 ? ` ${t('暂时跳过 {n} 个会话：有未完成处理或来源缺口。', { n: skipped })}` : '');
+  if (usageEl !== null) {
+    usageEl.textContent = preview.usage === null
+      ? t('计数结构不可用，暂时读不到分层占用。')
+      : t('正文 {body} · 会话原文 {raw} · 原始 hook {hook}（上限 {disk}，正文预算 {budget}）', {
+        body: bytesOf(preview.usage.readable_body_bytes),
+        raw: bytesOf(preview.usage.session_raw_bytes),
+        hook: bytesOf(preview.usage.raw_hook_bytes),
+        disk: bytesOf(preview.limits.disk_limit_bytes),
+        budget: bytesOf(preview.limits.body_budget_bytes),
+      });
+  }
+  if (lastEl !== null) {
+    const last = preview.last_cleanup;
+    lastEl.textContent = last === null ? t('还没有执行过清理。')
+      : t('上次清理：{when}，删除 {n} 个请求。', { when: dateOf(last.at_ms), n: last.request_count })
+        + (last.reason === 'disk_cap' ? ` ${t('（空间不足触发）')}` : '');
+  }
+}
+
+/** 按当前档位取一次预览；同一档位在途时不重复发请求。 @param {number} days */
+async function loadRetentionPreview(days) {
+  if (loadingDays === days) return;
+  loadingDays = days;
+  renderRetentionDetail(settings());
+  const result = await previewRetention(days);
+  if (loadingDays !== days) return;
+  loadingDays = null;
+  preview = result;
+  renderRetentionDetail(settings());
 }
 
 function connectPanel() {
@@ -161,7 +262,7 @@ function paint(s) {
     if (key !== null) node.setAttribute('aria-label', t(key));
   }
   const body = el('set-body');
-  body.innerHTML = appearancePanel(s) + sourcesPanel() + historyPanel() + connectPanel();
+  body.innerHTML = appearancePanel(s) + sourcesPanel() + historyPanel(s) + connectPanel();
   for (const button of el('set-nav').querySelectorAll('button')) {
     button.setAttribute('aria-selected', String(button.getAttribute('data-cat') === tab));
   }
@@ -190,6 +291,15 @@ function paint(s) {
   if (motion instanceof HTMLInputElement) motion.checked = s.reduceMotion;
   for (const button of el('set-tool-tabs').querySelectorAll('button')) {
     button.setAttribute('aria-pressed', String(button.getAttribute('data-tool') === tool));
+  }
+  for (const button of body.querySelectorAll('[data-retention]')) {
+    button.setAttribute('aria-pressed',
+      String(Number(button.getAttribute('data-retention')) === retentionDaysOf(s)));
+  }
+  if (tab === 'history') {
+    const days = retentionDaysOf(s);
+    if (preview === null || preview.keep_days !== days) void loadRetentionPreview(days);
+    else renderRetentionDetail(s);
   }
   el('set-snippet').textContent = SNIPPETS[/** @type {keyof typeof SNIPPETS} */ (tool)] ?? SNIPPETS.claude;
   el('settings').hidden = !open;
@@ -247,6 +357,18 @@ export function initSettingsPanel(toastFn) {
     const color = button.getAttribute('data-color');
     if (color !== null) {
       await commit({ ...s, accent: color, accentSoft: button.getAttribute('data-soft') ?? s.accentSoft });
+      return;
+    }
+    const retention = button.getAttribute('data-retention');
+    if (retention !== null) {
+      const days = /** @type {Settings['retentionDays']} */ (Number(retention));
+      // 未启用时只换预览档位；点「启用」才真正保存，避免手滑即删历史。
+      if (s.retentionConfigured) await commit({ ...s, retentionDays: days });
+      else { pendingDays = days; preview = null; paint(settings()); }
+      return;
+    }
+    if (button.id === 'set-retention-enable') {
+      await commit({ ...s, retentionDays: retentionDaysOf(s), retentionConfigured: true });
       return;
     }
     const toolTab = button.getAttribute('data-tool');
