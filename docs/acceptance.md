@@ -2786,3 +2786,33 @@ master `0b5c9a1`（`--no-ff` 合并 `feat/desktop-ui`）。合并后主检出的
 - 没有在生产副本统计换名、变短、退兜底三项，故本轮不能给出上线结论。
 - 没有存量回填，没有跑全量 `bun test` 与平台矩阵；两者属上线前的显式动作。
 - 合成测试覆盖不等于真实上游字段覆盖；本机截面里 pi 没有 title 行，只由合成 fixture 覆盖共用适配器。
+
+## 保留死带与未匹配 cost-run 清理：部署与真实流量验收（2026-11-10）
+
+前提：分支 `fix/retention-disk-deadband`，改动是 `diskPressure` 跨 tick 续跑、`cost_observation` 未匹配 `cost-run` 行随 raw TTL 清理、`maintain prune-raw`。决策见[磁盘降级的跨 tick 死带与未匹配费用观测清理缺口](../.agents/notes/implemented/bug-fix/2026-11-10-retention-dead-band-and-cost-run-prune.md)。合成验收在合并前做，部署与真实流量验收在合并后做。
+
+### 合成验收
+
+- `bun run typecheck` 退出 0。
+- `bun test tests/retention.test.ts tests/commit-unit.test.ts tests/maintenance.test.ts` 80 pass / 0 fail / 408 expect。新增用例覆盖：未匹配 `cost-run` 观测按截止点删除且已匹配与未到期行保留；占用停在 75–80% 时正常态不回收、`diskPressure` 连续调用继续回收到 75%；`prune-raw` 预览与 `--apply` 删除计数。
+- 没有单独跑旧实现的失败态：两处新回归的代码与测试同批落下，只按最终绿态计入。
+
+### 部署前状态
+
+- 数据目录 12,814,618,624 字节（12.815 GB，16 GB 预算的 80.09%），库文件 12,790,878,208 字节，`page_count` 3,122,442，`freelist_count` 1。
+- 准入自 03:50:56 起停在 `metadata_only` / `disk_budget`（`at_ms=1794253856951`）。旧进程在 04:23–04:28 连续淘汰正文到 80% 以下后停手，err 日志此后没有 `retention_evicted`，准入也没有恢复；累计 `miss_reason=disk_body_paused` 1,010 笔。
+- `cost_observation` 里未匹配 `cost-run` 行 593,542 行 / 475,464,501 字节；7 天前的 535,016 行 / 428,776,700 字节。`prune-raw` 预览与只读查询一致。
+
+### 部署与真实流量验收
+
+- master `b24cd47`（`--no-ff` 合并 `fix/retention-disk-deadband`）。`bun run service stop` 停掉 pid 69975；`prune-raw --before 2026-11-03T04:06:39.608Z --apply --approval-id retention-deadband-20261110` 删除 `costRun` 535,016 行，同批清掉超过 7 天的 raw 存量：`ledger` 117,865、`route` 26,589、`hook` 20,135、`otlpSpan` 2,226、`session` 3,316、`otlpLog` 0。`shrink` 的 `freelist_before=413,993`、`freelist_after=0`、`rounds=405`、`checkpoint=ok`。
+- 清理后数据目录 11,097,079,808 字节（11.097 GB，69.36%），库文件 11,093,446,656 字节，`page_count` 2,708,361，`freelist_count` 0；物理释放 1,717,538,816 字节，低于 75% 恢复线 902,920,192 字节。
+- `bun run service start` 2 秒启动（pid 64552，端口 8320，代码未落后）。持久化准入与 `/api/stats` 都返回 `normal`（`at_ms=1794283691160`）。
+- 启动后 5 笔新请求的 `body_state` 全部为 `available`；`miss_reason=disk_body_paused` 从 1,010 回落到 1,003（部分请求重新拿到正文），不再增长；err 日志没有新的 `retention_evicted`。
+- `cost_observation` 剩余未匹配 `cost-run` 58,552 行（7 天内），已匹配证据行 93,796 行。
+
+### 未覆盖
+
+- 没有构造新一轮 80% 触顶来观察生产上的 `diskPressure` 续跑；该路径只有合成回归覆盖。若再次触顶，预期是每 30 秒一轮持续淘汰正文到 75%，err 日志连续出现 `retention_evicted`。
+- 没有在生产页面走查顶部状态标签；状态来自 `/api/stats.admission`，与本轮读到的 `normal` 同源。
+- 一次性清理顺带暴露出小时级 `raw_prune` 的存量缺口（170,131 行超期 raw 行），本轮只清存量，没有调整 `rawPruneTick` 的批次或墙钟预算；后续按真实到期速率观察是否需要提高。
