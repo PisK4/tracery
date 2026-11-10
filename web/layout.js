@@ -41,7 +41,7 @@ export function applyTheme() {
   // 由 title 与 aria-label 说明，不用额外符号占位。
   const dark = themePref === 'dark'
     || (themePref === 'system' && window.matchMedia?.('(prefers-color-scheme: dark)').matches === true);
-  btn.innerHTML = icon(dark ? 'moon' : 'sun', 20);
+  btn.innerHTML = icon(dark ? 'moon' : 'sun', 18);
   const state = themePref === 'system'
     ? t('跟随系统（{mode}）', { mode: dark ? t('深色') : t('浅色') })
     : t(dark ? '深色' : '浅色');

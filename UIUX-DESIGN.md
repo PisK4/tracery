@@ -51,6 +51,7 @@
 ### 色彩预算
 
 - 新颜色先入 token：唯一家是 [web/app.css](web/app.css) 的 :root 与两个暗色块，组件里不写颜色字面量。
+- 色板基准是桌面 UI 定稿样张（`.archify/tracery-desktop-demo-20261109.html` 的 Visual pass）：亮色冷灰、暗色蓝灰成对，不是反色；换色时亮暗两态一起走查。
 - 角色徽章四档封顶：user 蓝、system 灰、assistant 紫、tool 橙；同屏软底色（低透明度铺底）不超过角色四档加语义三色。
 - 导航选中用中性灰底；内容区选中才用 accent，2px 左缘加浅蓝底；hover 一律灰底。
 - 耗时三档变色：正常弱灰、超限琥珀、再超红；阈值、格式化与工具类别的唯一家是 [web/duration.js](web/duration.js)，等待型工具不上色。
@@ -86,6 +87,7 @@
 ### 工程约束（指针）
 
 - 正文与路由内容一律转义；读取走[读取功能接入规则](docs/read-feature-rules.md)；新 web 模块登记 STATIC_FILES 白名单；界面文案走 i18n 的 t()，中英两份同改。
+- 功能图标只用 [web/icons.js](web/icons.js) 的 IconPark 注册表（48 网格、stroke-width 4、currentColor）；语义名不随几何改动，新增图形先入表再调用。折叠箭头的 CSS mask、首屏占位 SVG 与品牌 SVG 是同一套几何的四处来源，改动时一起换；Agent logo 与蜘蛛插画属品牌例外，不进注册表。
 
 ## 验收清单
 

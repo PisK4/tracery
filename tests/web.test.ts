@@ -18,6 +18,7 @@ import {
 } from '../web/url-route.js';
 import { agentLabel, railSummaryListHtml, sessionHead, sessionHiddenFold, sessionsListFoldHtml } from '../web/session-view.js';
 import { hostOf } from '../web/host.js';
+import { icon } from '../web/icons.js';
 
 test('后端降级只出两种标签，正常与未知模式不占顶栏', () => {
   expect(backendStateText(null)).toBeNull();
@@ -1375,4 +1376,40 @@ test('宿主接缝只认 host=desktop，路由同步保留宿主', () => {
   // 页签与选择路由重写 URL 时不能把外壳退回浏览器样式。
   const app = readFileSync('web/app.js', 'utf8');
   expect(app).toContain("if (host === 'desktop') p.set('host', 'desktop')");
+});
+
+test('读数页四折叠共用一张卡，证据与用量卡留在卡外', () => {
+  const html = factsHtml('<details class="rail-fold" data-fold="structure:1"><summary>请求结构</summary></details>');
+  expect(html).toContain('<section class="fold-card">');
+  const card = /<section class="fold-card">([\s\S]*?)<\/section>/.exec(html)?.[1] ?? '';
+  expect(card).toContain('本次回复');
+  expect(card).toContain('请求结构');
+  expect(card).toContain('工具清单');
+  expect(card).not.toContain('用量与上下文');
+  expect(card).not.toContain('身份完整性');
+  // 证据折叠出现时排在合卡之前，不并入四折叠。
+  const withEvidence = railFactsHtml({
+    evidenceHtml: '<details class="rail-fold" data-fold="evidence:1"><summary>证据</summary></details>',
+    replyHtml: '<details class="rail-fold" data-fold="reply:1"><summary>本次回复</summary></details>',
+    structureHtml: '', capabilitiesHtml: '', usageHtml: '', completenessHtml: '',
+  });
+  expect(withEvidence.indexOf('证据')).toBeLessThan(withEvidence.indexOf('fold-card'));
+});
+
+test('图标统一走 IconPark 48 网格与 4 描边，调用名全部可解析', () => {
+  const svg = icon('check', 16);
+  expect(svg).toContain('viewBox="0 0 48 48"');
+  expect(svg).toContain('stroke-width="4"');
+  expect(svg).toContain('stroke="currentColor"');
+  // 8px 网格的两枚标记特例不受 48 网格约束。
+  expect(icon('fail-solid', 8)).toContain('viewBox="0 0 8 8"');
+  // 生产所有调用点（含动态名）都在注册表里，避免运行时 unknown_icon 抛错。
+  const calls = [...readdirSync('web')].filter(name => name.endsWith('.js')).flatMap(name =>
+    [...readFileSync(join('web', name), 'utf8').matchAll(/icon\('([^']+)'/g)].map(m => m[1]));
+  const tabs = readFileSync('web/rail-tabs.js', 'utf8');
+  const dynamic = [...tabs.matchAll(/icon: '([^']+)'/g)].map(m => m[1]);
+  for (const name of [...new Set([...calls, ...dynamic])]) expect(() => icon(name)).not.toThrow();
+  const css = readFileSync('web/app.css', 'utf8');
+  expect(css).toContain('viewBox=\'0 0 48 48\'');
+  expect(css).not.toContain('0 0 24 24');
 });

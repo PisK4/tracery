@@ -2,6 +2,8 @@
 
 Status: implemented
 
+本文的图标集决策已由[前端样式以桌面定稿样张为准：IconPark 与冷灰色板](2026-11-10-demo-visual-parity.md)取代：功能图标改用 IconPark 48 网格、`stroke-width:4`，`NOTICE` 的许可署名随之改变。本文持有的启动点 chip 与反向入口决策仍然有效，故保持活跃。
+
 ## Problem
 
 两件事叠在同一批前端改动里。
