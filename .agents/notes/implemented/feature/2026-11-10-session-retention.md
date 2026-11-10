@@ -141,15 +141,15 @@ schema 升到 v18，只新增 `purged_conversation` 表；现有表、容量计�
 
 ## Consequences
 
-2026-11-10 落地，生产副本预演与生产部署已完成，自动清理尚未启用；真实删除待首次启用后另记。与本文原方案相比有五处落地差异：
+2026-11-10 落地，生产副本预演、生产部署与首次启用均已完成；30 天自动清理在启用当天清完 422 个存量会话，此后按小时执行。与本文原方案相比有五处落地差异：
 
 - **会话与代际索引。** 首次预演在 11 GB 生产副本上单会话最长 38.5 秒，419 个会话总耗时 36 分钟；慢在按 `session`、按 `sort_key` 代际前缀的存活检查逐行全表扫。schema v18 增加 `i_req_session`、`i_req_sort_generation` 与 `i_raw_session_event_generation` 后，同一批 421 个会话总耗时 2 分 53 秒，单会话最长 2.87 秒（冷缓存首会话），其余按请求数近线性。
 - **块回收改为批次一次。** `purgeTargetsTx` 不再每个会话全库扫无引用块，只回收本次目标引用过的块；`purgeExpiredSessions` 在一批删完后兜一次全局无引用块清扫。这样既避免每会话 0.25 秒的固定成本，也让 `maintain verify` 的 `dangling_blocks` 保持 0。
-- **首次启用追赶。** 一轮没删完（`timed_out` 或 `may_have_more`）时 1 分钟后继续，不等到下一个整点；删完自动停。首轮 421 个会话按 2 秒墙钟分摊约两小时完成，不阻塞小时 tick 之外的调度。
+- **首次启用追赶。** 一轮没删完（`timed_out` 或 `may_have_more`）时 1 分钟后继续，不等到下一个整点；删完自动停。生产首次启用按 61 轮清完 422 个会话 / 35,219 笔请求，用时 62 分钟；单会话写事务平均 300 毫秒、最大 1.02 秒，准入全程 `normal`。
 - **预览字节改为物理口径。** `bytes.readable_body` 从逻辑 `body_bytes` 改为目标会话引用的 `block.z` + `request.skeleton_z` 物理字节，与容量分层同口径；共享块不扣除（生产快照精确独占与按引用统计只差 2 KB），避免扫 34M 行 `request_block` 把预览拖到 11 秒。实测预览 1.2 秒，同一截止时间下预览与实删均为 421 个会话 / 35,155 笔请求。
 - **运行方式先只读。** 浏览器宿主下「常驻后台 / 随 App」只显示当前值，不摆不可用的开关；切换要等桌面宿主与安装器，即本文阶段 4。字段已落 `settings.json`，宿主接入后可直接读。
 
-仍未覆盖：自动清理的真实删除、桌面/浏览器页面走查、6–12 个月合成 soak、macOS LaunchAgent 安装器与 `runMode` 的实际执行。见[验收记录](../../../../docs/acceptance.md#会话保留生产部署与真实流量只读验收2026-11-10)。
+仍未覆盖：桌面/浏览器页面走查、6–12 个月合成 soak、macOS LaunchAgent 安装器与 `runMode` 的实际执行；95% 磁盘兜底尚未在真实库触发。见[验收记录](../../../../docs/acceptance.md#会话保留自动清理启用与首批删除2026-11-10)。
 
 ## Alternatives considered
 
@@ -185,7 +185,7 @@ schema 升到 v18，只新增 `purged_conversation` 表；现有表、容量计�
 
 ## Testing
 
-合成数据测试覆盖以下场景，生产副本预演与生产部署复核结果见[验收记录](../../../../docs/acceptance.md#会话保留生产部署与真实流量只读验收2026-11-10)。尚未执行的检查列在 Consequences 的「仍未覆盖」，不在这里写成已通过。
+合成数据测试覆盖以下场景，生产副本预演与生产部署复核结果见[验收记录](../../../../docs/acceptance.md#会话保留自动清理启用与首批删除2026-11-10)。尚未执行的检查列在 Consequences 的「仍未覆盖」，不在这里写成已通过。
 
 - **整会话边界**：构造会话 A（最后活动 40 天前，首笔 100 天前）、B（最后活动 20 天前，首笔 100 天前）、C（最后活动 40 天前但 `derive_queue` dirty）。30 天保留期下，A 整条删除，B 整条保留（首笔 100 天前的请求仍在），C 本轮跳过；C 转 clean 后下一轮删除。
 - **级联完整**：A 删除后，`request`、`request_evidence`、`cost_observation`、`tool_call`、`request_block`、`derive_*`、`session_title`、`session_usage`、`raw_session_event`、`raw_ledger`、`raw_hook`、`bg_job` 都没有 A 的残留；A 独占的 block 删除，A 与 B 共享的 block、route_summary 与原始路由保留；`maintain verify` 通过。
@@ -195,7 +195,7 @@ schema 升到 v18，只新增 `purged_conversation` 表；现有表、容量计�
 - **容量口径**：raw_session 单独涨到超过正文预算时，`bodyFull` 不成立，准入仍为 `normal`；正文超预算只回收正文；95% 合成小磁盘下，最旧会话被整条删除并写 `reason='disk_cap'` 的事件，最近 7 天会话不动；降到 90% 以下恢复写入。
 - **自动追赶**：启动时 `rawPruneTick` 能清掉超过 2,000 行的到期 raw 存量；小时 tick 在 1 秒预算内继续推进，未清完置 `raw_prune_backlog` 并在 5 分钟后重试；`sessionRetentionTick` 在 2 秒预算内按会话删除，未删完下一轮继续，不重复已删会话。
 - **首次启用**：`retentionConfigured=false` 时自动任务只预览不删；保存保留期后置 `true`，下一次 tick 才删；预览数字与实际删除数字一致（允许并发新增造成的差额，并记录差额）。
-- **生产副本**：11 GB 生产库副本上预览与 `retention-apply --approval-id` 在同一截止时间各删除 421 个会话 / 35,155 笔请求，`maintain verify` 与四源容量对账通过；生产部署与只读复核已完成，自动清理启用未执行，见 Consequences。
+- **生产副本**：11 GB 生产库副本上预览与 `retention-apply --approval-id` 在同一截止时间各删除 421 个会话 / 35,155 笔请求，`maintain verify` 与四源容量对账通过；生产部署、只读复核与首次启用后的存量删除均已完成，见 Consequences。
 - **设置与界面**：保留期与运行方式写入 `settings.json`，坏值回退默认并留 issue；中英字典无缺项，浏览器宿主只显示运行方式当前值。页面宽度、键盘与 `prefers-reduced-motion` 走查未执行，见 Consequences。
 
 ## Risks

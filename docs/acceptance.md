@@ -2888,3 +2888,28 @@ master `0b5c9a1`（`--no-ff` 合并 `feat/desktop-ui`）。合并后主检出的
 - 自动清理的真实删除：用户尚未在面板保存保留期，`retentionConfigured` 仍为 `false`；启用后的首批 421 个会话、追赶重试、`retention_purge_ms_max` 与事件循环影响都要另记一轮。
 - 页面走查：历史与空间面板的启用流程、数字与中英字典尚未人工走查；本轮只验了 API 与静态资源可达。
 - `runMode` 的实际执行、桌面宿主与 LaunchAgent 安装器、6–12 个月 soak 均未做。
+
+## 会话保留自动清理启用与首批删除（2026-11-10）
+
+前提：master `c83b42b`，schema v18；部署与只读复核见上一节。本节记录真实启用 30 天保留后的首批存量删除，副本预演与合成验收数字不并入。
+
+### 启用
+
+- 通过 `POST /api/settings` 提交与面板同形状的完整设置对象：`retentionDays=30`、`retentionConfigured=true`、其余键保持默认。`config/settings.json` 只落 `{"retentionConfigured":true}`（保留期等于默认值，不进 overrides），权限 0600。随后 `bun run service restart`，1 秒完成。
+- 启用前预览 421 个会话 / 35,155 笔请求。重启后的首个 tick 立即执行，从最旧会话开始按会话独立事务删除；每轮墙钟预算 2 秒，未删完时 `timed_out=true`，60 秒后继续。
+
+### 首批删除结果
+
+- 实际删除 422 个会话 / 35,219 笔请求；`retention_event` 有 422 条 `session_retention`。比启用前预览多 1 个会话 / 64 笔请求：追赶期间截止时间向前推进，该会话在 62 分钟内越过 30 天边界。
+- 删除区间 2026-11-10 17:44:50 至 18:46:21，共 61 轮，每分钟 6–8 个会话；日志 61 条 `retention_sessions_deleted`，无 `retention_disk_cap`，无 `retention_pending_skipped`。
+- 写事务 `session_retention` 422 次、合计 126.5 秒、平均 300 毫秒、最大 1,016.95 毫秒；批次清扫 `block_sweep` 61 次、合计 15.9 秒、最大 331.51 毫秒。两者都走同步写连接；期间事件循环 p99 44.1 毫秒、最大 676.23 毫秒，准入全程 `normal`，没有触发 95% 磁盘兜底。
+- 数据目录（`du` 口径）11.46 GB → 9.60 GB，减少 1.86 GB；DB 文件 11.16 GB → 10.30 GB。分层占用 readable body 4.05 GB → 3.81 GB、session_raw 2.41 GB → 2.01 GB；free page 4,286 页（约 16.7 MiB），`incremental_vacuum` 尚未全部回收。
+- 删除后 `maintain verify`：`ok=true`、`integrity=ok`、`dangling_blocks=0`、`duplicate_evidence=0`、`pending_derivations=0`、`purged_conversation_residue=0`。`maintain capacity-check` 四源 `byte_delta=0`、`row_delta=0`：`block` 1.450 GB / 305,105 行、`request` 2.357 GB / 148,696 行、`raw_hook` 0 / 40,097 行、`raw_session_event` 2.008 GB / 310,804 行。
+- 再次预览 30 天为 0 个会话 / 0 笔请求；库内会话 14,255 个、请求 148,697 笔。
+
+### 仍在观察
+
+- 单会话最长写事务 1,016.95 毫秒，超过 magpie hook 的 600 毫秒预算，但低于 2 秒调度预算；只在首批存量追赶出现。稳态由小时 tick 处理新增到期会话，`retention_purge_ms_max` 要继续观察。
+- `raw_prune_backlog` 仍为 `true`，是 raw 7 天 TTL 的既有积压，与本轮会话删除无关，但会叠加写负载。
+- 历史与空间面板的启用流程、数字、中英字典、1440/1180 宽度、键盘与 `prefers-reduced-motion` 仍未人工走查；本轮启用走 API，未经过面板点击。
+- 95% 磁盘兜底未在真实库触发；`runMode` 执行、桌面宿主、LaunchAgent 安装器与 6–12 个月 soak 未做。
