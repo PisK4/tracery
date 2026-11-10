@@ -71,7 +71,7 @@ test('缺口已可恢复与已记录的未关联正文不再空转提交', () =>
     const before = f.store.writeStats.count;
     expect(resumeSourceGaps(f.store, 'usage.jsonl')).toEqual({ recoverable: 1, unrecoverable: 0 });
     expect(pruneRaw(f.store, 100)).toEqual({
-      ledger: 0, route: 0, hook: 0, otlpSpan: 0, otlpLog: 0, session: 0,
+      ledger: 0, route: 0, hook: 0, otlpSpan: 0, otlpLog: 0, session: 0, costRun: 0,
     });
     expect(f.store.writeStats.count).toBe(before);
   } finally { f.close(); }

@@ -1323,6 +1323,34 @@ test('重解析重复执行不重复写入，也不推进输入修订', async ()
   }
 });
 
+test('维护 prune-raw 清理未匹配 cost-run 观测并报告删除量', async () => {
+  const f = fixture();
+  try {
+    f.store.write(db => {
+      const insert = db.prepare(
+        'INSERT INTO cost_observation(ref_key,observed_at,projection_hash,payload_json) VALUES (?,?,?,?)');
+      insert.run('["cost-run","run-1",0,0]', 10, 'h1', '{"cost":1}');
+      insert.run('["cost-run","run-1",0,1]', 10, 'h2', '{"cost":2}');
+      insert.run('["cost-run","run-1",0,2]', 200, 'h3', '{"cost":3}');
+      insert.run('["file","gen:0",0]', 10, 'h4', '{"cost":4}');
+    });
+    const preview: string[] = [];
+    expect(await runMaintenance(['prune-raw', '--db', join(f.dir, 'trace.db'), '--before', '100'],
+      { out: line => preview.push(line), err: () => {} })).toBe(0);
+    expect(JSON.parse(preview[0]!)).toMatchObject({
+      ok: true, applied: false, cost_run: { rows: 2 },
+    });
+
+    const applied: string[] = [];
+    expect(await runMaintenance(['prune-raw', '--db', join(f.dir, 'trace.db'), '--before', '100',
+      '--apply', '--approval-id', 'synthetic'], { out: line => applied.push(line), err: () => {} })).toBe(0);
+    expect(JSON.parse(applied[0]!)).toMatchObject({ ok: true, applied: true, costRun: 2 });
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM cost_observation').get()).toEqual({ n: 2 });
+  } finally {
+    f.close();
+  }
+});
+
 test('重解析缺少 --protocol 时只报用法', async () => {
   const f = fixture();
   try {

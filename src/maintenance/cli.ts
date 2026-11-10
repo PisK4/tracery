@@ -19,6 +19,7 @@ import { reparseProtocol } from './reparse';
 import { normalizeStoredResponseIds, previewResponseIdNormalization } from './response-ids';
 import { previewOtlpReplay, replayOtlpBound } from './otlp-replay';
 import { previewOperationBackfill, backfillOperations } from './operation-backfill';
+import { pruneRawBounded, shrinkStorage, RAW_TTL_MS } from '../retention';
 import { verifyDatabase, precheckDatabase } from './verify';
 
 function parseArgs(argv: string[]): Map<string, string | true> {
@@ -75,6 +76,7 @@ const USAGE = `usage:
   maintain capacity-recount --db <path> [--apply --approval-id <id>]
   maintain body-consistency --db <path> [--apply --approval-id <id> --expected-candidates <n>]
   maintain body-bytes-backfill --db <path> [--apply --approval-id <id> --expected-candidates <n>]
+  maintain prune-raw --db <path> [--before <ISO|ms>] [--apply --approval-id <id>]
   maintain hook-delivery --db <path> --since <ISO|ms> --until <ISO|ms>
   maintain backup --db <path> --out <new-path>
   maintain bundle --dir <dataDir> --out <new-dir>
@@ -263,6 +265,69 @@ export async function runMaintenance(argv: string[], io: {
       err(`${command}_failed:${error instanceof Error ? error.message : 'unknown'}`);
       return 1;
     } finally { lock?.release(); }
+  }
+
+  if (command === 'prune-raw') {
+    // 默认按 raw 层 TTL 取截止点；与小时 tick 同一套清理，只是一次跑完存量。
+    const beforeMs = momentFlag(flags, 'before') ?? Date.now() - RAW_TTL_MS;
+    if (!Number.isFinite(beforeMs)) {
+      err(USAGE.trimEnd());
+      return 2;
+    }
+    let lock: LockHandle | null = null;
+    let store: Store | null = null;
+    try {
+      if (flags.get('apply') !== true) {
+        const db = new Database(dbPath, { readonly: true });
+        try {
+          const costRun = db.query<{ n: number; bytes: number }, [number]>(`
+            SELECT COUNT(*) AS n, IFNULL(SUM(length(CAST(payload_json AS BLOB))),0) AS bytes
+            FROM cost_observation
+            WHERE ref_key >= '["cost-run"' AND ref_key < '["cost-rv"' AND observed_at < ?`)
+            .get(beforeMs);
+          out(JSON.stringify({
+            ok: true, applied: false, before_ms: beforeMs,
+            cost_run: { rows: costRun?.n ?? 0, bytes: costRun?.bytes ?? 0 },
+          }));
+        } finally { db.close(); }
+        return 0;
+      }
+      const approvalId = stringFlag(flags, 'approval-id');
+      if (approvalId === null) {
+        out(JSON.stringify({ ok: false, error: 'approval_id_required', before_ms: beforeMs }));
+        return 1;
+      }
+      lock = acquireMaintenanceLock(dirname(dbPath), `prune-raw:${process.pid}`);
+      if (lock === null) throw new Error('maintenance_lock_held');
+      store = openStore(dbPath);
+      const total = { ledger: 0, route: 0, hook: 0, otlpSpan: 0, otlpLog: 0, session: 0, costRun: 0 };
+      // 每次只准备 2,000 个候选；存量更大时连续调用到不再推进。
+      for (let round = 0; round < 10_000; round++) {
+        const result = await pruneRawBounded(store, beforeMs, { maxBatches: 100, wallMs: 60_000 });
+        total.ledger += result.ledger;
+        total.route += result.route;
+        total.hook += result.hook;
+        total.otlpSpan += result.otlpSpan;
+        total.otlpLog += result.otlpLog;
+        total.session += result.session;
+        total.costRun += result.costRun;
+        if (result.ledger + result.route + result.hook + result.otlpSpan + result.otlpLog
+          + result.session + result.costRun === 0) break;
+      }
+      let shrink = shrinkStorage(store, { maxRounds: 4_096, pagesPerRound: 1_024, wallMs: 120_000 });
+      for (let round = 0; round < 100 && shrink.freelist_after > 0
+        && shrink.freelist_after < shrink.freelist_before; round++) {
+        shrink = shrinkStorage(store, { maxRounds: 4_096, pagesPerRound: 1_024, wallMs: 120_000 });
+      }
+      out(JSON.stringify({ ok: true, applied: true, approval_id: approvalId, before_ms: beforeMs, ...total, shrink }));
+      return 0;
+    } catch (error) {
+      err(`prune-raw_failed:${error instanceof Error ? error.message : 'unknown'}`);
+      return 1;
+    } finally {
+      store?.close();
+      lock?.release();
+    }
   }
 
   if (command === 'verify' || command === 'purge-metadata' || command === 'purge-agent'

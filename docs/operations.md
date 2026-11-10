@@ -166,6 +166,10 @@ bun run maintain capacity-check --db '<dataDir>/trace.db'
 bun run maintain capacity-recount --db '<dataDir>/trace.db'
 bun run maintain capacity-recount --db '<dataDir>/trace.db' --apply --approval-id '<你的审批标识>'
 
+# 一次性跑完 raw 层 TTL 清理（含未匹配 cost-run 观测），默认只预览；--apply 需要停采集器
+bun run maintain prune-raw --db '<dataDir>/trace.db'
+bun run maintain prune-raw --db '<dataDir>/trace.db' --apply --approval-id '<你的审批标识>'
+
 # hook 投递的只读窗口诊断：缺口、等待队列与已到达回调
 bun run maintain hook-delivery --db '<dataDir>/trace.db' --since '2026-10-26T00:00:00Z' --until '2026-10-27T00:00:00Z'
 
@@ -429,6 +433,12 @@ bun run maintain body-bytes-backfill --db '<dataDir>/trace.db' --apply --approva
 
 应用先取维护锁，再在同一个独占连接里验证停服并执行事务。在线应用报 `source_must_be_stopped`；缺审批标识或合法计数分别报 `approval_id_required`、`expected_candidates_required`。预览计数变化报 `body_consistency_scope_changed` 或 `body_bytes_scope_changed`，整批不写。报告区分 `changed` 与 `remaining`；重跑使用新预览计数即可。逐请求逻辑字节含共享块，不能累加成物理释放量。
 
+### prune-raw
+
+把小时级 `raw_prune` 的同一套清理一次性跑到没有候选为止，用于存量超过一个 tick 或磁盘降级需要立即腾空间；默认截止点是当前时间减 7 天（`RAW_TTL_MS`），`--before` 接受 epoch 毫秒或 ISO 8601。默认只预览未匹配 `cost-run` 观测的行数与逻辑字节；加 `--apply --approval-id` 才取维护锁、要求停服务并按批次删除，最后收缩空闲页。报告按来源给出删除行数与 `shrink` 结果。
+
+未匹配的费用行只有暂存键 `["cost-run",...]`，没有归属请求，删除后不需要重算投影；已匹配证据键不以这个前缀开头，不会被这条清理命中。清理与其他 raw 表一样受单批行数与载荷预算约束，单条超大行不可切分。
+
 ### dedupe-sessions
 
 修复本地会话来源的历史重复行：早期匹配规则要求模型名跨来源严格相等，网关的 `group/auto-…` 与本地 `auto/…` 对不上，同一笔调用会在 `request` 表里各留一行。默认只预览，输出 `scanned`、`candidates`、`merged`、`ambiguous`、`weak_only`、`already_owned` 与按来源的 `by_source`。加 `--apply` 必须同时给 `--approval-id`，否则退出码 1 且错误码 `approval_id_required`。
@@ -524,11 +534,11 @@ Magpie operation 准入上线后，历史行的 `source_facts_json` 缺 `operati
 | 总盘 ≥ 95% | hook 一律 507，什么都不写；OTLP 端点同样整批 507 | 跌回 90% 以下 |
 | 剩余空间 < `max(256 MiB, 2 × 本批上界)` | 暂停 | 余量回到门槛以上 |
 
-总盘量的是数据目录下所有普通文件之和（深度 3），目录里的备份、导出与临时文件同样计入。占用卡在 75–80% 滞回带里迟迟不恢复时，先看目录里有没有这类文件，不要只量库本身。
+总盘量的是数据目录下所有普通文件之和（深度 3），目录里的备份、导出与临时文件同样计入。准入在 80% 降级后，回收会继续跑到 75% 目标才停；若占用仍卡在 75–80% 不恢复，先看目录里有没有这类文件，不要只量库本身。
 
 页面顶栏在降级时显示标签：`metadata_only` 出「存储降级 · 正文暂停」，`paused` 出「存储降级 · 采集暂停」，正常态不占位。标签在启动、显式刷新与点按时各读一次 `/api/stats` 的 `admission`，不轮询，所以切换后可能滞后，点按即重新读取。标签只说明当前准入与原因；哪些正文没保存，看每笔记录的 `miss_reason`。
 
-回收在单个事务里删引用、删孤儿块、清骨架、改状态，`have` 与历史读数不动，`body_prev_state` 保留原状态。raw 层保留 7 天，到期只删原文、给证据标 `payload_state=expired`；仍带正文又没完成关联的 hook 原文不按到期删，只在 `ingest_issue` 记 `raw_hook_body_unlinked`。会话原始层同样按 7 天 TTL，只清没有游标引用的孤儿代际与已封口且 7 天没有成功摄入的代际；追加文件的当前代际保留，供批次间重放。全量 `/api/ingest-metrics` 的 `raw_session_rows` 与 `raw_session_bytes` 是这两类增长的观察口径。
+回收在单个事务里删引用、删孤儿块、清骨架、改状态，`have` 与历史读数不动，`body_prev_state` 保留原状态。raw 层保留 7 天，到期只删原文、给证据标 `payload_state=expired`；仍带正文又没完成关联的 hook 原文不按到期删，只在 `ingest_issue` 记 `raw_hook_body_unlinked`。未匹配的 `cost-run` 费用观测同样按 7 天清理，它们没有归属请求，删除后不重算投影。会话原始层同样按 7 天 TTL，只清没有游标引用的孤儿代际与已封口且 7 天没有成功摄入的代际；追加文件的当前代际保留，供批次间重放。全量 `/api/ingest-metrics` 的 `raw_session_rows` 与 `raw_session_bytes` 是这两类增长的观察口径。
 
 raw 层清理按小时调度一次，单次调用在 200 批 / 200 ms 墙钟内分批执行：每批各表最多 100 行、独立提交，批间让出事件循环，不在主线程制造长写事务。超期存量大的首轮部署会在连续数个 tick 内持续回收直至归零，不会一次清空，因此不需要为清理安排停机窗口；想压低首轮的 WAL 增长与 I/O 峰值，选低流量时段部署即可。巡查按「连续多轮调用后超期计数持续下降直至归零」验收，不要按单次调用是否归零判断。
 
