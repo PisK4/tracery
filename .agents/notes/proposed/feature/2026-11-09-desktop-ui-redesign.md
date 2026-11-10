@@ -205,7 +205,7 @@ rail head：标题 + 来源 + 状态 + 五页签
 
 ## 视觉语言
 
-方向 A 的令牌是唯一来源，色值以 `web/app.css` 为准。本文只规定组件怎么用。
+色板以 `web/app.css` 为准。本文只规定组件怎么用。色板基准后来换成[桌面定稿样张的 Visual pass](../../implemented/feature/2026-11-10-demo-visual-parity.md)：亮色冷灰、暗色蓝灰成对，方向 A 的第一套令牌不再作为视觉契约。
 
 ### 表面与边界
 
@@ -425,7 +425,7 @@ rail head：标题 + 来源 + 状态 + 五页签
 
 ## 图标
 
-生产继续用 `web/icons.js` 的 Lucide 注册表，24 网格，`stroke-width:2.25`，`currentColor`，外层给可访问名。新增这些名字：
+生产用 `web/icons.js` 的 IconPark 注册表，48 网格，`stroke-width:4`，`currentColor`，外层给可访问名；语义名沿用下表，几何由[样式对齐记录](../../implemented/feature/2026-11-10-demo-visual-parity.md)按语义映射。
 
 | 图标名 | 用途 | 说明 |
 | --- | --- | --- |
@@ -439,7 +439,7 @@ rail head：标题 + 来源 + 状态 + 五页签
 
 工具执行时间、工具清单和 tool_use 块统一用现有 `role-tool`（扳手），不再用 `exec` 的终端图标。刷新用现有 `refresh`，加载时旋转；`retry` 保持静止。页签图标 12–14px，折叠图标 12px，四格指标 16px，顶栏 20px。
 
-样张里的 IconPark 几何只用于评审。不把 IconPark 路径复制进 `web/icons.js`，也不引入 IconPark 运行时。若以后确实要换图标集，另写迁移 note，处理 Apache-2.0 的 NOTICE 与全部几何差异。
+生产已迁到 IconPark，迁移理由、语义映射、四处图形来源与 Apache-2.0 署名见[前端样式以桌面定稿样张为准](../../implemented/feature/2026-11-10-demo-visual-parity.md)。本节上方「继续用 Lucide、按语义补图标名」的立场由该记录取代；语义名与页签/折叠/顶栏的尺寸约定保持有效。
 
 ## 数据契约与缺失态
 

@@ -28,6 +28,28 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+IconPark
+--------
+`web/icons.js`、`web/index.html` 与 `web/app.css` 的功能图标几何取自 IconPark
+（<https://iconpark.oceanengine.com/>），由字节跳动以 Apache License 2.0 发布。
+几何按 48 网格轮廓描边使用，路径经去掉逐段的 stroke 属性后由 SVG 根统一给定。
+品牌标识（`web/tracery-*.svg`）与空态蜘蛛插画不是 IconPark 资产，见
+UIUX-DESIGN.md 的品牌色例外。
+
+Copyright 2020 ByteDance
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
 Lobe Icons
 ----------
 部分 SVG 内部的渐变与符号命名（`lobe-icons-*`）指向 Lobe Icons 作为原始设计

@@ -67,15 +67,19 @@ export function renderAttemptChain(chain) {
 }
 
 /**
- * 右栏读数页：证据（选中组级状态行时）→ 本次回复 → 请求结构 → 能力清单 →
- * 用量与上下文 → 身份完整性（异常时）。计时与用量在末位折叠行，头部只留身份行；
- * 区块缺的跳过，不重排也不补位。
+ * 右栏读数页：证据（选中组级状态行时）→ 四折叠卡（本次回复、请求结构、
+ * 工具清单、技能清单）→ 用量与上下文 → 身份完整性（异常时）。四折叠共用一张
+ * 卡片表面，靠 1px 分隔线分节；证据折叠独立在最前，用量卡独立在后。
+ * 计时与用量在末位折叠行，头部只留身份行；区块缺的跳过，不重排也不补位。
  * @param {{evidenceHtml?: string, replyHtml: string, structureHtml: string, capabilitiesHtml: string, usageHtml: string, completenessHtml: string}} parts
  * @returns {string}
  */
 export function railFactsHtml(parts) {
+  const folds = [parts.replyHtml, parts.structureHtml, parts.capabilitiesHtml]
+    .filter(html => html !== '').join('');
   return [
-    parts.evidenceHtml ?? '', parts.replyHtml, parts.structureHtml, parts.capabilitiesHtml,
+    parts.evidenceHtml ?? '',
+    folds === '' ? '' : `<section class="fold-card">${folds}</section>`,
     parts.usageHtml, parts.completenessHtml,
   ].filter(html => html !== '').join('');
 }

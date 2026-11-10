@@ -152,8 +152,14 @@
 
 **换图标库时先列全四处的图形来源，别只改 `icons.js`。**
 - 证据：2026-11-08 Lucide 迁移首版只换了 `web/icons.js` 的 39 枚 BODY，忽略另外三处——`web/app.css` 的 `--chev-right` data URI mask、`web/index.html` 的 7 枚内联首屏占位 SVG（都是 16 网格自绘）、以及 `web/agent-logos.js` 品牌 logo 与 `web/empty-state.js` 蜘蛛插画。前两处仍露出旧几何，后两处按 UIUX-DESIGN.md 的品牌色例外应保留。
-- 防护：动图标前 `grep -rn "viewBox\|data:image/svg+xml\|<svg" web/`；区分功能图标、品牌标识与插画三类，只有第一类进映射表。换完按 `grep -rn "0 0 16 16" web/` 确认零残留。
-- Seen 1× (2026-11-08).
+- 防护：动图标前 `grep -rn "viewBox\|data:image/svg+xml\|<svg" web/`；区分功能图标、品牌标识与插画三类，只有第一类进映射表。换完按 `grep -rn "0 0 16 16" web/` 确认零残留。还要统计 `icon()` 的动态名（`tab.icon`、`card.art`、条件表达式里的名字），语义映射必须覆盖这些名字，否则运行时抛 `unknown_icon`；`tests/web.test.ts` 加一条遍历全部调用名的守门。
+- Seen 2× (2026-11-08, 2026-11-10).
+- 变体（2026-11-10）：迁 IconPark 时生产 47 个语义名里只有 15 个在样张有同名几何，其余靠语义近似映射；按字面 `icon('name')` 调用统计会漏掉 `sun`/`moon` 这类由 `themeIcon()` 动态选中的名字。
+
+**样张后追加的覆盖层会推翻 note 的视觉决策，别把 note 当最终视觉契约。**
+- 证据：2026-11-10 样式对齐调研，proposed note 写「沿用方向 A 令牌、IconPark 只作视觉参考」，生产据此实现；但样张第 446-478 行追加了标注 `Visual pass` 的第二个 `:root`，换掉整套色板与字体栈，图标也全换成 IconPark。按 note 字面核对会得出「两处是有意差异、不需修」的结论，实际样张才是 Pis 多轮确认的定稿。
+- 防护：对齐样张前先数 `<style>` 与 `:root` 块，按源码顺序取最后一次生效的声明；把「样张最终态」与「note 当时的取舍」分开，冲突时以样张为准并写新 note 取代旧决策。实测差距用浏览器读计算样式，不靠读 CSS 猜。
+- Seen 1× (2026-11-10).
 
 **验 `:focus-visible` 不能用程序化 `.focus()` 读计算样式。**
 - 证据：2026-11-08 启动点 chip 三件套验收，CDP 里 `element.focus()` 后 `getComputedStyle(el).outlineStyle` 恒为 `none`、`:focus-visible` 为 false，看似缺少焦点描边；实际是浏览器只在键盘 modality 下给该伪类。先派发一次真实键盘事件再 focus，读数为 `solid 2px` accent 色。
