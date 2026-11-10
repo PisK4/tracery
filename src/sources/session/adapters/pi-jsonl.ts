@@ -16,9 +16,11 @@ import { discoverJsonl, jsonlBatch, jsonlRead } from '../read';
 import type { SourceCursor, SourceRead } from '../../files';
 import type {
   SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionKind,
-  SessionParseResult,
+  SessionParseResult, SessionTitle,
 } from '../types';
-import { canonicalSessionId, sessionConvKey } from '../types';
+import {
+  canonicalSessionId, isNestedSessionFile, sessionConvKey, titleTextOf,
+} from '../types';
 
 type JsonlSessionKind = Extract<SessionKind, 'omp_session' | 'pi_session'>;
 
@@ -59,6 +61,10 @@ type JsonlState = {
   model: string | null;
   messages: WindowMessage[];
   lastUserMs: number | null;
+  title: string | null;
+  titleMs: number | null;
+  titleSource: string | null;
+  titleOffset: number | null;
 };
 
 const FILE_UUID = /_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
@@ -172,6 +178,17 @@ function applyEvent(
     if (cwd !== null) state.cwd = cwd;
     return { state, calls: [], error: null, sessionId: state.sessionId };
   }
+  if (type === 'title' || type === 'title_change') {
+    const title = titleTextOf(record.title);
+    if (title !== null) {
+      // 重复标题只更新时间与来源，不挪 ref，避免每批刷新 observed_ms。
+      if (title !== state.title) state.titleOffset = event.offset;
+      state.title = title;
+      state.titleMs = timestampOf(record.timestamp) ?? timestampOf(record.updatedAt) ?? null;
+      state.titleSource = textOf(record.source);
+    }
+    return { state, calls: [], error: null, sessionId: state.sessionId };
+  }
   if (type !== 'message') {
     return { state, calls: [], error: null, sessionId: state.sessionId };
   }
@@ -273,12 +290,18 @@ export function createJsonlSessionAdapter(spec: JsonlSessionSpec): SessionAdapte
       }
       if (!isRecord(value)) return { kind: 'invalid', reason: `${spec.key}_invalid_object` };
       const type = textOf(value.type) ?? 'other';
-      if (type !== 'session' && type !== 'message') return { kind: 'ignore' };
+      if (type !== 'session' && type !== 'message' && type !== 'title' && type !== 'title_change') {
+        return { kind: 'ignore' };
+      }
+      const titleEvent = type === 'title' || type === 'title_change';
       return {
         kind: 'event',
         lineType: type,
-        atMs: timestampOf(value.timestamp),
-        sessionId: textOf(value.id),
+        atMs: titleEvent
+          ? timestampOf(value.timestamp) ?? timestampOf(value.updatedAt)
+          : timestampOf(value.timestamp),
+        // title_change.id 是事件 id；写成 sessionId 会污染 raw 的会话归属。
+        sessionId: titleEvent ? null : textOf(value.id),
         offset: 0,
         value,
       };
@@ -292,11 +315,25 @@ export function createJsonlSessionAdapter(spec: JsonlSessionSpec): SessionAdapte
         model: null,
         messages: [],
         lastUserMs: null,
+        title: null, titleMs: null, titleSource: null, titleOffset: null,
       };
     },
 
     apply(state, event) {
       return applyEvent(spec, state as JsonlState, event);
+    },
+
+    sourceTitle(state, file): SessionTitle | null {
+      const current = state as JsonlState;
+      if (current.title === null || current.sessionId === null
+        || isNestedSessionFile(file, ['artifacts', 'subagents'])) return null;
+      return {
+        text: current.title,
+        sessionId: current.sessionId,
+        atMs: current.titleMs,
+        ref: `${file.name}:${current.titleOffset ?? 0}`,
+        facts: { source: current.titleSource },
+      };
     },
   };
 }

@@ -6,7 +6,7 @@ Status: proposed
 
 它部分取代 [zcode 的 Agent 支持](2026-10-24-zcode-agent-support.md)里「不直接摄入本地 zcode 库」的否决。多来源提案已经把本地库改为主来源，本文补上采集实现；那篇的用途识别与标签规则仍然有效。Codex 的辅助线程归类归 [Codex 接入](2026-11-03-codex-integration.md)，Hermes 的用途识别归 [Hermes 接入](2026-10-27-hermes-agent-integration.md)，本文不重复。
 
-**取代检查。** 活动树里没有记录持有「多 Agent 本地会话采集」这一决策。`2026-11-04-multi-source-call-identity` 只定义身份与去重；`2026-11-04-source-contract-drift` 只定义漂移检测；`2026-11-04-droid-session-ingestion` 只覆盖 droid 一家。本文补的是采集层：发现哪些 Agent、怎么廉价枚举、怎么按增量解析、怎么把一家读坏控制在自家范围内。
+**取代检查。** 活动树里没有记录持有「多 Agent 本地会话采集」这一决策。`2026-11-04-multi-source-call-identity` 只定义身份与去重；`2026-11-04-source-contract-drift` 只定义漂移检测；`2026-11-04-droid-session-ingestion` 只覆盖 droid 一家。本文补的是采集层：发现哪些 Agent、怎么廉价枚举、怎么按增量解析、怎么把一家读坏控制在自家范围内。本文的忽略行型分级已由[来源标题采集与忽略行型分级](../../implemented/feature/2026-11-09-source-title-synthesis.md)部分修订，标题族现由 `session_title` 消费，其余结论仍有效。
 
 本文与多来源提案分开，是因为两层的失败模式不同：采集层坏在文件格式、库锁与增量读取，身份层坏在错并、漏并与候选歧义。合在一篇，验收边界会混在一起。
 

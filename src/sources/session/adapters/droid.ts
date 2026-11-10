@@ -15,7 +15,7 @@ import {
 import type { DroidCall, DroidParsedLine, DroidParserState } from '../../droid/parse';
 import { DROID_ISSUE_KIND, refreshDroidSettingsTx } from '../../droid/settings';
 import type {
-  SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionParseResult,
+  SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionParseResult, SessionTitle,
 } from '../types';
 import { sessionConvKey } from '../types';
 
@@ -97,6 +97,19 @@ export const droidSessionAdapter: SessionAdapter = {
       calls: step.call === null ? [] : [sessionCallOf(step.call, event.offset)],
       error: step.error,
       sessionId: step.state.session?.id ?? null,
+    };
+  },
+
+  sourceTitle(state, file): SessionTitle | null {
+    const session = (state as DroidParserState).session;
+    if (session === null || session.callingSessionId !== null || session.title === null) return null;
+    return {
+      text: session.title,
+      sessionId: session.id,
+      atMs: null,
+      manual: session.isSessionTitleManuallySet,
+      ref: `${file.name}:session_start`,
+      facts: { manualSource: session.isSessionTitleManuallySet },
     };
   },
 

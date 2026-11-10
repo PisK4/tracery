@@ -56,6 +56,18 @@ const ASSISTANT_B = line({
   },
 });
 
+test('手动标题标记：session_start 的布尔值进入解析结果', () => {
+  const manual = parseDroidLine(line({
+    type: 'session_start', id: 'manual-synth', title: '手动标题',
+    isSessionTitleManuallySet: true, version: 2,
+  }));
+  const automatic = parseDroidLine(line({
+    type: 'session_start', id: 'auto-synth', title: '自动标题', version: 2,
+  }));
+  expect(manual.kind === 'session_start' ? manual.value.isSessionTitleManuallySet : null).toBe(true);
+  expect(automatic.kind === 'session_start' ? automatic.value.isSessionTitleManuallySet : null).toBe(false);
+});
+
 test('普通会话：assistant 消息逐条建调用，请求体是截至该行之前的消息', () => {
   const { state, calls } = reduceAll([SESSION, USER_A, ASSISTANT_A, USER_B, ASSISTANT_B]);
   expect(calls).toHaveLength(2);

@@ -11,13 +11,14 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { basename } from 'node:path';
 import { normalizeResponseId } from '../../magpie/mapping';
 import { discoverJsonl, jsonlBatch, jsonlRead } from '../read';
 import type { SourceCursor, SourceRead } from '../../files';
 import type {
-  SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionParseResult,
+  SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionParseResult, SessionTitle,
 } from '../types';
-import { canonicalSessionId, sessionConvKey } from '../types';
+import { canonicalSessionId, isNestedSessionFile, sessionConvKey, titleTextOf } from '../types';
 
 type ClaudeMessage = { role: string; content: unknown };
 
@@ -42,6 +43,12 @@ type ClaudeState = {
   pending: Pending | null;
   /** 本批有新 assistant 行才补发；重放不算，避免每批重复刷新同一笔。 */
   liveDirty: boolean;
+  title: string | null;
+  titleSessionId: string | null;
+  titleOffset: number | null;
+  firstMessageMs: number | null;
+  /** 子代理文件名不是会话 id；主文件名是标题归属的兜底。 */
+  fileSessionId: string | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -113,10 +120,23 @@ function applyEvent(state: ClaudeState, event: SessionParseResult & { kind: 'eve
   if (!isRecord(record)) return { state, calls: [], error: 'claude_line_invalid', sessionId: state.sessionId };
   const type = textOf(record.type);
   const sessionId = textOf(record.sessionId) ?? textOf(record.session_id);
-  if (sessionId !== null) state.sessionId = canonicalSessionId(sessionId);
   const cwd = textOf(record.cwd);
   if (cwd !== null) state.cwd = cwd;
-
+  // 标题行不参与调用归约，也不能用行内 id 覆盖主会话身份。
+  if (type === 'ai-title') {
+    if (record.isSidechain === true) {
+      return { state, calls: [], error: null, sessionId: state.sessionId };
+    }
+    const title = titleTextOf(record.aiTitle) ?? titleTextOf(record.title);
+    // 同一标题重复落 raw 时不挪证据位置，避免批末重复写 session_title。
+    if (title !== null && title !== state.title) {
+      state.title = title;
+      state.titleSessionId = state.sessionId ?? state.fileSessionId;
+      state.titleOffset = event.offset;
+    }
+    return { state, calls: [], error: null, sessionId: state.sessionId };
+  }
+  if (sessionId !== null) state.sessionId = canonicalSessionId(sessionId);
   if (type !== 'assistant' && type !== 'user') {
     return { state, calls: [], error: null, sessionId: state.sessionId };
   }
@@ -136,6 +156,7 @@ function applyEvent(state: ClaudeState, event: SessionParseResult & { kind: 'eve
   if (session === null) {
     return { state, calls: [], error: 'claude_session_missing', sessionId: null };
   }
+  if (state.firstMessageMs === null && atMs !== null) state.firstMessageMs = atMs;
 
   if (type === 'user') {
     const calls: SessionCall[] = [];
@@ -218,14 +239,20 @@ export const claudeAdapter: SessionAdapter = {
     const atMs = timestampOf(value.timestamp);
     const sessionId = textOf(value.sessionId) ?? textOf(value.session_id);
     // 只保留会进状态的行；api-request/blob、attachment 等大块不落原始层。
-    if (type !== 'assistant' && type !== 'user') return { kind: 'ignore' };
+    if (type !== 'assistant' && type !== 'user' && type !== 'ai-title') return { kind: 'ignore' };
     return { kind: 'event', lineType: type, atMs, sessionId, offset: 0, value };
   },
 
-  emptyState(): ClaudeState {
+  emptyState(file?: SessionFile): ClaudeState {
+    const main = file === undefined || isNestedSessionFile(file, ['subagents'])
+      ? null : basename(file.name, '.jsonl');
+    const id = main === null ? null : canonicalSessionId(main);
     return {
-      sessionId: null, cwd: null, messages: [], lastMessageMs: null,
+      sessionId: id,
+      cwd: null, messages: [], lastMessageMs: null,
       pending: null, liveDirty: false,
+      title: null, titleSessionId: null, titleOffset: null, firstMessageMs: null,
+      fileSessionId: id,
     };
   },
 
@@ -241,5 +268,18 @@ export const claudeAdapter: SessionAdapter = {
     const call = finalize(current);
     current.liveDirty = false;
     return { state, calls: call === null ? [] : [call], error: null, sessionId: current.sessionId };
+  },
+
+  sourceTitle(state, file): SessionTitle | null {
+    const current = state as ClaudeState;
+    if (current.title === null || current.titleSessionId === null
+      || isNestedSessionFile(file, ['subagents'])) return null;
+    return {
+      text: current.title,
+      sessionId: current.titleSessionId,
+      atMs: current.firstMessageMs,
+      ref: `${file.name}:${current.titleOffset ?? 0}`,
+      facts: { lineType: 'ai-title' },
+    };
   },
 };

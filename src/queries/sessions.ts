@@ -206,8 +206,19 @@ const SESSION_TITLE_SQL = `COALESCE(
  * 多 actor 会话只要有一个 clean 组，闸门就放行，dirty actor 的行仍被扫描；
  * 标题结果不变，只是省不掉这部分成本。
  */
+/** 来源标题是独立于派生组的会话事实：manual 优先，再按最近观察与来源名裁决。 */
+const SOURCE_TITLE_SQL = `(SELECT st.title FROM session_title st
+  WHERE st.conv_key = request.conv_key
+  ORDER BY st.manual DESC, st.observed_ms DESC, st.source ASC LIMIT 1)`;
+
 const SESSION_TITLE_GUARD_SQL = `EXISTS (SELECT 1 FROM derive_queue g
   WHERE g.conv_key = request.conv_key AND ${groupCurrentSql('g')})`;
+
+/** full 路径的来源标题在组当前性闸门之外；原三级候选保持原顺序。 */
+const SESSION_TITLE_COLUMN_SQL = `COALESCE(
+  ${SOURCE_TITLE_SQL},
+  CASE WHEN ${SESSION_TITLE_GUARD_SQL} THEN ${SESSION_TITLE_SQL} END
+) AS title`;
 
 export type SessionTitleMap = { conv_key: string; title: string }[];
 
@@ -218,6 +229,7 @@ export function getSessionTitles(store: Store, keys: string[]): SessionTitleMap 
   // 是 sessionsTitle 超时的主因。同会话命中率在实测里已覆盖多数，失败保留空标题。
   const rows = store.read.query<{ conv_key: string; title: string | null }, string[]>(
     `SELECT request.conv_key AS conv_key, COALESCE(
+      ${SOURCE_TITLE_SQL},
       (SELECT r1.model_title FROM request r1
        JOIN derive_queue q1 ON q1.conv_key = r1.conv_key AND q1.actor = r1.actor
        WHERE r1.conv_key = request.conv_key AND r1.purpose_chain = 'exclude'
@@ -294,7 +306,7 @@ export function listSessions(
     if (rows.length === 0) return { candidates: rows, detail: [] as SessionDbRow[] };
     const pageKeys = rows.slice(0, size).map(row => row.conv_key);
     // title === 'light' 时标题子查询不出列，行里标题保持空；回填由 getSessionTitles 单取。
-    const titleColumn = title === 'light' ? `'' AS title` : `CASE WHEN ${SESSION_TITLE_GUARD_SQL} THEN ${SESSION_TITLE_SQL} END AS title`;
+    const titleColumn = title === 'light' ? `'' AS title` : SESSION_TITLE_COLUMN_SQL;
     const detail = store.read.query<SessionDbRow, string[]>(`
         SELECT conv_key, MAX(started_ms) AS last_ms, COUNT(*) AS request_count,
                ${titleColumn},

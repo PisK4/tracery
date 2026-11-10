@@ -312,6 +312,18 @@ CREATE TABLE session_usage (
 -- 开头绕不过前缀；读侧索引与写侧主键各管一个方向。
 CREATE INDEX i_session_usage_session ON session_usage(session, agent);
 
+-- 会话来源标题：一会话一来源一行，manual 只由手动标记来源写入；读侧优先于网关/用户候选。
+CREATE TABLE IF NOT EXISTS session_title (
+  conv_key      TEXT NOT NULL,
+  source        TEXT NOT NULL,
+  title         TEXT NOT NULL,
+  manual        INTEGER NOT NULL DEFAULT 0,
+  title_ms      INTEGER,
+  observed_ms   INTEGER NOT NULL,
+  evidence_json TEXT NOT NULL,
+  PRIMARY KEY (conv_key, source)
+) WITHOUT ROWID;
+
 CREATE TABLE block (
   id       INTEGER PRIMARY KEY,
   hash     BLOB NOT NULL UNIQUE,

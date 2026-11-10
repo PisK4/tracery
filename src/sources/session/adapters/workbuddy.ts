@@ -19,9 +19,10 @@ import { basename, dirname, join, sep } from 'node:path';
 import { discoverJsonl, jsonlBatch, jsonlRead } from '../read';
 import type { SourceCursor, SourceRead } from '../../files';
 import type {
-  SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionParseResult, SessionUsage,
+  SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionParseResult, SessionTitle,
+  SessionUsage,
 } from '../types';
-import { canonicalSessionId, sessionConvKey } from '../types';
+import { canonicalSessionId, sessionConvKey, titleTextOf } from '../types';
 import { expandHome } from './pi-jsonl';
 
 type WorkbuddyMessage = { role: string; content: unknown[] };
@@ -49,6 +50,10 @@ type WorkbuddyState = {
   lastReplyMs: number | null;
   pending: Pending | null;
   liveDirty: boolean;
+  title: string | null;
+  titleKind: string | null;
+  titleMs: number | null;
+  titleOffset: number | null;
 };
 
 /** parse 后的形状；只带归约要用的字段，整行原文由 ingest.ts 脱敏后落原始层。 */
@@ -69,11 +74,13 @@ type WorkbuddyLine = {
   callArgs: unknown;
   callOutput: unknown;
   status: string | null;
+  title: string | null;
+  titleKind: string | null;
 };
 
 /** 不进状态、不落原始层的元数据行；快照行带大块 snapshot，落库没有意义。 */
 const IGNORED = new Set([
-  'file-history-snapshot', 'ai-title', 'custom-title', 'resend-fork-notice',
+  'file-history-snapshot', 'resend-fork-notice',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -198,6 +205,15 @@ function applyEvent(
   if (line.cwd !== null) state.cwd = line.cwd;
   if (line.model !== null) state.model = line.model;
 
+  if (line.title !== null) {
+    // 标题行只带会话级元数据，不进消息窗口，也不参与调用归约。
+    state.title = line.title;
+    state.titleKind = line.titleKind;
+    state.titleMs = line.atMs;
+    state.titleOffset = event.offset;
+    return result(state);
+  }
+
   const calls: SessionCall[] = [];
   const type = line.type;
 
@@ -317,6 +333,9 @@ export const workbuddyAdapter: SessionAdapter = {
       callArgs: raw.arguments ?? null,
       callOutput: raw.output ?? null,
       status: textOf(raw.status),
+      title: type === 'ai-title' || type === 'custom-title'
+        ? titleTextOf(raw.aiTitle) ?? titleTextOf(raw.customTitle) : null,
+      titleKind: type === 'ai-title' || type === 'custom-title' ? type : null,
     };
     return {
       kind: 'event',
@@ -340,6 +359,7 @@ export const workbuddyAdapter: SessionAdapter = {
       lastReplyMs: null,
       pending: null,
       liveDirty: false,
+      title: null, titleKind: null, titleMs: null, titleOffset: null,
     };
   },
 
@@ -355,5 +375,18 @@ export const workbuddyAdapter: SessionAdapter = {
     const call = finalize(current);
     current.liveDirty = false;
     return { state, calls: call === null ? [] : [call], error: null, sessionId: current.sessionId };
+  },
+
+  sourceTitle(state, file): SessionTitle | null {
+    const current = state as WorkbuddyState;
+    if (current.title === null || current.sessionId === null
+      || current.parentSessionId !== null) return null;
+    return {
+      text: current.title,
+      sessionId: current.sessionId,
+      atMs: current.titleMs,
+      ref: `${file.name}:${current.titleOffset ?? 0}`,
+      facts: { lineType: current.titleKind },
+    };
   },
 };

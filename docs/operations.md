@@ -676,7 +676,9 @@ sqlite3 "$HOME/Library/Application Support/tracery/trace.db" \
 
 ## schema 版本
 
-当前 `user_version=16`。空数据目录首次启动直接建到 v16；v6 到 v15 库打开时在单个事务里原地升到 v16，更早版本报 `schema_rebuild_required`（错误信息带 db 与 code 的版本号），高版本报 `schema_version_unsupported`。可恢复 bundle 的结构版本白名单是 v6 到 v16，旧版本包恢复后首次打开同样原地升级。部署或恢复前可先跑 `maintain precheck` 只读预判同一套判据，不必等服务启动失败（见[维护命令](#维护命令)）。
+当前 `user_version=17`。空数据目录首次启动直接建到 v17；v6 到 v16 库打开时在单个事务里原地升到 v17，更早版本报 `schema_rebuild_required`（错误信息带 db 与 code 的版本号），高版本报 `schema_version_unsupported`。可恢复 bundle 的结构版本白名单是 v6 到 v17，旧版本包恢复后首次打开同样原地升级。部署或恢复前可先跑 `maintain precheck` 只读预判同一套判据，不必等服务启动失败（见[维护命令](#维护命令)）。
+
+v17 在 v16 之上新增 `session_title` 一张 `IF NOT EXISTS` 窄表，不扫描正文、不回填。升级后已有会话继续用旧标题候选，文件下一次有新字节并被摄入时才会写入来源标题；存量回填须另行授权。来源标题不进 `request`，不影响 `maintain rebuild` 的派生重算。
 
 v16 在 v15 之上给 `tool_call`、`derive_tool_result` 与 `derive_result_work` 各加一列 `agent_ref`，按 `PRAGMA table_info` 判存在，不扫描正文、不回填。升级后旧派生行的 `agent_ref` 为 NULL，页面不显示子代理标记；要回填需对会话显式跑 `rebuild`，见[工具配对](architecture-design.md#工具配对)。
 

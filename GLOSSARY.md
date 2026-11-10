@@ -165,6 +165,7 @@ _Avoid_: 与推理段、执行段混用；把速度分母当成整笔时长
 | 片段 | fragment | 已存正文的一段；_Avoid_: excerpt |
 | 压缩归档 / 归档消息 | compaction archive / archive message | 上游 Claude Code 术语 |
 | 标题生成 | title generation | 旁路请求的一种，生成会话标题 |
+| 来源标题 | source title | 本地 Agent 会话自带的标题，存 `session_title`，读侧排在第一候选；_Avoid_: 与「标题生成」混用 |
 | 服务模型 | served model | `model_served` 同名 |
 | 待办 | Todo | 第五页签；Plugin 与 Parser 的术语定义见判定与读出 |
 | 承载（请求） | carrier | 结果正文所在的那笔请求 |

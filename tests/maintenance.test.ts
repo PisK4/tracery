@@ -1335,3 +1335,26 @@ test('重解析缺少 --protocol 时只报用法', async () => {
     f.close();
   }
 });
+
+test('恢复当前版本库时缺 session_title 明确拒绝，不发布目标', () => {
+  const f = fixture();
+  const bundle = join(f.dir, 'bundle');
+  const restored = join(f.dir, 'restored');
+  try {
+    f.store.write(db => loadBoundSaltTx(db, f.dir));
+    f.store.close();
+    backupBundle(f.dir, bundle);
+    const db = new Database(join(bundle, 'trace.db'));
+    try { db.exec('DROP TABLE session_title'); } finally { db.close(); }
+    // 包内库改过，同步刷新清单哈希，让校验走到探活而不是停在哈希不一致。
+    const dbHash = createHash('sha256').update(readFileSync(join(bundle, 'trace.db'))).digest('hex');
+    const manifest = JSON.parse(readFileSync(join(bundle, 'manifest.json'), 'utf8')) as Record<string, unknown>;
+    manifest.database_sha256 = dbHash;
+    writeFileSync(join(bundle, 'manifest.json'), JSON.stringify(manifest));
+    expect(() => restoreBundle(bundle, restored)).toThrow('restore_migration_failed');
+    expect(existsSync(restored)).toBe(false);
+  } finally {
+    f.close();
+    rmSync(f.dir, { recursive: true, force: true });
+  }
+});

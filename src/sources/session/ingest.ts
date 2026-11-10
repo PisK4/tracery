@@ -23,7 +23,8 @@ import { markRequestInputTx } from '../../derive/state';
 import { emptySourceFacts, readSourceFacts, serializeFacts } from '../facts';
 import type { SourceRead } from '../files';
 import { observeSourceOffset, readFileCursor, recordIssue, upsertSourceCursorTx } from '../../reconcile';
-import type { SessionAdapter, SessionCall, SessionFile, SessionParseResult } from './types';
+import type { SessionAdapter, SessionCall, SessionFile, SessionParseResult, SessionTitle } from './types';
+import { sessionConvKey } from './types';
 
 export type SessionIngestResult = {
   files: number;
@@ -280,6 +281,37 @@ function sanitizedPayload(
   return { payloadJson, parsed: parse(payloadJson) };
 }
 
+/** 来源标题窄表：标题、manual 或证据没变就不刷新观察时间，重复行不会顶掉手动标题。 */
+function upsertSessionTitleTx(
+  db: Database,
+  adapter: SessionAdapter,
+  convKey: string,
+  title: SessionTitle,
+  salt: Uint8Array,
+  now: number,
+): void {
+  const redacted = redact(title.text, salt);
+  if (typeof redacted !== 'string') return;
+  const text = Array.from(redacted.trim()).slice(0, 512).join('');
+  if (text.length === 0) return;
+  const evidenceJson = JSON.stringify(redact({
+    source_kind: adapter.sourceKind,
+    ref: title.ref,
+    facts: title.facts ?? {},
+  }, salt)) ?? '{}';
+  db.run(
+    `INSERT INTO session_title(conv_key,source,title,manual,title_ms,observed_ms,evidence_json)
+     VALUES (?,?,?,?,?,?,?)
+     ON CONFLICT(conv_key,source) DO UPDATE SET
+       title=excluded.title, manual=excluded.manual, title_ms=excluded.title_ms,
+       observed_ms=excluded.observed_ms, evidence_json=excluded.evidence_json
+     WHERE (session_title.manual=0 OR excluded.manual=1)
+       AND (session_title.title<>excluded.title OR session_title.manual<>excluded.manual
+         OR session_title.evidence_json<>excluded.evidence_json)`,
+    [convKey, adapter.sourceKind, text, title.manual === true ? 1 : 0, title.atMs, now, evidenceJson],
+  );
+}
+
 /** 一个会话流的一批摄入。读取在事务外，原始层、证据、正文与游标在同一事务内提交。 */
 export async function ingestSessionFile(
   store: Store,
@@ -340,7 +372,8 @@ export async function ingestSessionFile(
         if (row.source_kind !== adapter.sourceKind) continue;
         const parsed = adapter.parse(row.payload_json);
         if (parsed.kind !== 'event') continue;
-        state = adapter.apply(state, { ...parsed, offset: row.byte_offset, replay: true }).state;
+        const step = adapter.apply(state, { ...parsed, offset: row.byte_offset, replay: true });
+        state = step.state;
       }
     }
 
@@ -464,6 +497,18 @@ export async function ingestSessionFile(
     if (flushed !== undefined) {
       for (const call of flushed.calls) {
         acceptCall(call, call.sortOffset ?? committed, false);
+      }
+    }
+
+    // 标题归属由适配器声明；坏行批次不跑批末副作用，标题失败也只记 issue、不停游标。
+    if (!blocked) {
+      try {
+        const title = adapter.sourceTitle?.(state, file) ?? null;
+        if (title !== null) {
+          upsertSessionTitleTx(db, adapter, sessionConvKey(title.sessionId), title, salt, now);
+        }
+      } catch {
+        recordIssue(db, adapter.issueKind, file.name, 'session_title_failed', now, null);
       }
     }
 

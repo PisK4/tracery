@@ -1298,11 +1298,12 @@ function titleCostMs(store: ReturnType<typeof fixture>['store'], convKey: string
   }
   const sql = hook.captured.find(c => c.sql.includes('AS title,'));
   if (sql === undefined) throw new Error('title_query_not_captured');
-  const start = sql.sql.indexOf('CASE WHEN EXISTS');
-  const end = sql.sql.indexOf('END AS title,');
+  const start = sql.sql.lastIndexOf('COALESCE(', sql.sql.indexOf('CASE WHEN EXISTS'));
+  const end = sql.sql.indexOf(') AS title,', start);
   if (start === -1 || end === -1) throw new Error('title_guard_not_found');
+  const marker = ') AS title,';
   const blank = store.read.query(`${sql.sql.slice(0, start)}NULL AS title,${
-    sql.sql.slice(end + 'END AS title,'.length)}`);
+    sql.sql.slice(end + marker.length)}`);
   const timed = (run: () => unknown): number => {
     const started = performance.now();
     run();
@@ -1336,6 +1337,40 @@ test('脏热组的标题求值不随会话行数线性增长', () => {
     small.close();
     large.close();
   }
+});
+
+test('来源标题优先于旧候选，脏组仍可见，light 回填与 full 一致', () => {
+  const f = fixture();
+  try {
+    const key = 'source-title-priority';
+    seedPurposeRequest(f.store, {
+      convKey: key, purposePending: 0, purposeChain: 'participate',
+      reqKind: 'chat', title: '用户首句', titleSource: 'user_delta',
+      chainRole: 'main', startedMs: 1, cleanGroup: true,
+    });
+    const titleRow = (manual: number, observedMs: number, source: string, title: string): void => {
+      f.store.write(db => db.run(
+        `INSERT INTO session_title(conv_key,source,title,manual,title_ms,observed_ms,evidence_json)
+         VALUES (?,?,?,?,NULL,?,?)`,
+        [key, source, title, manual, observedMs, JSON.stringify({ source_kind: source, ref: 'synthetic' })],
+      ));
+    };
+    titleRow(0, 2, 'zcode_session', '自动标题');
+    titleRow(1, 1, 'droid_transcript', '手动标题');
+    expect(listSessions(f.store, 10).items[0]?.title).toBe('手动标题');
+    expect(listSessions(f.store, 10, null, null, 'light').items[0]?.title).toBe('');
+    expect(getSessionTitles(f.store, [key])).toEqual([{ conv_key: key, title: '手动标题' }]);
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM request_evidence').get()).toEqual({ n: 0 });
+
+    f.store.write(db => markGroupDirtyTx(db, key, 'actor', ''));
+    expect(listSessions(f.store, 10).items[0]?.title).toBe('手动标题');
+    expect(getSessionTitles(f.store, [key])).toEqual([{ conv_key: key, title: '手动标题' }]);
+
+    f.store.write(db => db.run('DELETE FROM session_title WHERE manual=1'));
+    expect(listSessions(f.store, 10).items[0]?.title).toBe('自动标题');
+    f.store.write(db => db.run('DELETE FROM session_title'));
+    expect(listSessions(f.store, 10).items[0]?.title).toBe('');
+  } finally { f.close(); }
 });
 
 test('组在两次读取之间切换 clean/dirty，标题随之出现与消失', () => {

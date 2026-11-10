@@ -117,6 +117,42 @@ function subLine(kind: 'user' | 'assistant' | 'call', messageId: string,
   return functionCall(T0 + 1_000, messageId, 'synthetic_tool', usage);
 }
 
+function aiTitle(atMs: number, text: string, type = 'ai-title'): string {
+  return json(base({
+    timestamp: atMs, type,
+    ...(type === 'custom-title' ? { customTitle: text } : { aiTitle: text }),
+  }));
+}
+
+test('WorkBuddy 来源标题：ai-title 与 custom-title 只写根会话一行', async () => {
+  const root = makeRoot();
+  const f = fixture();
+  try {
+    writeMain(root, [
+      user(T0, 'prompt'),
+      assistant(T0 + 1_000, 'gen-title-1', 'reply', USAGE),
+      aiTitle(T0 + 2_000, '自动标题'),
+      aiTitle(T0 + 3_000, '自定义标题', 'custom-title'),
+    ]);
+    writeSubagent(root, 'agent-title.jsonl', 'subagent-title', [
+      subLine('user', 'unused'),
+      subLine('assistant', 'gen-title-child', USAGE),
+      aiTitle(T0 + 4_000, '子代理标题'),
+    ]);
+    const result = await ingestSessionBatch(f.store, workbuddyAdapter, [root], SALT, T0);
+    expect(result).toMatchObject({ files: 2, invalid: 0, blocked: 0 });
+    const rows = f.store.read.query(
+      'SELECT conv_key, title, title_ms, source FROM session_title').all();
+    expect(rows).toEqual([{
+      conv_key: json(['session', SESSION_ID]), title: '自定义标题',
+      title_ms: T0 + 3_000, source: 'workbuddy_session',
+    }]);
+  } finally {
+    f.close();
+    rmSync(join(root, '..'), { recursive: true, force: true });
+  }
+});
+
 test('WorkBuddy 首次摄入：按 messageId 归约一笔调用，用量扣缓存、正文与证据齐全', async () => {
   const root = makeRoot();
   const f = fixture();
@@ -332,6 +368,31 @@ test('WorkBuddy 两个子代理同序号各建一行，ref_key 唯一', async ()
     expect(distinct.n).toBe(2);
     const issues = f.store.read.query('SELECT COUNT(*) AS n FROM ingest_issue').get() as { n: number };
     expect(issues.n).toBe(0);
+  } finally {
+    f.close();
+    rmSync(join(root, '..'), { recursive: true, force: true });
+  }
+});
+
+test('WorkBuddy 标题行的 content 不进请求窗口', async () => {
+  const root = makeRoot();
+  const f = fixture();
+  try {
+    writeMain(root, [
+      user(T0, 'prompt'),
+      json(base({ timestamp: T0 + 1_000, type: 'ai-title', aiTitle: '标题',
+        content: [{ type: 'text', text: 'extra' }] })),
+      assistant(T0 + 2_000, 'gen-title-body', 'reply', USAGE),
+    ]);
+    const result = await ingestSessionBatch(f.store, workbuddyAdapter, [root], SALT, T0);
+    expect(result).toMatchObject({ calls: 1, invalid: 0, blocked: 0 });
+    expect(f.store.read.query('SELECT conv_key, title FROM session_title').all()).toEqual([
+      { conv_key: json(['session', SESSION_ID]), title: '标题' },
+    ]);
+    const body = readBodyWithMessagesTx(f.store.read, 1)!;
+    expect(body.body.request).toEqual({
+      messages: [{ role: 'user', content: [{ type: 'input_text', text: 'prompt' }] }],
+    });
   } finally {
     f.close();
     rmSync(join(root, '..'), { recursive: true, force: true });

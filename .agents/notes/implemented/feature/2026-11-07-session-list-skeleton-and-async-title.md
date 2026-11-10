@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-首屏拆成两步：先用轻量模式拉列表，标题随后回填。
+首屏拆成两步：先用轻量模式拉列表，标题随后回填。三级标题候选后来由[来源标题采集与忽略行型分级](2026-11-09-source-title-synthesis.md)顺延一级；来源标题排在它们之前，且不受组当前性闸门限制。本文的骨架、回填与重试规则不变。
 
 - `listSessions` 新增 `title: 'full' | 'light'`，默认为 `full`；`light` 时标题子查询不出列，行里标题保持空。
 - 新增 `getSessionTitles(keys)` 单取各会话标题，`sessionsTitle` 具名操作供 `/api/sessions/titles` 直接取一批。

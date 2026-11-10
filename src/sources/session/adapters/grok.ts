@@ -23,9 +23,9 @@ import { readBatch } from '../../files';
 import type { SourceCursor, SourceRead } from '../../files';
 import { recordIssue } from '../../../reconcile';
 import type {
-  SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionParseResult,
+  SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionParseResult, SessionTitle,
 } from '../types';
-import { canonicalSessionId, sessionConvKey } from '../types';
+import { canonicalSessionId, sessionConvKey, titleTextOf } from '../types';
 
 const HISTORY = 'chat_history.jsonl';
 const USAGE = 'usage.json';
@@ -136,12 +136,26 @@ function usageValues(db: Database, sessionId: string, path: string, now: number)
   return 1;
 }
 
+type GrokSummary = {
+  startedMs: number;
+  cwd: string | null;
+  model: string | null;
+  title: string | null;
+  titleField: string | null;
+};
+
+function summaryPath(file: SessionFile): string {
+  return join(dirname(file.path), SUMMARY);
+}
+
 /** 会话起点与 cwd/模型来自 summary.json；缺字段时退回文件 mtime 与 null。 */
-function summaryOf(file: SessionFile): { startedMs: number; cwd: string | null; model: string | null } {
-  const fallback = { startedMs: file.mtimeMs, cwd: null, model: null };
+function summaryOf(file: SessionFile): GrokSummary {
+  const fallback = {
+    startedMs: file.mtimeMs, cwd: null, model: null, title: null, titleField: null,
+  };
   let text: string;
   try {
-    text = readFileSync(join(dirname(file.path), SUMMARY), 'utf8');
+    text = readFileSync(summaryPath(file), 'utf8');
   } catch {
     return fallback;
   }
@@ -153,11 +167,26 @@ function summaryOf(file: SessionFile): { startedMs: number; cwd: string | null; 
   }
   if (!isRecord(parsed)) return fallback;
   const info = isRecord(parsed.info) ? parsed.info : null;
+  const generated = titleTextOf(parsed.generated_title);
+  const summary = titleTextOf(parsed.session_summary);
   return {
     startedMs: timestampOf(parsed.created_at) ?? fallback.startedMs,
     cwd: textOf(info?.cwd),
     model: textOf(parsed.current_model_id),
+    title: generated ?? summary,
+    titleField: generated !== null ? 'generated_title'
+      : summary !== null ? 'session_summary' : null,
   };
+}
+
+/** 批末标题单独读一次：summary 坏了要记 issue，不让 emptyState 的容错吞掉。 */
+function titleOf(file: SessionFile): { title: string; field: string } | null {
+  const parsed: unknown = JSON.parse(readFileSync(summaryPath(file), 'utf8'));
+  if (!isRecord(parsed)) throw new Error('grok_summary_invalid');
+  const generated = titleTextOf(parsed.generated_title);
+  const summary = titleTextOf(parsed.session_summary);
+  if (generated !== null) return { title: generated, field: 'generated_title' };
+  return summary === null ? null : { title: summary, field: 'session_summary' };
 }
 
 /** 把 chat_history 的一行映射成重建正文里的一条消息；不认识的形状跳过。 */
@@ -371,6 +400,18 @@ export const grokAdapter: SessionAdapter = {
     }
     current.messages = [...current.messages, message];
     return { state, calls: [], error: null, sessionId: current.sessionId };
+  },
+
+  sourceTitle(_state, file): SessionTitle | null {
+    const meta = titleOf(file);
+    if (meta === null) return null;
+    return {
+      text: meta.title,
+      sessionId: sessionIdOf(file),
+      atMs: null,
+      ref: `${summaryPath(file)}:${meta.field}`,
+      facts: { titleField: meta.field },
+    };
   },
 
   afterFile(db, state, file, now) {

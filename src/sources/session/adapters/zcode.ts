@@ -15,7 +15,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { SourceCursor, SourceRead } from '../../files';
 import type {
-  SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionParseResult,
+  SessionAdapter, SessionApplyResult, SessionCall, SessionFile, SessionParseResult, SessionTitle,
 } from '../types';
 import { sessionConvKey } from '../types';
 
@@ -23,6 +23,7 @@ type SessionRow = {
   id: string;
   parent_id: string | null;
   directory: string | null;
+  title: string | null;
 };
 
 type UsageRow = {
@@ -183,7 +184,7 @@ function rootSessionOf(db: Database, sessionId: string, cache: Map<string, Sessi
   let row = cache.get(current);
   if (row === undefined) {
     row = db.query<SessionRow, [string]>(
-      'SELECT id,parent_id,directory FROM session WHERE id=?',
+      'SELECT id,parent_id,directory,title FROM session WHERE id=?',
     ).get(current) ?? null;
     cache.set(current, row);
   }
@@ -195,7 +196,7 @@ function rootSessionOf(db: Database, sessionId: string, cache: Map<string, Sessi
     let next = cache.get(current);
     if (next === undefined) {
       next = db.query<SessionRow, [string]>(
-        'SELECT id,parent_id,directory FROM session WHERE id=?',
+        'SELECT id,parent_id,directory,title FROM session WHERE id=?',
       ).get(current) ?? null;
       cache.set(current, next);
     }
@@ -243,7 +244,7 @@ export const zcodeAdapter: SessionAdapter = {
     const db = new Database(dbPath, { readonly: true });
     try {
       const sessions = db.query<SessionRow, []>(
-        'SELECT id,parent_id,directory FROM session WHERE time_deleted IS NULL',
+        'SELECT id,parent_id,directory,title FROM session WHERE time_deleted IS NULL',
       ).all();
       return sessions.map((session): SessionFile => {
         const max = db.query<{ max_rowid: number }, [string]>(`
@@ -345,7 +346,7 @@ export const zcodeAdapter: SessionAdapter = {
 
       const sessionCache = new Map<string, SessionRow | null>();
       const ownSession = sessionCache.get(sessionId) ?? db.query<SessionRow, [string]>(
-        'SELECT id,parent_id,directory FROM session WHERE id=?',
+        'SELECT id,parent_id,directory,title FROM session WHERE id=?',
       ).get(sessionId) ?? null;
       sessionCache.set(sessionId, ownSession);
       const root = rootSessionOf(db, sessionId, sessionCache) ?? ownSession;
@@ -392,7 +393,9 @@ export const zcodeAdapter: SessionAdapter = {
           replyContent: reply,
           cwd: textOf(ownSession?.directory ?? null),
         };
-        lines.push({ offset: row.off, end: row.off, text: JSON.stringify({ call }) });
+        lines.push({ offset: row.off, end: row.off, text: JSON.stringify({
+          call, title: textOf(root?.title ?? null), titleSessionId: rootId,
+        }) });
       }
 
       const seen = db.query<{ max_rowid: number }, [string]>(
@@ -434,21 +437,45 @@ export const zcodeAdapter: SessionAdapter = {
       atMs: numberOrNull(call.startedMs),
       sessionId: textOf(call.sessionId),
       offset: 0,
-      value: call,
+      value: {
+        call,
+        title: textOf(value.title),
+        titleSessionId: textOf(value.titleSessionId),
+      },
     };
   },
 
-  emptyState(): unknown {
-    return {};
+  emptyState(): { title: string | null; titleSessionId: string | null } {
+    return { title: null, titleSessionId: null };
   },
 
   apply(state, event): SessionApplyResult {
-    const call = event.value as SessionCall;
+    const { call, title, titleSessionId } = event.value as {
+      call: SessionCall; title: string | null; titleSessionId: string | null;
+    };
+    const current = state as { title: string | null; titleSessionId: string | null };
+    if (title !== null) {
+      current.title = title;
+      current.titleSessionId = titleSessionId;
+    }
     return {
       state,
       calls: [call],
       error: null,
       sessionId: typeof call.sessionId === 'string' ? call.sessionId : null,
+    };
+  },
+
+  sourceTitle(state, file): SessionTitle | null {
+    // 标题与 conv_key 都来自 read() 的那一次连接，不另开只读连接重算根。
+    const current = state as { title: string | null; titleSessionId: string | null };
+    if (current.title === null || current.titleSessionId === null) return null;
+    return {
+      text: current.title,
+      sessionId: current.titleSessionId,
+      atMs: null,
+      ref: `${file.path}#${current.titleSessionId}/session.title`,
+      facts: { requestedSession: sessionIdOfName(file.name) },
     };
   },
 };

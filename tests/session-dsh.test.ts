@@ -59,6 +59,13 @@ function endSeed(seq: number): string {
   return json({ type: 'session/end-seed', seq, time: T0 + seq * 1_000, data: {} });
 }
 
+function title(seq: number, text: string, kind: string): string {
+  return json({
+    type: 'session/title', seq, time: T0 + seq * 1_000,
+    data: { title: text, source: { kind } },
+  });
+}
+
 function frame(lines: string[]): Buffer {
   return zstdCompressSync(Buffer.from(`${lines.join('\n')}\n`));
 }
@@ -129,6 +136,62 @@ test('DSH 多 frame：半写 frame 不提交，补齐后从上一 frame 继续',
   }
 });
 
+test('DSH 来源标题：fallback 升 provider 只留一行，seed 与子代理作用域不泄漏', async () => {
+  const root = makeRoot();
+  const f = fixture();
+  try {
+    const parentDir = sessionDir(root, PARENT);
+    writeFrames(parentDir, 'session.v4.jsonl.zstd', [[
+      head(PARENT), user(0, 'prompt'), assistant(1, 'reply'),
+      title(2, '兜底标题', 'fallback'), title(3, '供应商标题', 'provider'),
+    ]]);
+    const seededDir = sessionDir(root, 'dsh-seeded');
+    writeFrames(seededDir, 'session.v4.jsonl.zstd', [[
+      head('dsh-seeded', { isSeeded: true, seedLength: 2 }),
+      title(0, '分叉前缀标题', 'fallback'), endSeed(1),
+      user(2, 'prompt'), assistant(3, 'reply'),
+    ]]);
+    const childDir = sessionDir(root, CHILD);
+    writeFrames(childDir, 'session.v4.jsonl.zstd', [[
+      head(CHILD, { parentSession: PARENT, delegationDepth: 1 }),
+      title(0, '子代理标题', 'provider'), user(1, 'prompt'), assistant(2, 'reply'),
+    ]]);
+    const result = await ingestSessionBatch(f.store, dshAdapter, [root], SALT, T0);
+    expect(result).toMatchObject({ files: 3, invalid: 0, blocked: 0 });
+    const rows = f.store.read.query(
+      'SELECT conv_key, title, title_ms, source, evidence_json FROM session_title').all() as Record<string, unknown>[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      conv_key: json(['session', PARENT]), title: '供应商标题',
+      title_ms: T0 + 3_000, source: 'dsh_session',
+    });
+    expect(JSON.parse(rows[0]!.evidence_json as string)).toMatchObject({
+      facts: { sourceKind: 'provider' },
+    });
+  } finally {
+    f.close();
+    rmSync(join(root, '..'), { recursive: true, force: true });
+  }
+});
+
+test('DSH 来源标题：v1 分叉 seed 前缀不把父标题写到分叉键', async () => {
+  const root = makeRoot();
+  const f = fixture();
+  try {
+    const dir = sessionDir(root, 'dsh-v1-seeded');
+    writeFrames(dir, 'session.v1.jsonl.zstd', [[
+      head('dsh-v1-seeded', { version: 1, isSeeded: true, seedLength: 2 }),
+      title(0, '分叉前缀标题', 'fallback'),
+      user(1, 'seed prompt'),
+    ]]);
+    const result = await ingestSessionBatch(f.store, dshAdapter, [root], SALT, T0);
+    expect(result).toMatchObject({ invalid: 0, blocked: 0 });
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM session_title').get()).toEqual({ n: 0 });
+  } finally {
+    f.close();
+    rmSync(join(root, '..'), { recursive: true, force: true });
+  }
+});
 test('DSH 摄入：父会话调用、分叉 seed 不重复、结束标记后才计自己的调用', async () => {
   const f = fixture();
   const root = makeRoot();

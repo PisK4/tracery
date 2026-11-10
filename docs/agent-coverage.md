@@ -65,6 +65,24 @@ Hermes 有网关侧与本地两条路径。网关侧的行由 hook、账本、�
 
 目录 status 与本机实测有出入的地方，以矩阵为准：`~/.codebuddy` 与 `~/.config/opencode` 有根目录，但里面没有会话文件，标 `unimplemented` 描述的是「格式已知、本机没有数据」，不是「没装」。目录骨架不存这些细节，所以本文补上。
 
+## 来源标题可得性
+
+2026-11-09 到 11-10 的只读扫描口径：只统计字段是否存在与行数，不记录标题内容。
+
+| Agent | 标题位置 | 本机只读扫描 | 采集状态 |
+| --- | --- | --- | --- |
+| claude | `ai-title.aiTitle` | 182/217 主会话文件有标题行 | 已接；重复行照常落 raw，窄表只写一次 |
+| droid | `session_start.title`、`isSessionTitleManuallySet` | 216/216 转录有标题；76 个会话带手动标记 | 已接；手动标题优先 |
+| omp | `title.title` / `title_change.title` | 148/473 文件有标题事件 | 已接；`title_change.id` 不当会话 id |
+| pi | 与 omp 共用适配器 | 46 个文件未观测到标题事件 | 已接同一解析路径，合成 fixture 覆盖 |
+| zcode | SQLite `session.title` | 345/345 会话有列（11-09 口径） | 已接；子会话读根标题 |
+| dsh | `session/title.data.title` | 80/82 文件有标题事件 | 已接；fallback→provider 留最新一行 |
+| grok | `summary.json` 的 `generated_title`，退回 `session_summary` | 6/6 有字段，4/6 非空 | 已接 |
+| workbuddy | `ai-title.aiTitle` / `custom-title.customTitle` | 本机观测到 2 条 `ai-title` | 已接 |
+| codex / hermes | 网关标题请求 | 已可用 | 不改；读侧排在来源标题之后 |
+
+标题只写 `session_title`，不合成 `request` 行。没有新行的存量会话不会自动拿到来源标题；覆盖率是当时本机只读扫描的截面，不是运行时保证。
+
 ## 格式差异决定工作量
 
 未接入的几家解析难度差别很大，按「一份文件能不能独立还原一笔调用」排。批次 A 两家的实现已交到[验收记录](acceptance.md)，下面保留格式差异作为后续批次的判据：

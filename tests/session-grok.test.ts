@@ -86,6 +86,43 @@ function toolResult(id: string, content: string): string {
   return json({ type: 'tool_result', tool_call_id: id, content });
 }
 
+test('Grok 来源标题：generated_title 优先，空值退回 session_summary，标题落库前脱敏', async () => {
+  const root = makeRoot();
+  const f = fixture();
+  try {
+    const generated = sessionDir(root);
+    const secret = 'sk-synthgroktitle123456';
+    summary(generated, { generated_title: `生成标题 ${secret}`, session_summary: '备用标题' });
+    usage(generated);
+    history(generated, [system(), user('prompt'), assistant('reply')]);
+
+    const fallback = sessionDir(root, '22222222-2222-4222-8222-222222222222');
+    summary(fallback, { generated_title: '  ', session_summary: '备用标题' });
+    history(fallback, [system(), user('prompt'), assistant('reply')]);
+
+    const empty = sessionDir(root, '33333333-3333-4333-8333-333333333333');
+    summary(empty, { generated_title: '', session_summary: '' });
+    history(empty, [system(), user('prompt'), assistant('reply')]);
+
+    const result = await ingestSessionBatch(f.store, grokAdapter, [root], SALT, T0);
+    expect(result).toMatchObject({ files: 3, calls: 3, invalid: 0, blocked: 0 });
+    const rows = f.store.read.query(
+      'SELECT conv_key, title, evidence_json FROM session_title ORDER BY conv_key').all() as Record<string, unknown>[];
+    expect(rows).toHaveLength(2);
+    const titles = rows.map(row => row.title as string);
+    expect(titles.some(title => title.includes('生成标题') && !title.includes(secret))).toBe(true);
+    expect(titles).toContain('备用标题');
+    const fallbackRow = rows.find(row => row.title === '备用标题');
+    expect(fallbackRow?.evidence_json as string).toContain('session_summary');
+    for (const row of rows) expect(row.evidence_json as string).not.toContain(secret);
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM request').get()).toEqual({ n: 3 });
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM session_title').get()).toEqual({ n: 2 });
+  } finally {
+    f.close();
+    rmSync(join(root, '..'), { recursive: true, force: true });
+  }
+});
+
 test('Grok 首次摄入：会话目录一条流，逐 assistant 建行、正文与证据齐全', async () => {
   const root = makeRoot();
   const f = fixture();
@@ -324,6 +361,24 @@ test('Grok 不认识的行型只跳过，不判坏；多个会话证据键不相
     expect(new Set(evidence.map(row => row.ref_key)).size).toBe(2);
     expect(evidence[0]!.ref_key.startsWith(`${a}/`)).toBe(true);
     expect(evidence[1]!.ref_key.startsWith(`${b}/`)).toBe(true);
+  } finally {
+    f.close();
+    rmSync(join(root, '..'), { recursive: true, force: true });
+  }
+});
+
+test('Grok 来源标题：summary.json 坏 JSON 记 issue，不停游标', async () => {
+  const root = makeRoot();
+  const f = fixture();
+  try {
+    const dir = sessionDir(root);
+    writeFileSync(join(dir, 'summary.json'), '{broken');
+    history(dir, [user('prompt')]);
+    const result = await ingestSessionBatch(f.store, grokAdapter, [root], SALT, T0);
+    expect(result).toMatchObject({ blocked: 0 });
+    expect(f.store.read.query("SELECT COUNT(*) AS n FROM ingest_issue WHERE reason='session_title_failed'").get())
+      .toEqual({ n: 1 });
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM session_title').get()).toEqual({ n: 0 });
   } finally {
     f.close();
     rmSync(join(root, '..'), { recursive: true, force: true });

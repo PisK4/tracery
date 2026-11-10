@@ -38,7 +38,7 @@ test('事务失败不留下证据或游标', () => {
   }
 });
 
-test('建库包含33个业务表且使用AUTOINCREMENT', () => {
+test('建库包含34个业务表且使用AUTOINCREMENT', () => {
   const f = fixture();
   try {
     const names = (f.store.read.query(
@@ -51,7 +51,7 @@ test('建库包含33个业务表且使用AUTOINCREMENT', () => {
       'ingest_issue', 'otlp_body_ref', 'pending_hook', 'purged_evidence', 'raw_hook',
       'raw_ledger', 'raw_otlp_log', 'raw_otlp_span', 'raw_route', 'raw_session_event',
       'request', 'request_alias', 'request_block', 'request_evidence', 'retention_event',
-      'route_summary', 'session_usage', 'source_cursor', 'source_gap', 'tool_call',
+      'route_summary', 'session_title', 'session_usage', 'source_cursor', 'source_gap', 'tool_call',
     ]);
     const requestSql = f.store.read.query(
       "SELECT sql FROM sqlite_master WHERE type='table' AND name='request'",
@@ -425,6 +425,30 @@ test('v13库原地升到当前版本：计数从四源回填，重启不重扫�
       expect(reopened.read.query("SELECT bytes,row_count FROM capacity_meter WHERE source='block'").get())
         .toEqual({ bytes: 103, row_count: 2 });
     } finally { reopened.close(); }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('v16库原地升到当前版本：来源标题表就位，既有请求不动', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'atc-store-v17-upgrade-'));
+  try {
+    const path = join(dir, 'trace.db');
+    const seed = openStore(path);
+    seed.write(db => db.run(
+      `INSERT INTO request(started_ms, day, via, body_state, derive_version, have, created_at, updated_at)
+       VALUES (1, '2026-11-10', 'session', 'pending', 0, 16, 1, 1)`));
+    seed.close();
+    // 模拟 v16 库：来源标题表还没建，版本停在 16。
+    const raw = new Database(path);
+    raw.exec('DROP TABLE IF EXISTS session_title; PRAGMA user_version=16');
+    raw.close();
+    const store = openStore(path);
+    try {
+      expect(store.read.query('PRAGMA user_version').get()).toEqual({ user_version: CODE_SCHEMA_VERSION });
+      expect(store.read.query('SELECT COUNT(*) AS n FROM request').get()).toEqual({ n: 1 });
+      expect(store.read.query('SELECT COUNT(*) AS n FROM session_title').get()).toEqual({ n: 0 });
+    } finally { store.close(); }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

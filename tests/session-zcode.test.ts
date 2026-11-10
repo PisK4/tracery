@@ -52,10 +52,10 @@ function openZcode(home: string): { dbDir: string; dbPath: string; db: Database 
 }
 
 function addSession(db: Database, id: string, parentId: string | null = null,
-  directory = CWD): void {
+  directory = CWD, title = 'synthetic'): void {
   db.run(`
     INSERT INTO session(id,parent_id,directory,title,time_created,time_updated,time_deleted)
-    VALUES (?,?,?,'synthetic',?,?,NULL)`, [id, parentId, directory, T0, T0]);
+    VALUES (?,?,?,?,?,?,NULL)`, [id, parentId, directory, title, T0, T0]);
 }
 
 function addMessage(db: Database, id: string, sessionId: string, at: number, sequence: number,
@@ -131,6 +131,36 @@ function requestRows(store: ReturnType<typeof fixture>['store']): Record<string,
       have, body_state
     FROM request ORDER BY req_id`).all() as Record<string, unknown>[];
 }
+
+test('Zcode 来源标题：子会话读根标题，标题脱敏且不进 raw 层', async () => {
+  const home = makeHome();
+  const f = fixture();
+  try {
+    const { dbDir, db } = openZcode(home);
+    const secret = 'sk-synthzcodetitle123456';
+    addSession(db, 'zcode-title-root', null, CWD, `标题 ${secret}`);
+    addSession(db, 'zcode-title-child', 'zcode-title-root', CWD, '子会话标题');
+    seedFirstTurn(db, 'zcode-title-child');
+    db.close();
+
+    const result = await ingestSessionBatch(f.store, zcodeAdapter, [dbDir], SALT, T0);
+    expect(result).toMatchObject({ files: 1, invalid: 0, blocked: 0 });
+    const rows = f.store.read.query(
+      'SELECT conv_key, source, title, evidence_json FROM session_title').all() as Record<string, unknown>[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      conv_key: json(['session', 'zcode-title-root']), source: 'zcode_session',
+    });
+    expect(rows[0]!.title).toContain('标题');
+    expect(rows[0]!.title).not.toContain(secret);
+    expect(rows[0]!.evidence_json as string).not.toContain(secret);
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM raw_session_event').get()).toEqual({ n: 0 });
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM request_evidence').get()).toEqual({ n: 1 });
+  } finally {
+    f.close();
+    rmSync(home, { recursive: true, force: true });
+  }
+});
 
 test('Zcode 会话：completed 调用建行，用量按 magpie 口径归一，正文与证据齐全', async () => {
   const home = makeHome();

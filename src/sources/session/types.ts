@@ -14,6 +14,7 @@
 
 import type { Database } from 'bun:sqlite';
 import type { SourceKind } from '../files';
+import { basename, dirname, sep } from 'node:path';
 import { canonicalSessionId } from '../../evidence';
 
 export type SessionKind = Extract<SourceKind,
@@ -101,6 +102,20 @@ export type SessionApplyResult = {
   sessionId: string | null;
 };
 
+/** 来源自带的会话标题；只写 session_title，不合成 request 行。 */
+export type SessionTitle = {
+  text: string;
+  /** 标题归属的会话 id；由适配器按自己的作用域判定，ingest 不从最后一步 apply 猜。 */
+  sessionId: string;
+  /** 来源事件时间；来源没有给标题事件时间时为 null。 */
+  atMs: number | null;
+  /** 手动标题优先；目前只有 droid 的手动标记会置 true。 */
+  manual?: boolean;
+  /** 来源内可复核的位置：文件偏移、库行或 summary 字段。 */
+  ref: string;
+  facts?: Record<string, unknown>;
+};
+
 export type SessionAdapter = {
   /** request.agent 的取值。 */
   agent: string;
@@ -145,6 +160,8 @@ export type SessionAdapter = {
   apply(state: unknown, event: SessionParseResult & { kind: 'event' }): SessionApplyResult;
   /** 批末补发仍挂起的调用；只有延迟发调用的适配器需要。 */
   flush?(state: unknown): SessionApplyResult;
+  /** 批末读取来源标题；标题归属与作用域都由适配器判断，子代理/seed 前缀返回 null。 */
+  sourceTitle?(state: unknown, file: SessionFile): SessionTitle | null;
   /** 批内来源私有副作用（如 droid 的 settings 用量）；写事务内调用，返回变更数。 */
   afterFile?(db: Database, state: unknown, file: SessionFile, now: number): number;
 };
@@ -152,6 +169,19 @@ export type SessionAdapter = {
 /** 会话键的唯一形状：与账本、OTLP 的 sessionRef 逐字相同。 */
 export function sessionConvKey(sessionId: string): string {
   return JSON.stringify(['session', sessionId]);
+}
+
+/** 标题字段按 trim 后判空；空白串不能吞掉同行的备选字段。 */
+export function titleTextOf(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  return text.length === 0 ? null : text;
+}
+
+/** 主文件在会话根下；子代理/产物文件在约定子目录里，祖先目录同名不算。 */
+export function isNestedSessionFile(file: SessionFile, folders: readonly string[]): boolean {
+  const parent = basename(dirname(file.path.split(/[\\/]/).filter(Boolean).join(sep)));
+  return folders.includes(parent);
 }
 
 /** 常见前缀去壳后的裸会话 id；不认识的前缀原样保留，不猜。 */

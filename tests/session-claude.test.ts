@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fixture } from './fixtures';
@@ -43,6 +43,134 @@ function writeSession(root: string, name: string, lines: string[]): string {
   writeFileSync(path, `${lines.join('\n')}\n`);
   return path;
 }
+
+function aiTitle(text: string, extra: Record<string, unknown> = {}): string {
+  return json({ type: 'ai-title', sessionId: SESSION_ID, aiTitle: text, ...extra });
+}
+
+
+const OTHER_ID = '99999999-2222-3333-4444-555555555555';
+
+test('Claude 来源标题归属：ai-title 带异 id 与末尾 sidechain 不污染 conv_key', async () => {
+  const root = makeRoot();
+  const f = fixture();
+  try {
+    writeSession(root, `${SESSION_ID}.jsonl`, [
+      user(iso(T0), [{ type: 'text', text: 'prompt' }]),
+      assistant(iso(T0 + 1_000), 'msg_owner-1', [{ type: 'text', text: 'reply' }]),
+      aiTitle('主会话标题', { sessionId: OTHER_ID }),
+      line('user', iso(T0 + 2_000), { role: 'user', content: [{ type: 'text', text: 'side' }] },
+        { sessionId: OTHER_ID, isSidechain: true }),
+    ]);
+    const result = await ingestSessionBatch(f.store, claudeAdapter, [root], SALT, T0);
+    expect(result).toMatchObject({ invalid: 0, blocked: 0 });
+    expect(f.store.read.query('SELECT conv_key, title FROM session_title').all()).toEqual([
+      { conv_key: json(['session', SESSION_ID]), title: '主会话标题' },
+    ]);
+  } finally {
+    f.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Claude 来源标题路径：祖先目录同名不误杀，空白字段回退', async () => {
+  const base = mkdtempSync(join(tmpdir(), 'atc-claude-ancestor-'));
+  const root = join(base, 'subagents', 'notes');
+  mkdirSync(root, { recursive: true });
+  const f = fixture();
+  try {
+    writeSession(root, `${SESSION_ID}.jsonl`, [
+      user(iso(T0), [{ type: 'text', text: 'prompt' }]),
+      json({ type: 'ai-title', sessionId: SESSION_ID, aiTitle: '   ', title: '备选标题' }),
+    ]);
+    await ingestSessionBatch(f.store, claudeAdapter, [root], SALT, T0);
+    expect(f.store.read.query('SELECT conv_key, title FROM session_title').all()).toEqual([
+      { conv_key: json(['session', SESSION_ID]), title: '备选标题' },
+    ]);
+  } finally {
+    f.close();
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('Claude 来源标题：坏行阻断批次不写标题，也不记标题失败', async () => {
+  const root = makeRoot();
+  const f = fixture();
+  try {
+    writeSession(root, `${SESSION_ID}.jsonl`, [
+      aiTitle('坏行前的标题'),
+      json({ type: 'user', sessionId: SESSION_ID, timestamp: iso(T0), message: null }),
+    ]);
+    const result = await ingestSessionBatch(f.store, claudeAdapter, [root], SALT, T0);
+    expect(result.blocked).toBe(1);
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM session_title').get()).toEqual({ n: 0 });
+    expect(f.store.read.query("SELECT COUNT(*) AS n FROM ingest_issue WHERE reason='session_title_failed'").get())
+      .toEqual({ n: 0 });
+  } finally {
+    f.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Claude 来源标题：ai-title 进窄表，重复标题不刷新观察时间', async () => {
+  const root = makeRoot();
+  const f = fixture();
+  try {
+    const path = writeSession(root, `${SESSION_ID}.jsonl`, [
+      user(iso(T0), [{ type: 'text', text: 'prompt' }]),
+      assistant(iso(T0 + 1_000), 'msg_title-1', [{ type: 'text', text: 'reply' }]),
+      aiTitle('synthetic title'),
+      aiTitle('synthetic title'),
+    ]);
+    const file = { name: path, path, size: 0, mtimeMs: 0, remaining: 1 };
+    const first = await ingestSessionFile(f.store, claudeAdapter, file, SALT, T0);
+    expect(first).toMatchObject({ calls: 1, invalid: 0, blocked: 0 });
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM request').get()).toEqual({ n: 1 });
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM raw_session_event').get()).toEqual({ n: 4 });
+    const rows = f.store.read.query(
+      'SELECT conv_key, source, title, manual, title_ms, observed_ms, evidence_json FROM session_title').all() as Record<string, unknown>[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      conv_key: json(['session', SESSION_ID]), source: 'claude_session', title: 'synthetic title',
+      manual: 0, title_ms: T0, observed_ms: T0,
+    });
+    const evidence = JSON.parse(rows[0]!.evidence_json as string) as Record<string, unknown>;
+    expect(evidence.source_kind).toBe('claude_session');
+    expect(JSON.stringify(evidence)).not.toContain('synthetic title');
+
+    appendFileSync(path, `${aiTitle('synthetic title')}\n`);
+    const second = await ingestSessionFile(f.store, claudeAdapter, file, SALT, T0 + 5_000);
+    expect(second).toMatchObject({ calls: 0, invalid: 0, blocked: 0 });
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM request').get()).toEqual({ n: 1 });
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM raw_session_event').get()).toEqual({ n: 5 });
+    expect(f.store.read.query('SELECT observed_ms, title_ms FROM session_title').get())
+      .toEqual({ observed_ms: T0, title_ms: T0 });
+  } finally {
+    f.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Claude 来源标题作用域：sidechain 与 subagents 文件不写根标题', async () => {
+  const root = makeRoot();
+  const f = fixture();
+  try {
+    writeSession(root, `${SESSION_ID}.jsonl`, [
+      user(iso(T0), [{ type: 'text', text: 'prompt' }]),
+      assistant(iso(T0 + 1_000), 'msg_scope-1', [{ type: 'text', text: 'reply' }]),
+      aiTitle('sidechain title', { isSidechain: true }),
+    ]);
+    const dir = join(root, 'subagents');
+    mkdirSync(dir, { recursive: true });
+    writeSession(dir, 'agent-a.jsonl', [aiTitle('subagent title')]);
+    const result = await ingestSessionBatch(f.store, claudeAdapter, [root], SALT, T0);
+    expect(result).toMatchObject({ files: 2, calls: 1, invalid: 0, blocked: 0 });
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM session_title').get()).toEqual({ n: 0 });
+  } finally {
+    f.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('Claude 会话：按 message.id 合并内容块，逐调用建行、正文与证据齐全', async () => {
   const root = makeRoot();
