@@ -21,6 +21,9 @@ import { previewOtlpReplay, replayOtlpBound } from './otlp-replay';
 import { previewOperationBackfill, backfillOperations } from './operation-backfill';
 import { pruneRawBounded, shrinkStorage, RAW_TTL_MS } from '../retention';
 import { verifyDatabase, precheckDatabase } from './verify';
+import { previewSessionRetention } from '../queries/retention-preview';
+import { purgeExpiredSessions } from '../session-retention';
+import { RETENTION_DAY_MS } from '../format';
 
 function parseArgs(argv: string[]): Map<string, string | true> {
   const flags = new Map<string, string | true>();
@@ -41,6 +44,14 @@ function parseArgs(argv: string[]): Map<string, string | true> {
 function stringFlag(flags: Map<string, string | true>, name: string): string | null {
   const value = flags.get(name);
   return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+/** 正整数 flag；缺失、负数、小数与非法串都返回 null，由调用方按用法错误退出。 */
+function positiveIntFlag(flags: Map<string, string | true>, name: string): number | null {
+  const raw = stringFlag(flags, name);
+  if (raw === null || !/^\d+$/.test(raw)) return null;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
 /** 日期简写按本地日零点解析：day 列与页面是本地日语义，Date.parse 的纯日期按 UTC 会偏一个时区。 */
@@ -78,6 +89,8 @@ const USAGE = `usage:
   maintain body-bytes-backfill --db <path> [--apply --approval-id <id> --expected-candidates <n>]
   maintain prune-raw --db <path> [--before <ISO|ms>] [--apply --approval-id <id>]
   maintain hook-delivery --db <path> --since <ISO|ms> --until <ISO|ms>
+  maintain retention-preview --db <path> --keep-days <n> [--limit <n>]
+  maintain retention-apply --db <path> --keep-days <n> [--limit <n>] [--apply --approval-id <id>]
   maintain backup --db <path> --out <new-path>
   maintain bundle --dir <dataDir> --out <new-dir>
   maintain restore --bundle <bundleDir> --out <new-dir>
@@ -178,6 +191,30 @@ export async function runMaintenance(argv: string[], io: {
       return 0;
     } catch (error) {
       err(`hook-delivery_failed:${error instanceof Error ? error.message : 'unknown'}`);
+      return 1;
+    }
+  }
+
+  if (command === 'retention-preview') {
+    // 只读预览：独立只读连接，不取维护锁、不跑迁移、不停采集器。
+    const keepDays = positiveIntFlag(flags, 'keep-days');
+    const limitRaw = stringFlag(flags, 'limit');
+    const limit = limitRaw === null ? null : positiveIntFlag(flags, 'limit');
+    if (keepDays === null || (limitRaw !== null && limit === null)) {
+      err(USAGE.trimEnd());
+      return 2;
+    }
+    try {
+      const db = new Database(dbPath, { readonly: true });
+      try {
+        const preview = limit === null
+          ? previewSessionRetention(db, keepDays)
+          : previewSessionRetention(db, keepDays, undefined, limit);
+        out(JSON.stringify(preview));
+      } finally { db.close(); }
+      return 0;
+    } catch (error) {
+      err(`retention-preview_failed:${error instanceof Error ? error.message : 'unknown'}`);
       return 1;
     }
   }
@@ -330,6 +367,58 @@ export async function runMaintenance(argv: string[], io: {
     }
   }
 
+  if (command === 'retention-apply') {
+    // 默认与 retention-preview 同一份只读预览；显式 --apply 才逐会话删除。
+    const keepDays = positiveIntFlag(flags, 'keep-days');
+    const limitRaw = stringFlag(flags, 'limit');
+    const limit = limitRaw === null ? null : positiveIntFlag(flags, 'limit');
+    if (keepDays === null || (limitRaw !== null && limit === null)) {
+      err(USAGE.trimEnd());
+      return 2;
+    }
+    const cutoffMs = Date.now() - keepDays * RETENTION_DAY_MS;
+    let lock: LockHandle | null = null;
+    let store: Store | null = null;
+    try {
+      if (flags.get('apply') !== true) {
+        const db = new Database(dbPath, { readonly: true });
+        try {
+          const preview = limit === null
+            ? previewSessionRetention(db, keepDays)
+            : previewSessionRetention(db, keepDays, undefined, limit);
+          out(JSON.stringify({ ok: true, applied: false, preview }));
+        } finally { db.close(); }
+        return 0;
+      }
+      const approvalId = stringFlag(flags, 'approval-id');
+      if (approvalId === null) {
+        out(JSON.stringify({ ok: false, error: 'approval_id_required', keep_days: keepDays }));
+        return 1;
+      }
+      lock = acquireMaintenanceLock(dirname(dbPath), `retention-apply:${process.pid}`);
+      if (lock === null) throw new Error('maintenance_lock_held');
+      store = openStore(dbPath);
+      const run = await purgeExpiredSessions(store, {
+        cutoffMs, reason: 'manual', approvalId,
+        limit: limit ?? undefined, wallMs: Number.POSITIVE_INFINITY,
+      });
+      if (run.deleted_sessions > 0) {
+        shrinkStorage(store, { maxRounds: 4_096, pagesPerRound: 1_024, wallMs: 120_000 });
+      }
+      out(JSON.stringify({
+        ok: true, applied: true, approval_id: approvalId,
+        keep_days: keepDays, cutoff_ms: cutoffMs, ...run,
+      }));
+      return 0;
+    } catch (error) {
+      err(`retention-apply_failed:${error instanceof Error ? error.message : 'unknown'}`);
+      return 1;
+    } finally {
+      store?.close();
+      lock?.release();
+    }
+  }
+
   if (command === 'verify' || command === 'purge-metadata' || command === 'purge-agent'
     || command === 'rebuild' || command === 'reparse' || command === 'migrate-hook-identity'
     || command === 'normalize-response-ids' || command === 'dedupe-sessions'
@@ -344,7 +433,8 @@ export async function runMaintenance(argv: string[], io: {
         const report = verifyDatabase(dbPath);
         // 健康结论与报告字段分开：pending_derivations 是信息字段，停机前有积压是正常的。
         const ok = report.integrity.length === 1 && report.integrity[0] === 'ok'
-          && report.dangling_blocks === 0 && report.duplicate_evidence === 0;
+          && report.dangling_blocks === 0 && report.duplicate_evidence === 0
+          && report.purged_conversation_residue === 0;
         out(JSON.stringify({ ok, ...report }));
         return ok ? 0 : 1;
       }

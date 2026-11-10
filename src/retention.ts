@@ -3,7 +3,7 @@ import { basename, join } from 'node:path';
 import type { Database } from 'bun:sqlite';
 import type { Store } from './store';
 import { commitUnit } from './store';
-import { capacityMeterBodyBytes, capacityMeterEvictableBytes } from './capacity-meter';
+import { capacityMeterBodyBytes, capacityMeterEvictableBytes, capacityMeterSessionRawBytes } from './capacity-meter';
 import { markRequestInputTx } from './derive/state';
 import { SOURCE_PROJECTION_VERSION, projectRequestTx } from './sources/projection';
 
@@ -20,9 +20,11 @@ import { SOURCE_PROJECTION_VERSION, projectRequestTx } from './sources/projectio
  */
 
 /**
- * 正文与会话原始层 payload 的逻辑占用，不扫目录。
+ * 可读正文与会话原始层的逻辑占用，不扫目录。
  *
- * 计数由 schema v14 的触发器在写入事务里维护；这里只读四行，成本与历史规模无关。
+ * 计数由 schema v14 的触发器在写入事务里维护；这里只读几行计数，成本与历史规模无关。
+ * `body_bytes` 只算可读正文（block、request 骨架、raw_hook），`raw_session_event` 单独成层：
+ * 前者归正文预算与正文回收，后者随会话保留，不参与正文预算。
  * 回收判断读的是当前已提交值，不使用异步快照。
  */
 export function measureBodyBytes(store: Store): number {
@@ -34,7 +36,10 @@ function yieldToEventLoop(): Promise<void> {
 }
 
 export type StorageUsage = {
+  /** 可读正文：正文预算与正文回收的唯一口径，不含会话原始层。 */
   body_bytes: number;
+  /** 会话原始层：raw_session_event，随会话保留，不参与正文预算。 */
+  session_raw_bytes: number;
   db_bytes: number;
   wal_bytes: number;
   temp_bytes: number;
@@ -150,7 +155,7 @@ function freeBytes(dir: string): number {
   }
 }
 
-type DiskUsage = Omit<StorageUsage, 'body_bytes'>;
+type DiskUsage = Omit<StorageUsage, 'body_bytes' | 'session_raw_bytes'>;
 
 /** 目录扫描、statfs 与页计数；个位数毫秒，闸门每次同步取这部分。 */
 function measureDiskUsage(store: Store, dataDir: string): DiskUsage {
@@ -175,13 +180,17 @@ function measureDiskUsage(store: Store, dataDir: string): DiskUsage {
 }
 
 /**
- * 存储量测：物理用量逐项 stat，正文取四源计数行。
+ * 存储量测：物理用量逐项 stat，正文取可读口径计数行，会话原始层单独取一行。
  *
- * 逻辑预算回答"正文占了多少"，物理用量回答"盘还剩多少"；正文不再全表求和，
- * 两部分都是常数成本，报告、准入与回收判断共用这一份读数。
+ * 逻辑预算回答"可读正文占了多少"，物理用量回答"盘还剩多少"；两部分都是常数成本，
+ * 报告、准入与回收判断共用这一份读数。准入与正文回收只看 body_bytes。
  */
 export function measureStorage(store: Store, dataDir: string): StorageUsage {
-  return { ...measureDiskUsage(store, dataDir), body_bytes: measureBodyBytes(store) };
+  return {
+    ...measureDiskUsage(store, dataDir),
+    body_bytes: measureBodyBytes(store),
+    session_raw_bytes: capacityMeterSessionRawBytes(store.read),
+  };
 }
 
 /**
@@ -516,6 +525,17 @@ function hasRemaining(candidates: PruneCandidates, cursor: PruneCursor): boolean
     || cursor.hook < candidates.hook.length || cursor.otlpSpan < candidates.otlpSpan.length
     || cursor.otlpLog < candidates.otlpLog.length || cursor.session < candidates.session.length
     || cursor.costRun < candidates.costRun.length;
+}
+
+/**
+ * 这一轮是否把到期候选清完：清单要跑完，且各表都没有撞到准备上限。
+ * 撞上限说明库里还有未入清单的到期行，留给重试或下一个 tick。
+ */
+function prunePreparedFull(candidates: PruneCandidates, cursor: PruneCursor,
+  prepareLimit: number): boolean {
+  if (hasRemaining(candidates, cursor)) return false;
+  return (Object.keys(candidates) as (keyof PruneCandidates)[])
+    .every(key => candidates[key].length < prepareLimit);
 }
 
 type SourceCursorRow = { fingerprint: string | null; last_ok_ms: number };
@@ -854,27 +874,30 @@ export function pruneRaw(store: Store, beforeMs: number, limit = PRUNE_BATCH,
 }
 
 export type PruneBudget = { maxBatches?: number; wallMs?: number };
+/** exhausted=false 表示还有到期候选没清完，剩下的要留给重试或下一个 tick。 */
+export type PruneBoundedResult = PruneResult & { exhausted: boolean };
 
 /**
  * 有界的多批清理：候选键在调用开始时只读扫描一次，之后每批从清单里取，
  * 每批是独立提交的小事务，批间让出事件循环，到批数或墙钟上限即停。
  * 单批内部另受行数与载荷预算约束，所以一次调用不会出现「外层有预算、
  * 里层一条 DELETE 无界」或「每批重扫整张表」的长事务。
- * 超期存量大的首轮靠连续多个 tick 收敛；返回各表累计处理行数。
+ * 超期存量大的首轮靠连续多个 tick 收敛；返回各表累计处理行数。`exhausted` 为 false
+ * 表示这一轮预算用完时仍有候选没清完，调用方据此置 backlog 并安排追赶重试。
  *
  * 准备阶段的扫描可能自己就超过墙钟预算，所以首批无条件执行：
  * 否则每个 tick 都会在尚未删除任何行时退出，永远不推进。
  * 单个超大行不可切分，首批仍可能超过载荷预算；这里不宣称每个同步单位严格墙钟有界。
  */
 export async function pruneRawBounded(store: Store, beforeMs: number,
-  budget: PruneBudget = {}): Promise<PruneResult> {
+  budget: PruneBudget = {}): Promise<PruneBoundedResult> {
   const maxBatches = budget.maxBatches ?? PRUNE_MAX_BATCHES;
   const wallMs = budget.wallMs ?? PRUNE_WALL_BUDGET_MS;
   const started = performance.now();
   const total = emptyResult();
   const prepareLimit = Math.min(PRUNE_PREPARE_ROWS, Math.max(PRUNE_BATCH, maxBatches * PRUNE_BATCH));
   const candidates = prepareRawPrune(store.read, beforeMs, prepareLimit);
-  if (!hasCandidates(candidates)) return total;
+  if (!hasCandidates(candidates)) return { ...total, exhausted: true };
   const cursor = zeroCursor();
   for (let batch = 0; batch < maxBatches; batch++) {
     if (batch > 0 && performance.now() - started >= wallMs) break;
@@ -894,7 +917,7 @@ export async function pruneRawBounded(store: Store, beforeMs: number,
     await yieldToEventLoop();
     if (performance.now() - started >= wallMs) break;
   }
-  return total;
+  return { ...total, exhausted: prunePreparedFull(candidates, cursor, prepareLimit) };
 }
 
 export type ShrinkBudget = { maxRounds?: number; pagesPerRound?: number; wallMs?: number };

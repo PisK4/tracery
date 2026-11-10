@@ -18,6 +18,12 @@ export const CAPACITY_METER_STATE_KEY = 'capacity.meter';
 export const CAPACITY_SOURCES = ['block', 'request', 'raw_hook', 'raw_session_event'] as const;
 export type CapacitySource = typeof CAPACITY_SOURCES[number];
 
+/**
+ * 可读正文的三源口径。raw_session_event 是会话原始层，随会话保留，不参与正文预算
+ * 与正文回收，单独成层。读取、准入、回收都只用这一份清单，避免口径分叉。
+ */
+export const READABLE_BODY_SOURCES = ['block', 'request', 'raw_hook'] as const satisfies readonly CapacitySource[];
+
 export const CAPACITY_METER_TRIGGERS = CAPACITY_SOURCES.flatMap(source =>
   ['insert', 'update', 'delete'].map(event => `capacity_meter_${source}_${event}`));
 
@@ -26,11 +32,30 @@ type SourceStats = { bytes: number; row_count: number };
 export type CapacityMeterReading = {
   version: number;
   source_count: number;
+  /** 可读正文：block + request.skeleton_z + raw_hook，不含会话原始层。 */
   body_bytes: number;
+  /** 会话原始层单独成层：raw_session_event，随会话保留，不参与正文回收。 */
+  session_raw_bytes: number;
   sources: Record<CapacitySource, SourceStats>;
 };
 
 export type CapacityMeterStatus = ({ ok: true } & CapacityMeterReading) | { ok: false; error: string };
+
+/** 健康页与指标用的分层字节；计数结构不可用时返回 null，不补零。 */
+export type CapacityLayers = {
+  readable_body_bytes: number;
+  session_raw_bytes: number;
+  raw_hook_bytes: number;
+};
+
+export function capacityLayers(meter: CapacityMeterStatus): CapacityLayers | null {
+  if (!meter.ok) return null;
+  return {
+    readable_body_bytes: meter.body_bytes,
+    session_raw_bytes: meter.session_raw_bytes,
+    raw_hook_bytes: meter.sources.raw_hook.bytes,
+  };
+}
 
 export type CapacitySourceDrift = {
   source: CapacitySource;
@@ -111,14 +136,25 @@ export function readCapacityMeter(db: Database): CapacityMeterReading {
   if (version !== CAPACITY_METER_VERSION) {
     throw new Error(`capacity_meter_version_unsupported:${version}`);
   }
-  const bodyBytes = CAPACITY_SOURCES.reduce((sum, source) => sum + sources[source].bytes, 0);
-  return { version, source_count: rows.length, body_bytes: bodyBytes, sources };
+  const bodyBytes = READABLE_BODY_SOURCES.reduce((sum, source) => sum + sources[source].bytes, 0);
+  return {
+    version, source_count: rows.length, body_bytes: bodyBytes,
+    session_raw_bytes: sources.raw_session_event.bytes, sources,
+  };
 }
 
-/** 只读总量：在线路径用这一句，不校验结构（openStore 启动时已经校验过）。 */
+/** 在线可读正文口径：正文预算、正文回收与准入都读这一项，不含会话原始层。 */
 export function capacityMeterBodyBytes(db: Database): number {
   return db.query<{ n: number }, []>(
-    'SELECT IFNULL(SUM(bytes),0) AS n FROM capacity_meter',
+    `SELECT IFNULL(SUM(bytes),0) AS n FROM capacity_meter
+     WHERE source IN ('block','request','raw_hook')`,
+  ).get()?.n ?? 0;
+}
+
+/** 会话原始层单独成层：随会话保留，不参与正文回收。 */
+export function capacityMeterSessionRawBytes(db: Database): number {
+  return db.query<{ n: number }, []>(
+    "SELECT IFNULL(SUM(bytes),0) AS n FROM capacity_meter WHERE source='raw_session_event'",
   ).get()?.n ?? 0;
 }
 

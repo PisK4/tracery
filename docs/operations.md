@@ -170,6 +170,13 @@ bun run maintain capacity-recount --db '<dataDir>/trace.db' --apply --approval-i
 bun run maintain prune-raw --db '<dataDir>/trace.db'
 bun run maintain prune-raw --db '<dataDir>/trace.db' --apply --approval-id '<你的审批标识>'
 
+# 会话保留预览：按最后活动时间统计将删除的完整会话，只读
+bun run maintain retention-preview --db '<dataDir>/trace.db' --keep-days 30
+
+# 会话保留执行：默认只预览；--apply 需要停采集器、维护锁与显式批准
+bun run maintain retention-apply --db '<dataDir>/trace.db' --keep-days 30
+bun run maintain retention-apply --db '<dataDir>/trace.db' --keep-days 30 --apply --approval-id '<你的审批标识>'
+
 # hook 投递的只读窗口诊断：缺口、等待队列与已到达回调
 bun run maintain hook-delivery --db '<dataDir>/trace.db' --since '2026-10-26T00:00:00Z' --until '2026-10-27T00:00:00Z'
 
@@ -439,6 +446,16 @@ bun run maintain body-bytes-backfill --db '<dataDir>/trace.db' --apply --approva
 
 未匹配的费用行只有暂存键 `["cost-run",...]`，没有归属请求，删除后不需要重算投影；已匹配证据键不以这个前缀开头，不会被这条清理命中。清理与其他 raw 表一样受单批行数与载荷预算约束，单条超大行不可切分。
 
+### retention-preview 与 retention-apply
+
+会话保留以 `conv_key` 为单位，年龄取该会话所有请求的 `MAX(started_ms)`（最后活动时间），截止点是 `now - keepDays × 86,400,000`，按精确时长算。`retention-preview` 只读统计将删除的完整会话数、请求数、首末日与三类字节，并给出被守卫挡住的会话数（`dirty`、`purpose_pending`、`source_gap`；离线预览的 `in_flight` 恒 0）。`--keep-days` 必填且为正整数。`bytes.readable_body` 是目标会话引用的 `block.z` 与 `request.skeleton_z` 物理字节估算，`session_raw` 是按 `session_id` 估算的原文；与实际释放量允许有小差额，共享块不逐块扣除。
+
+`retention-apply` 默认只预览；`--apply` 必须同时给 `--approval-id`，取维护锁并要求服务已停。每个会话一个独立写事务：先按 `conv_key` 固定目标，再在事务内复查年龄与守卫（在途、`purpose_pending`、派生 dirty、开放/可恢复 `source_gap`），写 `retention_event` 与一条 `purged_conversation` 会话墓碑，然后删请求附属、派生结果、原始会话行与无引用路由；共享的 block、`route_summary`、原始路由与同 `session`/同代际的 raw 行保留。游标只在代际与会话一一对应时退回 0，共享代际按墓碑跳过旧调用。删除后收缩空闲页。
+
+被删会话的来源文件仍在，下次扫描按墓碑计 `purged_skip` 并推进游标，不重新建行；只有显式 `reset-source` 才会删墓碑并重读。命令输出区分预览与实删；实际删除的会话数、请求数与预览的差额来自并发新增，属于预期。应用后跑 `maintain verify`，`purged_conversation_residue` 与 `dangling_blocks` 必须为 0。
+
+常驻进程的小时 tick 每轮给 2 秒墙钟，没删完会在 1 分钟后继续（err 日志 `retention_backlog`），删完自动停。单会话事务在 11 GB 生产副本上最长约 2.9 秒（冷缓存首会话），大会话仍是一个不可拆的同步段；`retention_purge_ms_max` 在 `/api/metrics` 可见。首次启用有存量时，按约 0.4 秒/会话分摊，几百个会话需要约两小时追上，不会在一个 tick 里清空历史。
+
 ### dedupe-sessions
 
 修复本地会话来源的历史重复行：早期匹配规则要求模型名跨来源严格相等，网关的 `group/auto-…` 与本地 `auto/…` 对不上，同一笔调用会在 `request` 表里各留一行。默认只预览，输出 `scanned`、`candidates`、`merged`、`ambiguous`、`weak_only`、`already_owned` 与按来源的 `by_source`。加 `--apply` 必须同时给 `--approval-id`，否则退出码 1 且错误码 `approval_id_required`。
@@ -686,7 +703,9 @@ sqlite3 "$HOME/Library/Application Support/tracery/trace.db" \
 
 ## schema 版本
 
-当前 `user_version=17`。空数据目录首次启动直接建到 v17；v6 到 v16 库打开时在单个事务里原地升到 v17，更早版本报 `schema_rebuild_required`（错误信息带 db 与 code 的版本号），高版本报 `schema_version_unsupported`。可恢复 bundle 的结构版本白名单是 v6 到 v17，旧版本包恢复后首次打开同样原地升级。部署或恢复前可先跑 `maintain precheck` 只读预判同一套判据，不必等服务启动失败（见[维护命令](#维护命令)）。
+当前 `user_version=18`。空数据目录首次启动直接建到 v18；v6 到 v17 库打开时在单个事务里原地升到 v18，更早版本报 `schema_rebuild_required`（错误信息带 db 与 code 的版本号），高版本报 `schema_version_unsupported`。可恢复 bundle 的结构版本白名单是 v6 到 v18，旧版本包恢复后首次打开同样原地升级。部署或恢复前可先跑 `maintain precheck` 只读预判同一套判据，不必等服务启动失败（见[维护命令](#维护命令)）。
+
+v18 在 v17 之上新增 `purged_conversation` 一张 `IF NOT EXISTS` 窄表，不扫描正文、不回填。升级本身不删任何数据：`retentionConfigured` 保持 `false`，自动清理只预览；用户保存保留期后下一轮 tick 才开始按完整会话淘汰。`maintain verify` 新增 `purged_conversation_residue`，要求被删会话没有早于墓碑时间的残留请求。
 
 v17 在 v16 之上新增 `session_title` 一张 `IF NOT EXISTS` 窄表，不扫描正文、不回填。升级后已有会话继续用旧标题候选，文件下一次有新字节并被摄入时才会写入来源标题；存量回填须另行授权。来源标题不进 `request`，不影响 `maintain rebuild` 的派生重算。
 

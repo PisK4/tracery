@@ -2839,3 +2839,28 @@ master `0b5c9a1`（`--no-ff` 合并 `feat/desktop-ui`）。合并后主检出的
 - 双圆环面板生产实测 136px，样张 129px，差 7px 来自图例行高，没有隐藏指标；未继续压缩。
 - 真实 Tauri 外壳窗口内仍未取到截图（`screencapture -l` 此前失败），本轮证据来自 headless Chrome 打开生产页面。
 - 样张里需要改生成器的 DOM 模块（`.bd-*` 构成明细、`.req-list` 请求结构、`.block-list` 回复块索引、`.set-preview` 设置预览、`data-compact` 开关）与 15 枚未调用备用几何没有迁入；中英双语文案与三档字号只验了机制未被破坏，没有逐个组合截图。
+## 会话保留副本预演（2026-11-10）
+
+前提：worktree 分支 `feat/session-retention`（基于 master `ce5062b`），包含 schema v18、整会话删除、自动 tick 与设置面板。决策见[发布版保留：按完整会话的时间淘汰](../.agents/notes/implemented/feature/2026-11-10-session-retention.md)。本节只记生产副本预演，生产部署与真实流量验收尚未执行。
+
+### 合成验收
+
+- `bun run typecheck` 退出 0。
+- 相关测试批次 260 pass / 0 fail / 4,966 expect；删除主干、备份恢复、设置、预览、读取边界、主装配与 95% 兜底均在其内。新增用例覆盖整会话边界、共享 block/原始行守卫、会话墓碑 `purged_skip`、首次启用不删存量、95% 等参与 `disk_cap` 事件、预览只读与字节口径、追赶重试。
+- 测试只用合成数据，没有把真实请求正文、账号、令牌或用户配置写进 fixture。
+
+### 生产副本预演
+
+- 生产库快照：schema v17，`request` 182,600 行，`raw_session_event` 381,295 行，数据目录约 11.1 GB。副本用 `sqlite3 .backup` 生成，随后在副本上迁移到 v18。
+- `maintain retention-preview --keep-days 30`：421 个可删会话、35,155 笔请求；首末日 2026-08-20 至 2026-11-10；`skipped` 全 0；耗时约 1.2 秒。90 天档 0 个会话（当前库最老会话约 30 天）。
+- `maintain retention-apply --keep-days 30 --apply --approval-id copy-rehearsal-sweep`：实际删除 421 个会话、35,155 笔请求，与预览完全一致（同一截止时间下另跑一次对照，预览与实删都是 421 / 35,155）。写 `retention_event` 421 条、`purged_conversation` 421 条；删除 `raw_session_event` 130,288 行，保留 9 个共享原始组；游标重置 729 次，共享代际跳过 9 次。
+- 删除总耗时 2 分 53 秒；`purge_ms_max` 2.87 秒，为冷缓存下的首个大会话。修复前同一批 419 个会话耗时 36 分钟、单会话最长 38.5 秒。
+- 删除后 `maintain verify`：`ok=true`，`integrity=ok`，`dangling_blocks=0`，`duplicate_evidence=0`，`purged_conversation_residue=0`。`maintain capacity-check` 四源 `byte_delta=0`、`row_delta=0`。
+- 索引与批量清扫：v18 增加 `i_req_session`、`i_req_sort_generation`、`i_raw_session_event_generation`；`purgeTargetsTx` 只回收本会话失去引用的块，批次结束再扫一次全库无引用块。
+
+### 未覆盖
+
+- 生产部署与真实流量验收：尚未部署，也未在真实流量上启用自动清理。
+- 页面走查：历史与空间面板的启用流程、数字、中英字典、1440/1180 宽度、键盘与 `prefers-reduced-motion` 尚未人工走查。
+- `runMode` 只保存不执行：浏览器宿主下只读显示当前值，桌面宿主、LaunchAgent 安装器与随 App 模式属于阶段 4。
+- 6–12 个月合成 soak 未跑；首次启用的存量追赶按 2 秒/分钟估算约两小时，尚无真实启用数据。

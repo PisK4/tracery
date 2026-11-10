@@ -1,6 +1,8 @@
 /** 健康统计：采集游标、缺口、待处理 hook 与正文集计的只读汇总。 */
 
 import type { Store } from '../store';
+import { capacityLayers, capacityMeterStatus } from '../capacity-meter';
+import type { CapacityLayers } from '../capacity-meter';
 import { parseJsonOrNull } from './projection';
 
 export type Stats = {
@@ -19,6 +21,8 @@ export type Stats = {
   /** 费用扫描因系统时钟回退停住时的计数与阻塞时点；正常时为 null。 */
   cost_health: unknown;
   probe: unknown;
+  /** 可读正文 / 会话原始 / raw_hook 的分层占用；计数结构不可用时为 null。 */
+  capacity_layers: CapacityLayers | null;
 };
 
 function admissionOf(value: unknown): Stats['admission'] {
@@ -97,6 +101,7 @@ function computeStats(store: Store): Stats {
       admission: admission == null ? null : admissionOf(parseJsonOrNull(admission.value_json)),
       cost_health: costHealth == null ? null : parseJsonOrNull(costHealth.value_json),
       probe: probe == null ? null : parseJsonOrNull(probe.value_json),
+      capacity_layers: capacityLayers(capacityMeterStatus(store.read)),
     };
   })();
 }

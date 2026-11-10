@@ -80,3 +80,18 @@ export function isPurgedEvidence(db: Database, sourceKind: string, refKey: strin
   return db.query('SELECT 1 AS hit FROM purged_evidence WHERE source_kind=? AND ref_key=?')
     .get(sourceKind, refKey) !== null;
 }
+
+/**
+ * 会话级墓碑：整会话淘汰后，来源回放时跳过早于删除时刻的调用。
+ * 晚于 `purged_at` 的调用是新片段，正常入库；没有墓碑或调用不早于删除时刻返回 null。
+ */
+export function purgedConversationAt(
+  db: Database, convKey: string | null, startedMs: number,
+): number | null {
+  if (convKey === null) return null;
+  const row = db.query<{ purged_at: number }, [string]>(
+    'SELECT purged_at FROM purged_conversation WHERE conv_key=?',
+  ).get(convKey);
+  if (row === null) return null;
+  return startedMs < row.purged_at ? row.purged_at : null;
+}

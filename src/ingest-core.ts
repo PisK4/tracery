@@ -13,6 +13,7 @@ import { insertEvidenceTx } from './evidence';
 import { localDay, modelTimeTitle } from './format';
 import { markRequestInputTx } from './derive/state';
 import type { UsageFingerprint } from './owner';
+import { purgedConversationAt } from './sources/raw';
 
 export type HookAdmission = { mode: 'normal' | 'metadata_only' | 'paused'; reason: string | null };
 
@@ -49,7 +50,9 @@ export type IngestIdentity = {
 };
 
 export type ClaimOutcome = { target: number | null; rule: string | null; candidates: number[] };
-export type IngestResult = { reqId: number; created: boolean; duplicate: boolean; claim: ClaimOutcome };
+export type IngestResult = {
+  reqId: number; created: boolean; duplicate: boolean; purged_skip: boolean; claim: ClaimOutcome;
+};
 
 const NO_CLAIM: ClaimOutcome = { target: null, rule: null, candidates: [] };
 
@@ -91,7 +94,14 @@ export function ingestRequestTx(
   const dup = db.query<{ req_id: number }, [string, string]>(
     'SELECT req_id FROM request_evidence WHERE source_kind=? AND ref_key=?',
   ).get(channel.sourceKind, identity.refKey);
-  if (dup != null) return { reqId: dup.req_id, created: false, duplicate: true, claim: NO_CLAIM };
+  if (dup != null) {
+    return { reqId: dup.req_id, created: false, duplicate: true, purged_skip: false, claim: NO_CLAIM };
+  }
+  // 整会话墓碑先于认领与建行：早于删除时刻的迟到证据不复活旧调用，也不并进
+  // 存活行。墓碑只按会话键写入，非会话 conv 键查不到，照常入库。
+  if (purgedConversationAt(db, identity.conv?.key ?? null, identity.startedMs) !== null) {
+    return { reqId: 0, created: false, duplicate: false, purged_skip: true, claim: NO_CLAIM };
+  }
 
   const claimed = claim(db);
   const created = claimed.target === null;
@@ -127,5 +137,5 @@ export function ingestRequestTx(
   // 有归属才推进派生：hook 的 conv 永不为 null（hookConv 兜底）；OTLP 无会话的
   // 新建行保持独立记录；认领到带归属的行时照常推进。
   if (identity.conv !== null || current?.conv_key != null) markRequestInputTx(db, reqId);
-  return { reqId, created, duplicate: false, claim: claimed };
+  return { reqId, created, duplicate: false, purged_skip: false, claim: claimed };
 }

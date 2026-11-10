@@ -132,7 +132,7 @@ test('回收批按天与请求号从旧到新且块反连接走索引', () => {
 
 function usageAt(ratio: number, overrides: Partial<StorageUsage> = {}): StorageUsage {
   return {
-    body_bytes: 0, db_bytes: 0, wal_bytes: 0, temp_bytes: 0, other_bytes: 0,
+    body_bytes: 0, session_raw_bytes: 0, db_bytes: 0, wal_bytes: 0, temp_bytes: 0, other_bytes: 0,
     total_bytes: Math.round(16_000_000_000 * ratio), free_bytes: 500_000_000_000,
     page_size: 4096, page_count: 0, freelist_count: 0,
     ...overrides,
@@ -266,13 +266,14 @@ test('在线正文量测只读计数行，与全表求和一致且不随规模�
     });
 
     const exact = exactCapacitySums(f.store.read);
-    const exactTotal = exact.block.bytes + exact.request.bytes
-      + exact.raw_hook.bytes + exact.raw_session_event.bytes;
+    const readable = exact.block.bytes + exact.request.bytes + exact.raw_hook.bytes;
     const started = performance.now();
-    expect(measureBodyBytes(f.store)).toBe(exactTotal);
-    // 目标上限；四行读取不随上面的 14 万行增长。
+    expect(measureBodyBytes(f.store)).toBe(readable);
+    // 目标上限；计数行读取不随上面的 14 万行增长，会话原始层不计入正文。
     expect(performance.now() - started).toBeLessThanOrEqual(5);
-    expect(measureStorage(f.store, f.dir).body_bytes).toBe(exactTotal);
+    const usage = measureStorage(f.store, f.dir);
+    expect(usage.body_bytes).toBe(readable);
+    expect(usage.session_raw_bytes).toBe(exact.raw_session_event.bytes);
   } finally {
     f.close();
   }
@@ -505,6 +506,7 @@ test('有界清理分批独立提交、批间让出，连续调用收敛到零',
     // 单次调用有批数上限：两批 × 每批各表 100 行，停在中途而不是一次清空。
     const first = await pruneRawBounded(f.store, 100, { maxBatches: 2, wallMs: 60_000 });
     expect(first.otlpSpan).toBe(200);
+    expect(first.exhausted).toBe(false);
     expect(expired()).toBe(rows - 200);
     // 两批就是两次独立提交的 raw_prune 小事务，不是一个长写事务。
     expect(f.store.writeStats.by_name.raw_prune?.count).toBe(2);
@@ -532,6 +534,10 @@ test('有界清理分批独立提交、批间让出，连续调用收敛到零',
     }
     expect(total).toBe(rows);
     expect(expired()).toBe(0);
+    // 最后一轮把清单跑完且没撞准备上限：exhausted=true，调用方据此清 backlog。
+    const drained = await pruneRawBounded(f.store, 100, { maxBatches: 2, wallMs: 60_000 });
+    expect(drained.exhausted).toBe(true);
+    expect(drained.otlpSpan).toBe(0);
     // 620 行 / 每调用 200 行 = 4 次调用；最后一次多一轮空查确认但不落写事务，
     // 共 7 个 raw_prune 写事务。
     expect(f.store.writeStats.by_name.raw_prune?.count).toBe(7);
@@ -830,25 +836,35 @@ test('准备阶段超出墙钟预算时仍至少提交一批，避免每个 tick
   }
 });
 
-test('body 计量纳入会话原始层 payload，按 UTF-8 字节计', () => {
+test('会话原始层单独成层：撑爆正文预算也不触发 bodyFull，准入仍 normal', () => {
   const f = fixture();
   try {
-    const before = measureBodyBytes(f.store);
-    const payload = '中'.repeat(1024);
+    // 造一份超过正文预算的 raw_session_event 载荷；可读正文保持为空。
+    const payload = 'x'.repeat(4096);
     f.store.write(db => {
       db.run(
         `INSERT INTO raw_session_event(source_kind,file_generation,byte_offset,session_id,
           line_type,event_at_ms,payload_json,privacy_version)
-         VALUES ('claude_session','g-f12',0,'s','user',10,?,1)`,
+         VALUES ('claude_session','g-m1',0,'s','user',10,?,1)`,
         [payload],
       );
     });
-    // TEXT 按字节而不是字符数：1024 个汉字是 3072 字节。
-    expect(measureBodyBytes(f.store) - before).toBe(payload.length * 3);
-    expect(exactCapacitySums(f.store.read).raw_session_event.bytes).toBe(measureBodyBytes(f.store));
-  } finally {
-    f.close();
-  }
+    const limits = { bodyBudget: 100, diskLimit: 16_000_000_000 };
+    const usage = measureStorage(f.store, f.dir);
+    // 可读正文没涨；会话原始层单独汇报，且确实超过预算。
+    expect(usage.body_bytes).toBe(0);
+    expect(usage.session_raw_bytes).toBe(payload.length);
+    expect(usage.session_raw_bytes).toBeGreaterThan(limits.bodyBudget);
+    expect(exactCapacitySums(f.store.read).raw_session_event.bytes).toBe(payload.length);
+    // bodyFull 不成立：正文回收不该动会话原始层。
+    expect(usage.body_bytes >= limits.bodyBudget * EVICT_TARGET_RATIO).toBe(false);
+    expect(enforceBodyBudget(f.store, f.dir, limits, { invalidate: () => {} })).toBe(0);
+    // 准入按可读口径判断：磁盘水位也远低于上限时仍是 normal。
+    expect(admission(usage, limits, 0, 'normal')).toEqual({ mode: 'normal', reason: null });
+    expect(createAdmissionGate(f.store, f.dir, limits, { ttlMs: 0 }).check(0).mode).toBe('normal');
+    // 原始层没被正文预算回收，仍在库里。
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM raw_session_event').get()).toEqual({ n: 1 });
+  } finally { f.close(); }
 });
 
 test('带正文且无法迁移的hook原文不被过期规则删掉', () => {

@@ -51,7 +51,7 @@ export type HookEnvelope = {
   magpie_version?: string;
 };
 
-export type AcceptHookResult = { req_id: number; duplicate: boolean };
+export type AcceptHookResult = { req_id: number; duplicate: boolean; purged_skip?: boolean };
 
 export type AcceptOptions = {
   /** 缺省视为 normal：测试与离线重放不需要真实磁盘预算。 */
@@ -218,6 +218,8 @@ export function acceptHook(
       inTok: null, outTok: null, cacheRead: null, cacheWrite: null, magpieVersion: envelope.magpie_version ?? null,
     }, body, omission, db2 => claimHookTarget(db2, envelope, responseIdNorm, turnRef, conv, now), now, admission);
     if (result.duplicate) return { req_id: result.reqId, duplicate: true };
+    // 整会话已淘汰：迟到证据不落原始层，避免把已删会话的正文副本重新写回。
+    if (result.purged_skip) return { req_id: 0, duplicate: false, purged_skip: true };
 
     // raw_hook 插入语句原样保留：列与参数逐字搬运，不改值；omission/bodyBytes 仍在作用域。
     db.run(

@@ -7,7 +7,7 @@ import { createDiagnosticLog } from '../src/monitoring';
 import type { StorageUsage } from '../src/retention';
 
 const usage: StorageUsage = {
-  body_bytes: 10, db_bytes: 20, wal_bytes: 0, temp_bytes: 0, other_bytes: 3,
+  body_bytes: 10, session_raw_bytes: 7, db_bytes: 20, wal_bytes: 0, temp_bytes: 0, other_bytes: 3,
   total_bytes: 33, free_bytes: 1_000, page_size: 4096, page_count: 10, freelist_count: 0,
 };
 
@@ -20,11 +20,27 @@ test('轻量快照不量存储、不求和元数据，存储值取闸门最近�
     });
     const light = metrics.lightSnapshot();
     expect(light.instance).toBe('proc-a');
-    expect(light.storage).toMatchObject({ body_bytes: 10, total_bytes: 33 });
+    expect(light.storage).toMatchObject({ body_bytes: 10, session_raw_bytes: 7, total_bytes: 33 });
     expect(light.storage_measured_at_ms).toBe(2_000);
     expect(light).not.toHaveProperty('metadata');
     expect(light.derive_queue).toMatchObject({ pending_groups: 0 });
     expect(light.capacity_meter).toMatchObject({ ok: true, version: 1, source_count: 4 });
+    expect(light.capacity_layers).toEqual({
+      readable_body_bytes: 0, session_raw_bytes: 0, raw_hook_bytes: 0,
+    });
+    expect(light.raw_prune_backlog).toBe(false);
+    expect(light.retention).toBeNull();
+    expect(light.retention_pending_skipped).toBe(0);
+    const summary = {
+      at_ms: 2_010, deleted_sessions: 2, deleted_requests: 9,
+      pending_skipped: 4, oldest_skip_reason: 'pending', timed_out: true, purge_ms_max: 17,
+    };
+    metrics.retention.record(summary);
+    expect(metrics.lightSnapshot()).toMatchObject({
+      retention: summary, retention_pending_skipped: 4,
+    });
+    metrics.rawPrune.setBacklog(true);
+    expect(metrics.lightSnapshot().raw_prune_backlog).toBe(true);
     // 轻量端点不能触发全表求和：量测计数保持 0。
     expect((light.storage_measure as { count: number }).count).toBe(0);
 
@@ -57,6 +73,8 @@ test('/api/metrics 返回轻量指标且需要读取令牌', async () => {
     expect(body.instance).toBe('proc-a');
     expect(body).not.toHaveProperty('metadata');
     expect(body.capacity_meter).toMatchObject({ ok: true, source_count: 4 });
+    expect(body.capacity_layers).toMatchObject({ readable_body_bytes: 0, session_raw_bytes: 0 });
+    expect(body.raw_prune_backlog).toBe(false);
     expect((body.storage_measure as { count: number }).count).toBe(0);
   } finally {
     f.close();

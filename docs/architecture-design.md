@@ -528,11 +528,11 @@ SQLite，WAL，单文件，放仓库外。默认路径按平台惯例落在数�
 
 ### 版本与破坏式替换
 
-当前结构版本是 v17。空库在同一个事务里建到 v17。存量库的原地升级路径：v6 到 v16 打开时在单个事务里升到 v17（纯新增表、列、索引与计数器，不动旧行），更早的版本报 `schema_rebuild_required`，高版本报 `schema_version_unsupported`。
+当前结构版本是 v18。空库在同一个事务里建到 v18。存量库的原地升级路径：v6 到 v17 打开时在单个事务里升到 v18（纯新增表、列、索引与计数器，不动旧行），更早的版本报 `schema_rebuild_required`，高版本报 `schema_version_unsupported`。
 
-首版发布前的破坏式替换只对 v6 之前的库：停采集器、把数据目录整体移走或删除，让新版本建新库，旧库里的正文与派生结果一起丢弃，不存在"结构已升级、数据未迁移"的中间态。v6 起不走这条路，原因是仓库已有本机真实数据且各步变更纯新增，原地升级可执行、可验证。备份白名单收 v6 到 v17，低版本包恢复后首次打开时同样原地升级。
+首版发布前的破坏式替换只对 v6 之前的库：停采集器、把数据目录整体移走或删除，让新版本建新库，旧库里的正文与派生结果一起丢弃，不存在"结构已升级、数据未迁移"的中间态。v6 起不走这条路，原因是仓库已有本机真实数据且各步变更纯新增，原地升级可执行、可验证。备份白名单收 v6 到 v18，低版本包恢复后首次打开时同样原地升级。
 
-v17 在 v16 之上新增 `session_title`：主键 `(conv_key, source)`，`WITHOUT ROWID`，存脱敏后的标题、手动标记、来源事件时间、观察时间与不含标题原文的证据 JSON。标题是会话级读侧事实，不合成 `request` 行，也不写 `request_evidence` 或派生队列。共用摄入在没有坏行阻断的批次里调一次适配器的 `sourceTitle(state, file)`；返回的 `sessionId` 由适配器按自己的作用域判定，ingest 不从最后一步 apply 猜会话身份。行来源取标题族事件，zcode 在 `read()` 里连根会话 `title` 与根会话 id 一起交给批末状态，grok 同步读 `summary.json` 的 `generated_title` 并退回 `session_summary`。空标题不写，超过 512 个 Unicode 码点截断；自动标题不能覆盖手动标题。`listSessions` 的 full 路径与 `getSessionTitles` 把来源标题放在原三级候选之前，前者把它放在组当前性闸门之外，`light` 路径仍由 `getSessionTitles` 回填。作用域判定在适配器内部：子代理、seed 前缀与 droid `callingSessionId` 不产根标题。v16 在 v15 之上给 `tool_call`、`derive_tool_result` 与 `derive_result_work` 各加一列 `agent_ref`：工具调用启动的子代理 id，只从启动回执提取，未启动或结果不可读为 NULL，见[工具配对](#工具配对)。加列按 `PRAGMA table_info` 判存在，升级只加列不回填，旧行要显式重建才带值。v15 在 v14 之上加会话可见性过滤的覆盖索引 `i_req_session_visible(conv_key, purpose_chain, agent, started_ms DESC)`：会话列表的可见性与 Agent 目录都在 `GROUP BY conv_key` 之后按这两列过滤，旧索引不带这两列，过滤聚合退化成逐行回表。v14 在 v13 之上加 `capacity_meter` 与 12 个触发器，见[四源容量计数](#四源容量计数)。v13 在 v12 之上给 `session_usage` 加一条读侧索引 `i_session_usage_session`（`(session, agent)`）：会话摘要按 session 取累计用量，主键以 agent 开头绕不过前缀；索引 `IF NOT EXISTS`，不扫描正文，停顿毫秒级。v12 把 v11 的 `raw_droid_event` 原地改名为 `raw_session_event` 并加 `source_kind` 列：五个本地 Agent 适配器复用同一张原始层，不再各建一张同形表。改名与加列在同一事务里，旧行保留并补上 `droid_transcript` 默认值，索引重建为 `(source_kind, session_id)`；新装库若同时存在两张表，旧表行按 `INSERT OR IGNORE` 并入后删除。v11 在 v10 之上加的是 droid 原始层 `raw_droid_event` 与会话累计 `session_usage` 两张表，建表与索引全是 `IF NOT EXISTS`，不扫描存量。v10 在 v9 之上给 `request` 加 `user_fingerprint` 与 `turn_ref` 两列和两条按非空值的部分索引。v9 在 v8 之上给 `derive_queue` 加 `claim_from_sort` 列，带常量默认值。v8 在 v7 之上加的是两条部分反向索引：`i_req_prev`（`request(prev_req_id) WHERE prev_req_id IS NOT NULL`）与 `i_tool_result_req`（`tool_call(result_req) WHERE result_req IS NOT NULL`）。hook 合并按旧 id 反向改指前驱与工具结果位置，这两条 UPDATE 没有索引时是全表扫描（[采集期间交互延迟](../.agents/notes/implemented/bug-fix/2026-11-01-collection-interactive-latency.md)）；部分形状匹配写路径，两个更新绑定的参数都非空。存量库建索引的启动停顿与失败恢复归[运维手册](operations.md#schema-版本)。
+v18 在 v17 之上新增 `purged_conversation`：主键 `conv_key`，`WITHOUT ROWID`，记 `purged_at`、`first_ms`、`last_ms`、`request_count`、`reason` 与 `source_kinds`（该会话被删时存在的证据类型 JSON 数组）。整会话淘汰每个被删会话只写一行；各摄入入口在身份确定之后、写库之前查这张表，调用开始时间早于 `purged_at` 的计 `purged_skip`、只推进游标，不建行不合并；晚于 `purged_at` 的新调用按新片段正常落库。它补的是 `purged_evidence` 按证据键在文件换代后对不上的缺口；`reset-source` 是显式反悔路径，会删除 `source_kinds` 包含该来源类型的会话墓碑。v17 在 v16 之上新增 `session_title`：主键 `(conv_key, source)`，`WITHOUT ROWID`，存脱敏后的标题、手动标记、来源事件时间、观察时间与不含标题原文的证据 JSON。标题是会话级读侧事实，不合成 `request` 行，也不写 `request_evidence` 或派生队列。共用摄入在没有坏行阻断的批次里调一次适配器的 `sourceTitle(state, file)`；返回的 `sessionId` 由适配器按自己的作用域判定，ingest 不从最后一步 apply 猜会话身份。行来源取标题族事件，zcode 在 `read()` 里连根会话 `title` 与根会话 id 一起交给批末状态，grok 同步读 `summary.json` 的 `generated_title` 并退回 `session_summary`。空标题不写，超过 512 个 Unicode 码点截断；自动标题不能覆盖手动标题。`listSessions` 的 full 路径与 `getSessionTitles` 把来源标题放在原三级候选之前，前者把它放在组当前性闸门之外，`light` 路径仍由 `getSessionTitles` 回填。作用域判定在适配器内部：子代理、seed 前缀与 droid `callingSessionId` 不产根标题。v16 在 v15 之上给 `tool_call`、`derive_tool_result` 与 `derive_result_work` 各加一列 `agent_ref`：工具调用启动的子代理 id，只从启动回执提取，未启动或结果不可读为 NULL，见[工具配对](#工具配对)。加列按 `PRAGMA table_info` 判存在，升级只加列不回填，旧行要显式重建才带值。v15 在 v14 之上加会话可见性过滤的覆盖索引 `i_req_session_visible(conv_key, purpose_chain, agent, started_ms DESC)`：会话列表的可见性与 Agent 目录都在 `GROUP BY conv_key` 之后按这两列过滤，旧索引不带这两列，过滤聚合退化成逐行回表。v14 在 v13 之上加 `capacity_meter` 与 12 个触发器，见[四源容量计数](#四源容量计数)。v13 在 v12 之上给 `session_usage` 加一条读侧索引 `i_session_usage_session`（`(session, agent)`）：会话摘要按 session 取累计用量，主键以 agent 开头绕不过前缀；索引 `IF NOT EXISTS`，不扫描正文，停顿毫秒级。v12 把 v11 的 `raw_droid_event` 原地改名为 `raw_session_event` 并加 `source_kind` 列：五个本地 Agent 适配器复用同一张原始层，不再各建一张同形表。改名与加列在同一事务里，旧行保留并补上 `droid_transcript` 默认值，索引重建为 `(source_kind, session_id)`；新装库若同时存在两张表，旧表行按 `INSERT OR IGNORE` 并入后删除。v11 在 v10 之上加的是 droid 原始层 `raw_droid_event` 与会话累计 `session_usage` 两张表，建表与索引全是 `IF NOT EXISTS`，不扫描存量。v10 在 v9 之上给 `request` 加 `user_fingerprint` 与 `turn_ref` 两列和两条按非空值的部分索引。v9 在 v8 之上给 `derive_queue` 加 `claim_from_sort` 列，带常量默认值。v8 在 v7 之上加的是两条部分反向索引：`i_req_prev`（`request(prev_req_id) WHERE prev_req_id IS NOT NULL`）与 `i_tool_result_req`（`tool_call(result_req) WHERE result_req IS NOT NULL`）。hook 合并按旧 id 反向改指前驱与工具结果位置，这两条 UPDATE 没有索引时是全表扫描（[采集期间交互延迟](../.agents/notes/implemented/bug-fix/2026-11-01-collection-interactive-latency.md)）；部分形状匹配写路径，两个更新绑定的参数都非空。存量库建索引的启动停顿与失败恢复归[运维手册](operations.md#schema-版本)。
 
 v7 在 v6 之上加的是 OTLP 三张表：`raw_otlp_span`（span 原始层，主键 `(trace_id, span_id)`）、`raw_otlp_log`（logs 原始层，按记录内容哈希判重）与 `otlp_body_ref`（Claude Code 正文指针状态机）。v6 在 v5 之上加的是派生代际结构：`derive_generation`（一代一行）、`derive_request_result`、`derive_tool_result` 与四张只建不改的工作表（`derive_chain_work`、`derive_role_work`、`derive_call_work`、`derive_result_work`），并把 `derive_queue` 原地补上 `published_generation` 等列。派生结果从 `request` 行搬进代际结果表；`request` 上的旧列这一版保留不动，切片模式不写它们，同步模式照旧写。
 
@@ -546,7 +546,7 @@ v7 在 v6 之上加的是 OTLP 三张表：`raw_otlp_span`（span 原始层，�
 
 `src/config.ts` 读环境变量与 plist，负责 `dataDir`、端口与容量预算等进程装配，保持不 import 仓库内其他模块。用户可决定的选择单独放 `src/settings.ts`：默认值与白名单校验在代码里，`<dataDir>/config/settings.json` 只写与默认值不同的项，`<dataDir>/config/themes/` 预留给自定义主题。目录 0700、文件 0600，写文件走同目录临时文件加 `rename`。
 
-`settings.json` 的形状是一份扁平对象，键取 `preset`、`appearance`、`accent`、`accentSoft`、`fontSize`、`reduceMotion`、`lang`；取值枚举、颜色正则与字段完整性在 `src/settings.ts` 校验。启动时未知键、类型不符、越界取值或非法 JSON 都回退默认值并记诊断 issue，原文件不改写不删除。保存端点只收完整且固定的字段形状，拒绝未知键、缺字段与超过 4 KiB 的正文。密钥、令牌与脱敏盐不进这个文件，也不进恢复 bundle；备份与迁移见[运维手册](operations.md#用户设置文件)。
+`settings.json` 的形状是一份扁平对象，键取 `preset`、`appearance`、`accent`、`accentSoft`、`fontSize`、`reduceMotion`、`lang`、`retentionDays`、`retentionConfigured`、`runMode`；取值枚举、颜色正则与字段完整性在 `src/settings.ts` 校验。`retentionDays` 取 7 / 30 / 90 / 180 / 365 天，默认 30；`retentionConfigured` 默认 `false`，只有用户主动保存保留期后才置 `true`，自动清理在此之前只预览不删；`runMode` 取 `always` / `app`，默认常驻后台。启动时未知键、类型不符、越界取值或非法 JSON 都回退默认值并记诊断 issue，原文件不改写不删除。保存端点只收完整且固定的字段形状，拒绝未知键、缺字段与超过 4 KiB 的正文。密钥、令牌与脱敏盐不进这个文件，也不进恢复 bundle；备份与迁移见[运维手册](operations.md#用户设置文件)。
 
 ### 原始层
 
@@ -1321,7 +1321,7 @@ stats 在同一个只读事务内通过窄索引计总请求数，通过 `i_req_
 
 ### 两个预算
 
-10 GB 只覆盖正文，实际有两笔账要算。正文预算默认 10 GB、可配置，按四张来源表的逻辑载荷计量：`block.z`、`request.skeleton_z`、`raw_hook` 未清空的 `request_z` 与 `response_z`、`raw_session_event.payload_json`。回收对象仍是前两类正文；raw 层按自己的 TTL 清理。总磁盘上限默认 16 GB，计入数据库文件、WAL、临时文件与库外产物，到线时停止接收正文、只记元数据，并告警。
+10 GB 只覆盖可读正文，实际有两笔账要算。正文预算默认 10 GB，按三张来源表的逻辑载荷计量：`block.z`、`request.skeleton_z`、`raw_hook` 未清空的 `request_z` 与 `response_z`。`raw_session_event.payload_json` 变成独立的会话原文层，随会话淘汰删除，不再计入正文预算，也不再触发 `bodyFull`；回收对象仍是前两类正文。总磁盘上限默认 16 GB，计入数据库文件、WAL、临时文件与库外产物，到线时先停正文，再由 95% 档兜底。两个上限从数据目录所在盘的剩余空间推导：磁盘上限取 `min(16 GB, max(2 GB, 剩余空间 - 5 GB))`，正文预算取 `min(10 GB, 上限 × 0.625)`；环境变量 `ATC_DISK_LIMIT` / `ATC_BODY_BUDGET` 显式设置时优先。剩余空间不足 7 GB 时界面告警，保留期可能无法兑现。
 
 按 43.6 KB 一笔：
 
@@ -1335,21 +1335,21 @@ stats 在同一个只读事务内通过窄索引计总请求数，通过 `i_req_
 
 16 GB 是硬上限。只停正文挡不住整个库的增长：`request`、`request_evidence`、`route_summary` 都是长期保留的，正文停了它们照涨。按每笔约 2 KB 的读数字段加索引，4,000 笔/天约 8 MB/天，一年 2.9 GB 左右；请求量翻十倍就是 29 GB，单靠元数据就会超过 16 GB。
 
-会话原始层与四源总量由 v14 计数直接读取：`metadataSnapshot` 的 `raw_session_rows`、`raw_session_bytes` 与请求行数不再是全表求和，轻量 `/api/metrics` 也带计数结构状态。raw 层仍按 7 天 TTL 清孤儿代际与封口代际，追加代际随会话增长，当前没有按年龄回收。
+会话原始层与四源总量由 v14 计数直接读取：`metadataSnapshot` 的 `raw_session_rows`、`raw_session_bytes` 与请求行数不再是全表求和，轻量 `/api/metrics` 也带计数结构状态。raw 层仍按 7 天 TTL 清孤儿代际与封口代际；保留中会话的当前代际随会话整条淘汰，7 天 TTL 不再承诺删除当前代际。
 
 所以分两级：
 
 | 水位 | 动作 |
 | --- | --- |
 | 达到正文预算 | 按天回收正文，正常运转 |
-| 达到总磁盘 80%（12.8 GB） | 停止接收新正文，只记元数据，告警 |
-| 达到总磁盘 95%（15.2 GB） | 停止写入新证据行，只推进游标与健康计数，健康页与接口明确报告采集缺口 |
+| 达到总磁盘 80% | 停止接收新正文，只记元数据，告警 |
+| 达到总磁盘 95% | 停止写入新证据行，只推进游标与健康计数；同时从最旧的完整会话开始整条淘汰，至少保留最近 7 天，每个会话写 `reason='disk_cap'` 事件 |
 
 OTLP 摄入走同一梯度：80% 档 span 与摘要照收，body_ref 停止读文件、状态记 `metadata_only`（指针保留，腾出空间后不补读）；95% 档 `/v1/traces` 与 `/v1/logs` 整批拒绝，回 507，不产生半批入库。
 
 第二级必须在 16 GB 之前落地，否则硬上限只是一句承诺。停止写证据时要留一条可查记录：从哪个偏移开始没有入库，等空间恢复后能从那个偏移补上，不做静默丢弃。
 
-停止接收正文之后，元数据本身也不能无限长。真正到 95% 时只剩一种可执行的收敛方式：按天淘汰最旧的长期元数据。这违背元数据保留全部历史的初衷，所以它是最后一档，触发时必须显式记录淘汰区间，不能悄悄执行。
+95% 档的整会话淘汰是唯一会在用户保留期内删数据的路径：触发看准入是否仍因磁盘暂停（回滞要跌回 90% 以下才恢复写入），所以它会持续收敛到 90% 以下才停，不是删一次就收手。候选仍受在途、`purpose_pending`、派生 dirty 与开放 `source_gap` 守卫；删到只剩最近 7 天仍超过 95% 时保持暂停与告警，不越过保护线。
 
 两个量要分开测。回收之后的长期元数据成本不能从当前 43.6 KB/笔反推，那个数字含正文。不按固定天数推断触顶时间；上线后跑一段时间，单独统计 `request` 每行的实际字节（含索引），再据此判断 16 GB 是否够用。
 
@@ -1360,6 +1360,14 @@ OTLP 摄入走同一梯度：80% 档 span 与摘要照收，body_ref 停止读�
 3. 训练 zstd 字典。对块内容训练一个 64 KB 的字典，小块压缩比能改善。代价是多一套训练与版本管理流程。
 
 第一版只做分级保留，另两个留接口不做。
+
+### 会话保留
+
+发布版的保留单位是一条完整会话：`conv_key` 下所有请求的 `MAX(started_ms)` 早于 `now - retentionDays × 86,400,000` 且没有命中守卫时，整条删除。守卫包括在途请求、`purpose_pending=1`、`derive_queue.state='dirty'` 与开放/可恢复的 `source_gap`；候选选出后事务内再查一次，挡住期间新落库的请求。`conv_key IS NULL` 的孤立请求按同一截止时间逐行删。
+
+删除随请求级联证据、费用观测、工具链接、块引用、别名、后台作业、派生结果、会话标题与用量；共享的 block、`route_summary`、原始路由与同 `session`/同代际 raw 行保留。逐会话只回收本会话失去引用的块，一批删完后统一扫一次无引用块；v18 增加 `i_req_session`、`i_req_sort_generation` 与 `i_raw_session_event_generation`，存活检查与游标重置不再扫全表。原始会话行按 `(source_kind, session_id, file_generation)` 整组删，组内仍有存活请求或原始行时保留。每个会话一个写事务，会话之间让出事件循环；单次 tick 2 秒墙钟，没删完 1 分钟后继续，删完自动停。
+
+删除前写 `retention_event` 与 `purged_conversation` 墓碑。墓碑按 `purged_at` 放行晚于它的新调用，早于它的调用在各摄入入口计 `purged_skip` 并推进游标；这是会话级删除不会在下一次扫描复活的关键。自动清理在 `retentionConfigured=false` 时只预览不删，用户保存保留期后才启用。95% 磁盘档的兜底复用同一删除路径，截止点固定为 7 天前，`reason='disk_cap'`。
 
 ### 四源容量计数
 

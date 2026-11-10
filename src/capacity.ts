@@ -8,7 +8,7 @@ import { addBodyReadStats, emptyBodyReadStats } from './body-cache';
 import type { BodyReadStats } from './body-cache';
 import { measureStorage } from './retention';
 import type { StorageUsage } from './retention';
-import { capacityMeterStatus, readCapacityMeter } from './capacity-meter';
+import { capacityLayers, capacityMeterStatus, readCapacityMeter } from './capacity-meter';
 import type { CapacityMeterReading } from './capacity-meter';
 import { queuePendingSql } from './derive/state';
 
@@ -116,6 +116,17 @@ export type CapacityMetricsOptions = {
   };
 };
 
+/** 会话保留任务最近一轮的进程内结果；只记固定计数与有界时延，不落库。 */
+export type RetentionRunSummary = {
+  at_ms: number;
+  deleted_sessions: number;
+  deleted_requests: number;
+  pending_skipped: number;
+  oldest_skip_reason: string | null;
+  timed_out: boolean;
+  purge_ms_max: number | null;
+};
+
 export type CapacityMetrics = {
   startedAt: number;
   ingest: IngestMetrics;
@@ -132,6 +143,10 @@ export type CapacityMetrics = {
    * 不包含任何来源表全表求和。
    */
   storage: { measure: StorageMeasure };
+  /** raw 到期清理是否还有候选没清完；进程内布尔，不落库。 */
+  rawPrune: { setBacklog(active: boolean): void; snapshot(): boolean };
+  /** 会话保留任务最近一轮结果；进程内保存，不落库、不保存任意错误文本。 */
+  retention: { record(summary: RetentionRunSummary): void; snapshot(): RetentionRunSummary | null };
   /** 同步派生消息块解码的进程累计；切片路径暂不计入。 */
   bodyRead: {
     record(stats: BodyReadStats): void;
@@ -289,6 +304,16 @@ export function createCapacityMetrics(store: Store, dataDir: string, startedAt =
   };
   const storageMeasureSnapshot = () => ({ ...storageMeasure });
   const bodyRead = emptyBodyReadStats();
+  let rawPruneBacklog = false;
+  const rawPrune = {
+    setBacklog(active: boolean) { rawPruneBacklog = active; },
+    snapshot() { return rawPruneBacklog; },
+  };
+  let lastRetention: RetentionRunSummary | null = null;
+  const retention = {
+    record(summary: RetentionRunSummary) { lastRetention = { ...summary }; },
+    snapshot() { return lastRetention === null ? null : { ...lastRetention }; },
+  };
   const writerSnapshot = () => ({ ...store.writeStats,
     by_name: Object.fromEntries(Object.entries(store.writeStats.by_name)
       .map(([name, stats]) => [name, { ...stats }])),
@@ -338,6 +363,8 @@ export function createCapacityMetrics(store: Store, dataDir: string, startedAt =
       record(stats) { addBodyReadStats(bodyRead, stats); },
       snapshot() { return { ...bodyRead }; },
     },
+    rawPrune,
+    retention,
     eventLoop: {
       start() {
         if (timer !== null) return;
@@ -389,6 +416,11 @@ export function createCapacityMetrics(store: Store, dataDir: string, startedAt =
         storage_measured_at_ms: last?.at_ms ?? null,
         storage_measure: storageMeasureSnapshot(),
         capacity_meter: capacity,
+        // 分层占用：可读正文 / 会话原始 / raw_hook，让健康页能指出是哪一层顶到水位。
+        capacity_layers: capacityLayers(capacity),
+        raw_prune_backlog: rawPruneBacklog,
+        retention: lastRetention,
+        retention_pending_skipped: lastRetention?.pending_skipped ?? 0,
         metadata: metadataSnapshot(target, capacity),
         derive_queue: queueSnapshot(target),
       };
@@ -396,6 +428,7 @@ export function createCapacityMetrics(store: Store, dataDir: string, startedAt =
     lightSnapshot() {
       const now = Date.now();
       const last = options.admission?.() ?? null;
+      const meter = capacityMeterStatus(store.read);
       return {
         instance: options.instance ?? null,
         started_at_ms: startedAt,
@@ -412,7 +445,11 @@ export function createCapacityMetrics(store: Store, dataDir: string, startedAt =
         storage_measured_at_ms: last?.at_ms ?? null,
         storage_measure: storageMeasureSnapshot(),
         // 计数结构单独汇报：缺失或非法时给错误码，不补零伪装成容量充足。
-        capacity_meter: capacityMeterStatus(store.read),
+        capacity_meter: meter,
+        capacity_layers: capacityLayers(meter),
+        raw_prune_backlog: rawPruneBacklog,
+        retention: lastRetention,
+        retention_pending_skipped: lastRetention?.pending_skipped ?? 0,
         // 只取组级待办与最老 dirty 时间，不 JOIN 历史请求。
         derive_queue: queueBacklog(store),
         admission: last === null ? null : { mode: last.mode, reason: last.reason, at_ms: last.at_ms },

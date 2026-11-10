@@ -8,13 +8,14 @@ export type VerifyReport = {
   dangling_blocks: number;
   duplicate_evidence: number;
   pending_derivations: number;
+  purged_conversation_residue: number;
 };
 
 /**
  * 代码侧 schema 版本，与 store.ts 的 `SCHEMA_VERSION` 同步；store 升版而这里没跟
  * 时，precheck 在新装库上的 current 断言会先报红。
  */
-export const CODE_SCHEMA_VERSION = 17;
+export const CODE_SCHEMA_VERSION = 18;
 
 export type PrecheckReport = {
   ok: boolean;
@@ -42,11 +43,21 @@ export function verifyDatabase(path: string): VerifyReport {
     // clean 行是完成记录，不是积压。
     const pending = db.query<{ n: number }, []>(
       `SELECT COUNT(*) AS n FROM derive_queue WHERE ${queuePendingSql()}`).get();
+    // v18 之前建的表没有这张表；校验旧库时按 0 处理，不把「还没迁移」报成残留。
+    const hasPurged = db.query(
+      "SELECT 1 AS hit FROM sqlite_master WHERE type='table' AND name='purged_conversation'").get() !== null;
+    const residue = hasPurged
+      ? db.query<{ n: number }, []>(`
+          SELECT COUNT(*) AS n FROM request r
+          JOIN purged_conversation p ON p.conv_key = r.conv_key
+          WHERE r.started_ms < p.purged_at`).get()
+      : null;
     return {
       integrity,
       dangling_blocks: dangling?.n ?? 0,
       duplicate_evidence: duplicates?.n ?? 0,
       pending_derivations: pending?.n ?? 0,
+      purged_conversation_residue: residue?.n ?? 0,
     };
   } finally {
     db.close();

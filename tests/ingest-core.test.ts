@@ -83,3 +83,27 @@ test('metadata_only 无骨架降级 partial；已有正文不抹掉', () => {
     expect(row.miss_reason).toBeNull();
   } finally { f.close(); }
 });
+
+test('整会话墓碑：早于删除时刻的迟到证据不建行，晚于的按新片段入库', () => {
+  const f = fixture();
+  try {
+    const conv = hookConv('sess-core-0001', 'h-x');
+    f.store.write(db => db.run(`
+      INSERT INTO purged_conversation(conv_key,purged_at,first_ms,last_ms,request_count,reason,source_kinds)
+      VALUES (?,?,?,NULL,1,'retention','["hook"]')`, [conv.key, NOW + 50, NOW]));
+    f.store.write(db => {
+      let claimed = false;
+      const old = ingestRequestTx(db, CH, identity('h-old'), BODY, null,
+        () => { claimed = true; return { target: null, rule: null, candidates: [] }; }, NOW, NORMAL);
+      expect(old.purged_skip).toBe(true);
+      expect(old.reqId).toBe(0);
+      expect(claimed).toBe(false);
+      const fresh = ingestRequestTx(db, CH, { ...identity('h-new'), startedMs: NOW + 100 },
+        BODY, null, NO_CLAIM, NOW + 100, NORMAL);
+      expect(fresh.purged_skip).toBe(false);
+      expect(fresh.created).toBe(true);
+    }, 'test');
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM request').get()).toEqual({ n: 1 });
+    expect(f.store.read.query('SELECT COUNT(*) AS n FROM request_evidence').get()).toEqual({ n: 1 });
+  } finally { f.close(); }
+});

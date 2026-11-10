@@ -38,6 +38,57 @@ describe('settings 加载与校验', () => {
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
+  test('发布默认值带齐三项保留设置', () => {
+    expect(DEFAULT_SETTINGS.retentionDays).toBe(30);
+    expect(DEFAULT_SETTINGS.retentionConfigured).toBe(false);
+    expect(DEFAULT_SETTINGS.runMode).toBe('always');
+  });
+
+  test('合法保留值解析进 overrides，与默认值相同的项不落盘', () => {
+    const { overrides, issues } = parseOverrides({
+      retentionDays: 90, retentionConfigured: true, runMode: 'app',
+    });
+    expect(overrides).toEqual({ retentionDays: 90, retentionConfigured: true, runMode: 'app' });
+    expect(issues).toEqual([]);
+    expect(resolveSettings(overrides).retentionDays).toBe(90);
+    // 默认值不写进文件。
+    expect(parseOverrides({ retentionDays: 30, retentionConfigured: false, runMode: 'always' }).overrides).toEqual({});
+    for (const days of [7, 30, 90, 180, 365]) {
+      expect(parseOverrides({ retentionDays: days }).issues).toEqual([]);
+    }
+    expect(parseOverrides({ runMode: 'app' }).issues).toEqual([]);
+  });
+
+  test('非法保留期、非布尔开关与非法 runMode 回退默认并逐项记 issue', () => {
+    const { overrides, issues } = parseOverrides({ retentionDays: 45, retentionConfigured: 'yes', runMode: 'weekly' });
+    expect(overrides).toEqual({});
+    expect(issues).toEqual([
+      { key: 'retentionDays', code: 'settings_invalid_value' },
+      { key: 'retentionConfigured', code: 'settings_invalid_value' },
+      { key: 'runMode', code: 'settings_invalid_value' },
+    ]);
+    const resolved = resolveSettings(overrides);
+    expect(resolved.retentionDays).toBe(30);
+    expect(resolved.retentionConfigured).toBe(false);
+    expect(resolved.runMode).toBe('always');
+
+    const dir = tempDir();
+    try {
+      mkdirSync(join(dir, 'config'), { recursive: true, mode: 0o700 });
+      const file = join(dir, 'config', 'settings.json');
+      writeFileSync(file, `${JSON.stringify({ retentionDays: 45, retentionConfigured: 'yes', runMode: 'weekly' })}\n`, { mode: 0o600 });
+      const { diagnostics, codes } = log();
+      const payload = loadSettings(dir, diagnostics);
+      expect(payload.settings.retentionDays).toBe(30);
+      expect(payload.settings.retentionConfigured).toBe(false);
+      expect(payload.settings.runMode).toBe('always');
+      expect(payload.overrides).toEqual({});
+      expect(codes).toContain('retentionDays:settings_invalid_value');
+      expect(codes).toContain('retentionConfigured:settings_invalid_value');
+      expect(codes).toContain('runMode:settings_invalid_value');
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
   test('坏文件：未知键、错误类型、越界取值都不崩、不改写文件，并留可查 issue', () => {
     const dir = tempDir();
     try {
@@ -90,9 +141,27 @@ describe('settings 保存', () => {
       expect(() => saveSettings(dir, { ...full(), extra: 1 })).toThrow('settings_unknown_key');
       expect(() => saveSettings(dir, { appearance: 'dark' })).toThrow('settings_missing_field');
       expect(() => saveSettings(dir, full({ appearance: 'neon' as never }))).toThrow('settings_invalid_value');
+      expect(() => saveSettings(dir, full({ retentionDays: 45 as never }))).toThrow('settings_invalid_value');
+      expect(() => saveSettings(dir, full({ runMode: 'weekly' as never }))).toThrow('settings_invalid_value');
       expect(() => saveSettings(dir, null)).toThrow('settings_invalid_input');
       expect(() => saveSettings(dir, [1, 2])).toThrow('settings_invalid_input');
       expect(readFileSync(file, 'utf8')).toBe(before);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test('保留设置保存往返：只落改过的项，重新加载得到同一份生效值', () => {
+    const dir = tempDir();
+    try {
+      const next = full({ retentionDays: 180, retentionConfigured: true, runMode: 'app' });
+      const saved = saveSettings(dir, next);
+      expect(saved.settings.retentionDays).toBe(180);
+      expect(saved.settings.retentionConfigured).toBe(true);
+      expect(saved.settings.runMode).toBe('app');
+      expect(saved.overrides).toEqual({ retentionDays: 180, retentionConfigured: true, runMode: 'app' });
+      expect(JSON.parse(readFileSync(join(dir, 'config', 'settings.json'), 'utf8'))).toEqual({
+        retentionDays: 180, retentionConfigured: true, runMode: 'app',
+      });
+      expect(loadSettings(dir).settings).toEqual(next);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 

@@ -21,6 +21,7 @@ import type { SessionSummary, SummaryEntriesQuery, SummaryEntries } from './quer
 import type { Stats } from './queries/stats';
 import type { getRoute } from './queries/routes';
 import type { Settings, SettingsPayload } from './settings';
+import type { RetentionPreview } from './queries/retention-preview';
 
 /** 单笔正文区间读取的输入；token 是 owner 当时的阅读身份（if_reading）。 */
 export type RangeInput = { id: number; token: string; from: number; to: number };
@@ -76,6 +77,9 @@ export type ReadOperations = {
   bodyRanges: { input: { key: string; ranges: RangeInput[] }; output: BatchPage<ReadingBody> };
   settings: { input: Record<string, never>; output: SettingsPayload };
   saveSettings: { input: Settings; output: SettingsPayload };
+  retentionPreview: { input: { keepDays: number }; output: RetentionPreview & {
+    limits: { disk_limit_bytes: number; body_budget_bytes: number };
+  } };
 };
 
 export type ReadInput<K extends keyof ReadOperations> = ReadOperations[K]['input'];

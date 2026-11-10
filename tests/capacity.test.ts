@@ -59,7 +59,36 @@ test('容量快照包含写统计、事件循环、队列年龄与存储', () =>
     });
     expect(snapshot.ingest.rejected_total).toBe(0);
     expect(snapshot.capacity_meter).toMatchObject({ ok: true, version: 1, source_count: 4 });
+    expect(snapshot.capacity_layers).toEqual({
+      readable_body_bytes: expect.any(Number), session_raw_bytes: expect.any(Number),
+      raw_hook_bytes: expect.any(Number),
+    });
+    expect(snapshot.raw_prune_backlog).toBe(false);
     expect(snapshot.metadata).toMatchObject({ clean_groups: 0 });
+  } finally { f.close(); }
+});
+
+test('会话保留任务最近一轮结果同时进入完整与轻量快照', () => {
+  const f = fixture();
+  try {
+    const metrics = createCapacityMetrics(f.store, f.dir, 100);
+    // 没跑过时只报空值，不把 0 伪装成一轮结果。
+    expect(metrics.snapshot(f.store, f.dir)).toMatchObject({
+      retention: null, retention_pending_skipped: 0,
+    });
+    expect(metrics.lightSnapshot()).toMatchObject({
+      retention: null, retention_pending_skipped: 0,
+    });
+    const summary = {
+      at_ms: 1_700_000_000_000, deleted_sessions: 3, deleted_requests: 12,
+      pending_skipped: 5, oldest_skip_reason: 'pending', timed_out: false, purge_ms_max: 42,
+    };
+    metrics.retention.record(summary);
+    for (const snapshot of [metrics.snapshot(f.store, f.dir), metrics.lightSnapshot()]) {
+      expect(snapshot.retention).toEqual(summary);
+      expect(snapshot.retention_pending_skipped).toBe(5);
+    }
+    expect(metrics.retention.snapshot()).toEqual(summary);
   } finally { f.close(); }
 });
 

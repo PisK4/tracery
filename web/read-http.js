@@ -97,6 +97,8 @@ export function createHttpReadTransport({ fetcher, baseUrl = '', headers }) {
       case 'settings':
       case 'saveSettings':
         return '/api/settings';
+      case 'retentionPreview':
+        return `/api/retention/preview?keep-days=${input.keepDays}`;
       default:
         throw Object.assign(new Error('unsupported_operation'), { code: 'unsupported_operation' });
     }
@@ -219,6 +221,34 @@ export function createHttpReadTransport({ fetcher, baseUrl = '', headers }) {
       case 'saveSettings':
         if (!isObj(parsed) || !isObj(parsed.settings) || !isObj(parsed.overrides)) reject();
         return;
+      case 'retentionPreview': {
+        if (!isObj(parsed)) reject();
+        const nonNeg = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+        if (!Number.isSafeInteger(parsed.keep_days) || parsed.keep_days < 1
+          || typeof parsed.cutoff_ms !== 'number'
+          || !Number.isSafeInteger(parsed.sessions) || parsed.sessions < 0
+          || !Number.isSafeInteger(parsed.requests) || parsed.requests < 0) reject();
+        if (!isObj(parsed.bytes)) reject();
+        for (const key of ['readable_body', 'session_raw', 'raw_hook']) {
+          if (!nonNeg(parsed.bytes[key])) reject();
+        }
+        if (!isObj(parsed.skipped)) reject();
+        for (const key of ['dirty', 'purpose_pending', 'source_gap', 'in_flight']) {
+          if (!nonNeg(parsed.skipped[key])) reject();
+        }
+        const last = parsed.last_cleanup;
+        if (last !== null && (!isObj(last) || typeof last.at_ms !== 'number'
+          || typeof last.request_count !== 'number' || typeof last.reason !== 'string')) reject();
+        if (!isObj(parsed.limits) || typeof parsed.limits.disk_limit_bytes !== 'number'
+          || typeof parsed.limits.body_budget_bytes !== 'number') reject();
+        if (parsed.usage !== null) {
+          if (!isObj(parsed.usage)) reject();
+          for (const key of ['readable_body_bytes', 'session_raw_bytes', 'raw_hook_bytes']) {
+            if (!nonNeg(parsed.usage[key])) reject();
+          }
+        }
+        return;
+      }
       case 'readings': {
         if (!isObj(parsed)) reject();
         checkBatch(parsed.items, input.ids, parsed.next_index);
