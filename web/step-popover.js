@@ -2,13 +2,12 @@
 /**
  * 悬停浮层：单例现取现渲染。
  *
- * 中栏与右栏的可展开内容统一走这一份：锚点只落 `data-pop-key`，内容闭包在
- * 渲染时登记，悬停或聚焦时现拼 HTML。单例加注册表让浮层 DOM 零增量——
- * 每个锚点内联一份浮层 HTML 的形态在长会话窗口下不可行。
- * 生命周期与 `more-pop` 同参：160ms 悬停延迟、200ms 隐藏、focusin/focusout
- * 同源触发；换会话与显式刷新由 resetReading 整表重置。
- * 纯展示浮层（组头读数、路径、轮次输入、会话项）与交互浮层（工具参数、
- * 结果正文）共用同一外壳；后者多出形态切换与复制两个控件。
+ * 锚点只落 `data-pop-key`，内容闭包在渲染时登记，悬停或聚焦时现拼 HTML。
+ * 生命周期按「停住才弹」设计：轻量读数 400ms、工具参数/结果 600ms 延迟，
+ * 关闭后 300ms 冷却，扫过锚点不会连锁弹出；离开锚点立即取消待弹出的计时，
+ * 鼠标已经离开后不再补弹。浮层以指针为基点偏移出现，永不盖住指针。
+ * 纯展示浮层（组头读数、路径、轮次输入、子代理短标）与交互浮层
+ * （工具参数、结果正文）共用同一外壳；后者多出形态切换与复制两个控件。
  */
 
 import { esc } from './html.js';
@@ -19,19 +18,28 @@ import { byteSize, editDiff } from './tool-summary.js';
 /* ---------- 注册表：key → 内容闭包 ---------- */
 
 /** @typedef {string | {html: string, copy: string}} PopBuild 返回 {html, copy} 时 copy 是复制按钮的原文来源 */
-/** @type {Map<string, () => PopBuild>} */
+/** @typedef {{build: () => PopBuild, heavy: boolean}} PopEntry heavy 是工具参数/结果这类重内容 */
+/** @type {Map<string, PopEntry>} */
 const builds = new Map();
 
-/** @param {string} key @param {() => PopBuild} build */
-export function rememberPop(key, build) { builds.set(key, build); }
+/**
+ * @param {string} key
+ * @param {() => PopBuild} build
+ * @param {boolean} [heavy] 重内容用更长延迟，避免扫读时整块正文弹出
+ */
+export function rememberPop(key, build, heavy = false) { builds.set(key, { build, heavy }); }
 
 /** 换会话与显式刷新调用；随后的渲染会重新登记。 */
 export function resetPops() { builds.clear(); }
 
 /* ---------- 单例浮层 ---------- */
 
-const HOVER_DELAY = 160;
+const HOVER_DELAY = 400;
+const HEAVY_DELAY = 600;
+const FOCUS_DELAY = 700;
 const HIDE_DELAY = 200;
+const SUPPRESS_MS = 300;
+const SETTLE_MS = 120;
 
 /** @type {HTMLElement | null} */
 let pop = null;
@@ -41,6 +49,14 @@ let anchor = null;
 let showTimer;
 /** @type {ReturnType<typeof setTimeout> | undefined} */
 let hideTimer;
+/** @type {ReturnType<typeof setTimeout> | undefined} */
+let settleTimer;
+/** @type {ReturnType<typeof setTimeout> | undefined} */
+let clearTimer;
+/** 冷却截止时间：关闭后的短暂窗口内不再启动新的悬停计时。 */
+let suppressUntil = 0;
+/** 最近一次指针位置，浮层以此偏移出现；键盘触发回退到锚点。 */
+let pointer = { x: 0, y: 0 };
 /** 当前浮层的复制源；形态切换不替换它，复制始终给原文。 */
 let copyText = '';
 
@@ -82,12 +98,18 @@ function onPopClick(e) {
 
 function hidePop() {
   clearTimeout(showTimer);
+  clearTimeout(settleTimer);
   if (pop !== null) {
-    pop.classList.remove('show');
-    pop.replaceChildren();
+    pop.classList.remove('show', 'settling');
+    // 内容留到淡出结束再清，消失瞬间不只剩一个空壳。
+    clearTimeout(clearTimer);
+    clearTimer = setTimeout(() => {
+      if (pop !== null && !pop.classList.contains('show')) pop.replaceChildren();
+    }, 180);
   }
   anchor = null;
   copyText = '';
+  suppressUntil = Date.now() + SUPPRESS_MS;
 }
 
 function scheduleHide() {
@@ -95,15 +117,41 @@ function scheduleHide() {
   hideTimer = setTimeout(hidePop, HIDE_DELAY);
 }
 
-/** @param {Element} target */
-function showPop(target) {
+/**
+ * 以指针为基点放浮层：右下 14/18px，越界翻到另一侧并 clamp 视口；
+ * 指针永远不在浮层覆盖范围内。键盘触发用锚点 rect 的下缘作基点。
+ * @param {{x: number, y: number}} at
+ * @param {number} w @param {number} h @param {number} vw @param {number} vh
+ * @returns {{left: number, top: number}}
+ */
+export function placePop(at, w, h, vw, vh) {
+  let left = at.x + 14;
+  if (left + w > vw - 8) left = at.x - w - 14;
+  let top = at.y + 18;
+  if (top + h > vh - 8) top = at.y - h - 18;
+  // 高度由 max-height 兜底，这里只保证不越左上边界。
+  return {
+    left: Math.max(8, Math.min(left, vw - w - 8)),
+    top: Math.max(8, Math.min(top, vh - h - 8)),
+  };
+}
+
+/**
+ * @param {Element} target
+ * @param {boolean} viaKeyboard 键盘触发时没有有效指针位置，贴锚点放置
+ */
+function showPop(target, viaKeyboard) {
+  if (!target.isConnected) return;
   const key = target.getAttribute('data-pop-key');
-  const build = key !== null ? builds.get(key) : undefined;
-  if (key === null || build === undefined) return;
+  const entry = key !== null ? builds.get(key) : undefined;
+  if (key === null || entry === undefined) return;
+  if (Date.now() < suppressUntil) return;
   clearTimeout(showTimer);
   clearTimeout(hideTimer);
+  clearTimeout(settleTimer);
+  clearTimeout(clearTimer);
   const el = popEl();
-  const built = build();
+  const built = entry.build();
   if (typeof built === 'string') {
     copyText = '';
     el.innerHTML = built;
@@ -111,40 +159,71 @@ function showPop(target) {
     copyText = built.copy;
     el.innerHTML = built.html;
   }
-  el.classList.add('show');
   const r = target.getBoundingClientRect();
-  const box = el.getBoundingClientRect();
-  let x = Math.min(r.left, window.innerWidth - box.width - 8);
-  let y = r.bottom + 6;
-  if (y + box.height > window.innerHeight - 8) y = Math.max(8, r.top - box.height - 6);
-  el.style.left = `${Math.max(8, x)}px`;
-  el.style.top = `${y}px`;
+  const at = viaKeyboard ? { x: r.left, y: r.bottom } : pointer;
+  // 出现初期短暂不拦截指针：正在进行的点击不会落在刚弹出的浮层上。
+  el.classList.add('show', 'settling');
+  const pos = placePop(at, el.offsetWidth, el.offsetHeight, window.innerWidth, window.innerHeight);
+  el.style.left = `${pos.left}px`;
+  el.style.top = `${pos.top}px`;
+  settleTimer = setTimeout(() => el.classList.remove('settling'), SETTLE_MS);
   anchor = target;
 }
 
-/** 装配一次：文档级 pointerover / pointerout / focusin / focusout 委托。 */
+/** 装配一次：文档级 pointerover / pointerout / focusin / focusout / pointerdown / keydown 委托。 */
 export function initPop() {
   document.addEventListener('pointerover', (e) => {
     if (!(e.target instanceof Element)) return;
+    pointer = { x: e.clientX, y: e.clientY };
+    // `+N` 的目标清单归 more-pop，重叠时不启动 step-pop。
+    if (e.target.closest('[data-more-key]') !== null) { hidePop(); return; }
     const target = e.target.closest('[data-pop-key]');
-    if (target === null || target === anchor) return;
+    if (target === null) return;
+    // 同一锚点内移动也重置计时：停住才弹。
     clearTimeout(showTimer);
-    showTimer = setTimeout(() => showPop(target), HOVER_DELAY);
+    if (target === anchor) return;
+    const key = target.getAttribute('data-pop-key');
+    const entry = key !== null ? builds.get(key) : undefined;
+    if (entry === undefined) return;
+    // 冷却期内进入的锚点不丢弃：等冷却结束再开始计时，停住仍会弹出；
+    // 中途离开由 pointerout 清掉这个计时。
+    const wait = Math.max(0, suppressUntil - Date.now());
+    showTimer = setTimeout(() => showPop(target, false), wait + (entry.heavy ? HEAVY_DELAY : HOVER_DELAY));
   });
   document.addEventListener('pointerout', (e) => {
-    if (anchor === null || !(e.target instanceof Element)) return;
+    if (!(e.target instanceof Element)) return;
     if (e.target.closest('[data-pop-key]') === null) return;
     const to = e.relatedTarget;
     if (to instanceof Element
       && (to.closest('[data-pop-key]') !== null || to.closest('.step-pop') !== null)) return;
-    scheduleHide();
+    // 离开锚点就取消尚未触发的弹出，鼠标离开后不再补弹。
+    clearTimeout(showTimer);
+    if (anchor !== null) scheduleHide();
   });
   document.addEventListener('focusin', (e) => {
     if (!(e.target instanceof Element)) return;
-    const target = e.target.closest('[data-pop-key]');
-    if (target instanceof HTMLElement) showPop(target);
+    const target = e.target.closest('[data-pop-key]')
+      ?? e.target.closest('.compact-select')?.querySelector('[data-pop-key]') ?? null;
+    if (target === null) return;
+    clearTimeout(showTimer);
+    showTimer = setTimeout(() => showPop(target, true), FOCUS_DELAY);
   });
-  document.addEventListener('focusout', () => { if (anchor !== null) scheduleHide(); });
+  document.addEventListener('focusout', (e) => {
+    const to = e.relatedTarget;
+    if (to instanceof Element && to.closest('.step-pop') !== null) return;
+    if (anchor !== null) scheduleHide();
+  });
+  document.addEventListener('pointerdown', (e) => {
+    if (anchor === null || !(e.target instanceof Element)) return;
+    if (e.target.closest('.step-pop') !== null) return;
+    hidePop();
+  }, true);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && anchor !== null) hidePop();
+  });
+  // 浮层位置是视口坐标：滚动或改变视口后立即收起，不在错位处停留。
+  document.addEventListener('scroll', () => { if (anchor !== null) hidePop(); }, true);
+  window.addEventListener('resize', () => { if (anchor !== null) hidePop(); });
 }
 
 /* ---------- 共用片段 ---------- */
@@ -460,21 +539,6 @@ export function headPopHtml(row) {
     + (bars === '' ? '' : `<div class="sp-track">${bars}</div>`)
     + (rows === '' ? `<div class="sp-note">${t('没有计时读数')}</div>` : `<div class="sp-rows">${rows}</div>`)
     + foot;
-}
-
-/**
- * 会话项浮层：左栏扫视保持安静，概况悬停再看。
- * @param {{title: string, agents: string[], request_count: number, cost_usd?: number,
- *   last_ms: number, flags: string[], conv_key: string}} s
- */
-export function sessionPopHtml(s) {
-  /** @type {[string, unknown][]} */
-  const rows = [[t('Agent'), s.agents.join(' · ')], [t('请求'), s.request_count]];
-  if (typeof s.cost_usd === 'number') rows.push([t('费用'), `$${s.cost_usd.toFixed(2)}`]);
-  rows.push([t('最近活动'), new Date(s.last_ms).toLocaleString()]);
-  if (s.flags.length > 0) rows.push([t('标志'), s.flags.join(' · ')]);
-  rows.push(['conv_key', s.conv_key]);
-  return popHead(s.title || t('（无标题）'), t('会话概况')) + kvHtml(rows);
 }
 
 /**

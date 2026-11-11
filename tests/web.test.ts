@@ -7,7 +7,7 @@ import { backendStateHtml, backendStateText } from '../web/backend-state.js';
 import { replyCompleteness } from '../web/row-summary.js';
 import { renderTraceRows } from '../web/trace-view.js';
 import { editDiff, summaryParts, summaryTargets } from '../web/tool-summary.js';
-import { headPopHtml, resultPopHtml, toolPopHtml } from '../web/step-popover.js';
+import { headPopHtml, placePop, resultPopHtml, toolPopHtml } from '../web/step-popover.js';
 import { usagePopHtml } from '../web/usage-popover.js';
 import {
   cacheHitOf, contextStatsHtml,
@@ -1483,6 +1483,15 @@ test('图标统一走 IconPark 48 网格与 4 描边，调用名全部可解析'
 });
 
 /* ---------------- 悬停浮层：注册表现取现渲染（trace-popovers） ---------------- */
+
+test('浮层定位：指针右下偏移，越界翻到另一侧且不盖住指针', () => {
+  // 常规位置：右下 14/18px。
+  expect(placePop({ x: 100, y: 100 }, 340, 200, 1200, 800)).toEqual({ left: 114, top: 118 });
+  // 右下越界：翻到指针左上，仍不覆盖指针。
+  expect(placePop({ x: 1100, y: 700 }, 340, 200, 1200, 800)).toEqual({ left: 746, top: 482 });
+  // 视口比浮层还窄时只保证不越左上边界。
+  expect(placePop({ x: 4, y: 4 }, 340, 386, 350, 400)).toEqual({ left: 8, top: 8 });
+});
 
 test('editDiff 行级对照给出增删计数，超长护栏退 guarded', () => {
   const d = editDiff('a\nb\nc', 'a\nx\nc');
