@@ -467,6 +467,96 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .more-pop.show{opacity:1;pointer-events:auto}
 .mp-head{padding:0 9px 4px;font-size:calc(10px * var(--fs-scale));color:var(--muted);letter-spacing:.04em}
 .mp-item{padding:3px 9px;font:calc(10.5px * var(--fs-scale)) var(--mono);color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 通用悬停浮层：单例外壳，内容现取现渲染（step-popover）；more-pop 承担目标清单，
+ * step-pop 承载工具参数/结果、组头读数、路径、轮次、会话概况与用量树图。 */
+.step-pop{position:fixed;left:0;top:0;z-index:60;width:340px;max-height:380px;overflow:auto;padding:9px 11px;border-radius:8px;background:var(--surface);box-shadow:var(--shadow-overlay);opacity:0;pointer-events:none;transition:opacity .12s ease}
+.step-pop.show{opacity:1;pointer-events:auto}
+.sp-head{display:flex;align-items:baseline;gap:8px;padding-bottom:6px;margin-bottom:6px;border-bottom:1px solid var(--line)}
+.sp-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;font-size:calc(11.5px * var(--fs-scale));color:var(--text)}
+.sp-scope{flex:none;font-size:calc(10px * var(--fs-scale));color:var(--muted)}
+.sp-scope.ok{color:var(--good)}
+.sp-scope.bad{color:var(--bad)}
+.sp-scope.wait,.sp-scope.warn{color:var(--warn)}
+.sp-pair{display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:calc(10.5px * var(--fs-scale));color:var(--text-2)}
+.sp-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--missing)}
+.sp-dot.ok{background:var(--good)}
+.sp-dot.wait{background:var(--warn)}
+.sp-dot.warn{background:var(--warn)}
+.sp-dot.bad{background:var(--bad)}
+.sp-dot.miss{background:transparent;border:1px dashed var(--missing)}
+.sp-kv{display:flex;flex-direction:column;gap:2px;margin-bottom:6px}
+.sp-kv-row{display:flex;align-items:baseline;gap:6px;min-width:0}
+.sp-k{flex:none;width:92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:calc(10px * var(--fs-scale));color:var(--muted)}
+.sp-v{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:calc(10.5px * var(--fs-scale)) var(--mono);color:var(--text)}
+.sp-v.long{white-space:normal;word-break:break-all}
+.sp-ty{flex:none;font-size:calc(9.5px * var(--fs-scale));color:var(--missing)}
+.sp-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.sp-tabs{display:flex;gap:2px;padding:2px;border:1px solid var(--line);border-radius:5px}
+.sp-tabs button{padding:2px 8px;border:0;border-radius:3px;background:transparent;font-size:calc(10px * var(--fs-scale));color:var(--muted);cursor:pointer}
+.sp-tabs button[aria-pressed="true"]{background:var(--hover);color:var(--text)}
+.sp-copy{flex:none;padding:2px 8px;border:1px solid var(--line);border-radius:5px;background:transparent;font-size:calc(10px * var(--fs-scale));color:var(--text-2);cursor:pointer}
+.sp-copy:hover{background:var(--hover);color:var(--text)}
+.sp-pre{margin:4px 0 6px;padding:6px 8px;border-radius:5px;background:var(--hover);font:calc(10px * var(--fs-scale)) var(--mono);color:var(--text-2);white-space:pre-wrap;word-break:break-all;max-height:220px;overflow:auto}
+.sp-pre-main{max-height:280px}
+.sp-block-k{margin:6px 0 2px;font-size:calc(10px * var(--fs-scale));color:var(--muted)}
+.sp-diff-stat{display:flex;align-items:center;gap:10px;margin:2px 0 4px;font-size:calc(10px * var(--fs-scale));color:var(--muted)}
+.sp-delta{display:flex;gap:6px}
+.sp-delta b{font-weight:600}
+.sp-delta .add{color:var(--good)}
+.sp-delta .del{color:var(--bad)}
+.sp-diff{margin:4px 0 6px;border:1px solid var(--line);border-radius:5px;max-height:260px;overflow:auto}
+.sp-diff-line{display:flex;gap:6px;padding:0 6px;font:calc(10px * var(--fs-scale)) var(--mono);white-space:pre}
+.sp-diff-line.add{background:color-mix(in srgb,var(--good) 8%,var(--surface))}
+.sp-diff-line.del{background:color-mix(in srgb,var(--bad) 8%,var(--surface));color:var(--text-2)}
+.sp-sign{flex:none;width:10px;color:var(--missing)}
+.sp-diff-line.add .sp-sign{color:var(--good)}
+.sp-diff-line.del .sp-sign{color:var(--bad)}
+.sp-band{display:flex;align-items:baseline;gap:6px;margin:2px 0 4px;font-size:calc(10px * var(--fs-scale));color:var(--text-2)}
+.sp-band b{font-weight:600;color:var(--text)}
+.sp-items{display:flex;flex-direction:column;gap:2px;margin-bottom:6px}
+.sp-item{display:flex;align-items:center;gap:6px;min-width:0;font-size:calc(10.5px * var(--fs-scale))}
+.sp-item-k{flex:none;min-width:56px;font:calc(10px * var(--fs-scale)) var(--mono);color:var(--muted)}
+.sp-item-v{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-2)}
+.sp-text{margin:2px 0 6px;font-size:calc(11px * var(--fs-scale));line-height:1.5;color:var(--text);white-space:pre-wrap;word-break:break-word}
+.sp-note{margin:4px 0 6px;font-size:calc(10px * var(--fs-scale));color:var(--muted)}
+.sp-doc{margin-bottom:6px}
+.sp-h{margin:6px 0 2px;font-weight:600;font-size:calc(11px * var(--fs-scale));color:var(--text)}
+.sp-li{padding-left:12px;text-indent:-10px;font-size:calc(10.5px * var(--fs-scale));line-height:1.45;color:var(--text-2)}
+.sp-li::before{content:"·";margin-right:4px;color:var(--muted)}
+.sp-p{margin:2px 0;font-size:calc(10.5px * var(--fs-scale));line-height:1.5;color:var(--text-2)}
+.sp-foot{display:flex;flex-wrap:wrap;gap:4px 14px;padding-top:6px;border-top:1px solid var(--line);font-size:calc(10px * var(--fs-scale));color:var(--muted)}
+.sp-foot b{font-weight:600;color:var(--text-2)}
+.sp-track{display:flex;gap:2px;height:14px;border-radius:4px;overflow:hidden;margin:2px 0 8px}
+.sp-seg{min-width:4px}
+.sp-rows{display:flex;flex-direction:column;gap:4px;margin-bottom:4px}
+.sp-row{display:flex;align-items:center;gap:8px;font-size:calc(10.5px * var(--fs-scale));color:var(--text-2)}
+.sp-swatch{flex:none;width:10px;height:10px;border-radius:3px}
+.sp-num{margin-left:auto;font:600 calc(10.5px * var(--fs-scale)) var(--mono);color:var(--text)}
+/* 分段与瓦片共用四档蓝阶；份额排名决定档位，与 ctx-tile 的 --c 判据无关。 */
+.sp-seg.t1,.sp-swatch.t1,.up-tile.t1,.up-swatch.t1{background:var(--t1)}
+.sp-seg.t2,.sp-swatch.t2,.up-tile.t2,.up-swatch.t2{background:var(--t2)}
+.sp-seg.t3,.sp-swatch.t3,.up-tile.t3,.up-swatch.t3{background:var(--t3)}
+.sp-seg.t4,.sp-swatch.t4,.up-tile.t4,.up-swatch.t4{background:var(--t4)}
+/* 请求级用量浮层：命中大字 + 四段树图 + 固定四行明细 + 合计。 */
+.up-hit{display:flex;align-items:baseline;gap:8px;margin-bottom:8px}
+.up-hit .big{font:600 22px/1 var(--mono);color:var(--text)}
+.up-hit .cap{font-size:calc(10px * var(--fs-scale));color:var(--muted)}
+.up-map{position:relative;height:140px;margin-bottom:8px;border-radius:6px;overflow:hidden;background:var(--surface);box-shadow:inset 0 0 0 1px var(--line)}
+.up-tile{position:absolute;overflow:hidden;display:flex;flex-direction:column;padding:8px;border-radius:2px;box-shadow:inset 0 0 0 1px var(--surface)}
+.up-tile .up-name{margin-top:auto;font-size:calc(10px * var(--fs-scale));color:var(--text-2)}
+.up-tile .up-val{font:600 calc(13px * var(--fs-scale)) var(--mono);color:var(--text)}
+.up-tile .up-pct{font-size:calc(10px * var(--fs-scale));color:var(--muted)}
+.up-glyph{position:absolute;top:8px;right:8px;color:var(--text-2)}
+.up-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.up-rows{display:flex;flex-direction:column;gap:3px;margin-bottom:6px}
+.up-row{display:flex;align-items:center;gap:8px;min-width:0;font-size:calc(10.5px * var(--fs-scale))}
+.up-row .up-name{flex:1;color:var(--text-2)}
+.up-row .up-val{flex:none;font:600 calc(10.5px * var(--fs-scale)) var(--mono);color:var(--text)}
+.up-row .up-pct{flex:none;width:48px;text-align:right;font-size:calc(10px * var(--fs-scale));color:var(--muted)}
+.up-row.zero{opacity:.45}
+.up-swatch{flex:none;width:18px;height:18px;display:flex;align-items:center;justify-content:center;border-radius:4px;color:var(--text-2)}
+.up-swatch svg{width:12px;height:12px}
+[data-pop-key]:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 /* 工具调用整行等宽弱化，工具名已加重；结果正文再弱一档。 */
 .compact-select[data-kind="tool"] .compact-preview{font-family:var(--mono)}
 .compact-select[data-kind="tool"] .compact-preview code{font-size:calc(10.5px * var(--fs-scale));color:var(--text-2)}

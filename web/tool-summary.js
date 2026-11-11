@@ -32,6 +32,7 @@ const baseName = (p) => {
   if (parts.length <= 1) return parts[0] ?? '';
   return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
 };
+export { baseName };
 
 /** @param {unknown} v @returns {string | null} 非空字符串原样返回，其余 null。 */
 const nonEmpty = (v) => (typeof v === 'string' && v !== '' ? v : null);
@@ -57,8 +58,43 @@ const firstNonEmptyLine = (text) => {
   return '';
 };
 
+/** 行内 diff 的行数上限：渲染路径逐行跑，超过退回总行数对比。 */
+const INLINE_DIFF_LINES = 120;
+
+/**
+ * LCS 行级 diff：返回增删行数与带符号的行序列。纯函数，无库依赖。
+ * 任一侧超过 300 行时不跑对照（guarded），调用方退回统计或全文；
+ * 浮层只在打开时调用，行内摘要另有更低的门槛（INLINE_DIFF_LINES）。
+ * @param {string} oldText @param {string} newText
+ * @returns {{add: number, del: number, guarded: boolean,
+ *   lines: {sign: 'ctx' | 'add' | 'del', text: string}[] | null}}
+ */
+export function editDiff(oldText, newText) {
+  const a = oldText.split('\n');
+  const b = newText.split('\n');
+  if (a.length > 300 || b.length > 300) return { add: 0, del: 0, guarded: true, lines: null };
+  const n = a.length, m = b.length;
+  const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i -= 1) {
+    for (let j = m - 1; j >= 0; j -= 1) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  /** @type {{sign: 'ctx' | 'add' | 'del', text: string}[]} */
+  const lines = [];
+  let i = 0, j = 0, add = 0, del = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { lines.push({ sign: 'ctx', text: a[i] }); i += 1; j += 1; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { lines.push({ sign: 'del', text: a[i] }); del += 1; i += 1; }
+    else { lines.push({ sign: 'add', text: b[j] }); add += 1; j += 1; }
+  }
+  while (i < n) { lines.push({ sign: 'del', text: a[i] }); del += 1; i += 1; }
+  while (j < m) { lines.push({ sign: 'add', text: b[j] }); add += 1; j += 1; }
+  return { add, del, guarded: false, lines };
+}
+
 /** content 字节数读数：不足 1KB 显示 B，满 1MB 换 MB，其余 KB 一位小数。 @param {string} text */
-const byteSize = (text) => {
+export const byteSize = (text) => {
   const bytes = new TextEncoder().encode(text).length;
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -78,7 +114,8 @@ const byteSize = (text) => {
 function dispatchSummary(name, args) {
   switch (name) {
     case 'Read':
-    case 'read': {
+    case 'read':
+    case 'read_file': {
       const file = fileBase(args.file_path) ?? fileBase(args.path);
       if (file === null) return null;
       const offset = asNum(args.offset);
@@ -89,22 +126,54 @@ function dispatchSummary(name, args) {
       return range === '' ? file : `${file} · ${range}`;
     }
     case 'Edit':
-    case 'edit': {
+    case 'edit':
+    case 'patch': {
       const file = fileBase(args.file_path) ?? fileBase(args.path);
       if (file === null) return null;
       const oldS = typeof args.old_string === 'string' ? args.old_string : null;
       const newS = typeof args.new_string === 'string' ? args.new_string : null;
       const parts = [file];
-      if (oldS !== null || newS !== null) parts.push(t('{a}→{b} 行', { a: lineCount(oldS), b: lineCount(newS) }));
+      if (oldS !== null && newS !== null
+        && lineCount(oldS) <= INLINE_DIFF_LINES && lineCount(newS) <= INLINE_DIFF_LINES) {
+        // 行内增删计数由同一份 diff 数据算出，与浮层里的逐行对照同源，不写死。
+        const d = editDiff(oldS, newS);
+        parts.push(t('+{a} −{b} 行', { a: d.add, b: d.del }));
+      } else if (oldS !== null || newS !== null) {
+        parts.push(t('{a}→{b} 行', { a: lineCount(oldS), b: lineCount(newS) }));
+      }
       if (args.replace_all === true) parts.push(t('全部替换'));
       return parts.join(' · ');
     }
     case 'Write':
-    case 'write': {
+    case 'write':
+    case 'write_file': {
       const file = fileBase(args.file_path) ?? fileBase(args.path);
       if (file === null) return null;
       const content = typeof args.content === 'string' ? args.content : null;
       return content !== null ? `${file} · ${byteSize(content)}` : file;
+    }
+    case 'eval':
+    case 'execute_code':
+    case 'browser_exec': {
+      // 代码块族：code(长文本) + 短元数据。行内给语言、标题与行数，全文进浮层。
+      const code = typeof args.code === 'string' && args.code.trim() !== '' ? args.code : null;
+      if (code === null) return null;
+      const bits = [nonEmpty(args.language), nonEmpty(args.title)]
+        .filter(x => x !== null).map(x => /** @type {string} */ (x));
+      bits.push(t('{n} 行', { n: lineCount(code) }));
+      return bits.join(' · ');
+    }
+    case 'TodoWrite': {
+      const todos = Array.isArray(args.todos) ? args.todos : null;
+      if (todos === null) return null;
+      const done = todos.filter(item => item !== null && typeof item === 'object'
+        && (/** @type {Record<string, unknown>} */ (item)).status === 'completed').length;
+      return t('{n} 条 · {done} 完成', { n: todos.length, done });
+    }
+    case 'skill_manage':
+    case 'memory': {
+      const items = arrayItemsOf(args);
+      return items !== null ? t('{n} 条', { n: items.length }) : null;
     }
     case 'Bash':
     case 'bash': {
@@ -170,11 +239,13 @@ function dispatchSummary(name, args) {
       const brief = typeof args.task === 'string' ? firstNonEmptyLine(args.task) : '';
       return brief !== '' ? `${agent} · ${brief}` : agent;
     }
-    case 'web_search': {
+    case 'web_search':
+    case 'WebSearch': {
       const query = typeof args.query === 'string' && args.query.trim() !== '' ? args.query.trim() : null;
       return query === null ? null : clipChars(query, 120);
     }
-    case 'ask': {
+    case 'ask':
+    case 'AskUserQuestion': {
       const questions = Array.isArray(args.questions) ? args.questions : [];
       const first = questions.find(item => item !== null && typeof item === 'object'
         && nonEmpty((/** @type {Record<string, unknown>} */ (item)).question)) ?? null;
@@ -206,6 +277,32 @@ function fallbackSummary(args, inputText) {
   return inputText;
 }
 
+/** 第一个对象数组值：对象数组族的公共形状。 @param {Record<string, unknown>} args @returns {Record<string, unknown>[] | null} */
+const arrayItemsOf = (args) => {
+  for (const value of Object.values(args)) {
+    if (Array.isArray(value) && value.length > 0
+      && value.every(item => item !== null && typeof item === 'object' && !Array.isArray(item))) {
+      return /** @type {Record<string, unknown>[]} */ (value);
+    }
+  }
+  return null;
+};
+
+/**
+ * MCP 族按 `mcp__` 前缀统一登记一家，不逐个工具名写 case，兄弟工具不漏。
+ * 行内取前两个短字符串或数值字段做身份，长文本与数组留给浮层展开。
+ * @param {Record<string, unknown>} args @returns {string | null}
+ */
+function mcpSummary(args) {
+  const bits = [];
+  for (const value of Object.values(args)) {
+    if (typeof value === 'string' && value !== '' && value.length <= 60 && !value.includes('\n')) bits.push(value);
+    else if (typeof value === 'number' || typeof value === 'boolean') bits.push(String(value));
+    if (bits.length >= 2) break;
+  }
+  return bits.length > 0 ? bits.join(' · ') : null;
+}
+
 /**
  * 摘要拆成身份与参数段：中栏行用工具名加参数段，右栏工具往返的 chip 同样两段，
  * 悬停给完整参数。参数段不做字符数预截断：超长由列宽的省略号处理，工具名与
@@ -216,8 +313,10 @@ export function summaryParts(name, inputText) {
   const label = name !== '' ? name : t('未命名工具');
   let args = null;
   try { args = JSON.parse(inputText); } catch { /* 非 JSON 参数按原文展示 */ }
-  const dispatched = args !== null && typeof args === 'object' && !Array.isArray(args)
-    ? dispatchSummary(name, /** @type {Record<string, unknown>} */ (args))
+  const record = args !== null && typeof args === 'object' && !Array.isArray(args)
+    ? /** @type {Record<string, unknown>} */ (args) : null;
+  const dispatched = record !== null
+    ? (name.startsWith('mcp__') ? mcpSummary(record) : dispatchSummary(name, record))
     : null;
   const raw = dispatched ?? fallbackSummary(args, inputText);
   return { label, args: String(raw ?? '') };
@@ -233,9 +332,10 @@ export function toolSummary(name, inputText) {
 const MULTI_TARGET_KEYS = ['files', 'paths', 'file_paths', 'path', 'file_path'];
 
 /**
- * 中栏轨迹单行的目标清单：一次调用带多个文件时只显示第一个，其余由 `+N`
- * 按需展开。只认字符串数组，至少两项；单项仍走 `summaryParts` 的原有摘要。
- * 显示名与单目标摘要共用末两段折算（`baseName`，第 28 行）。
+ * 中栏轨迹单行的目标清单：一次调用带多个文件时只显示第一个（末两段折算），
+ * 其余由 `+N` 按需展开。只认字符串数组，至少两项；单项仍走 `summaryParts`
+ * 的原有摘要。返回完整路径：行内显示与 `+N` 清单各自决定折算深度，浮层
+ * 里给全名，不在数据源截断。
  * @param {string} inputText @returns {string[] | null}
  */
 export function summaryTargets(inputText) {
@@ -245,7 +345,7 @@ export function summaryTargets(inputText) {
   for (const key of MULTI_TARGET_KEYS) {
     const value = (/** @type {Record<string, unknown>} */ (args))[key];
     if (Array.isArray(value) && value.length > 1 && value.every(v => typeof v === 'string' && v !== '')) {
-      return value.map(v => baseName(v));
+      return value.slice();
     }
   }
   return null;

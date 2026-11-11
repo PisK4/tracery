@@ -17,7 +17,8 @@ import { esc, mdToHtml } from './html.js';
 import { t } from './i18n.js';
 import { icon } from './icons.js';
 import { clip, displayRoleOf } from './body-model.js';
-import { clipChars, summaryParts } from './tool-summary.js';
+import { summaryParts } from './tool-summary.js';
+import { rememberPop, toolPopHtml } from './step-popover.js';
 
 /** 参与角色标签统一用英文；tag 只管显示文本，CSS 类名走 roleClass。 @param {Role} role */
 export function roleTag(role) {
@@ -196,8 +197,11 @@ export function renderTools(tools) {
       ? `<span class="tool-chip miss"><span>${t('结果有多个候选，未配对')}</span></span>` : '';
     const parts = summaryParts(tool.name, tool.inputText);
     const text = parts.args === '' ? parts.label : `${parts.label} · ${parts.args}`;
+    // 参数键值/原文由悬停浮层展开（C1）：与中栏调用行同一工厂，不切页签。
+    const key = `call:${tool.owner}:${tool.ord}`;
+    rememberPop(key, () => toolPopHtml({ toolName: tool.name, toolInput: tool.inputText, result: { state: tool.state } }));
     return `<div class="tool-row">
-      <span class="tool-chip call" title="${esc(clipChars(tool.inputText))}"><span>${esc(text)}</span></span>
+      <span class="tool-chip call" tabindex="0" data-pop-key="${esc(key)}" role="img" aria-label="${esc(text)}"><span>${esc(text)}</span></span>
       ${open}${warn}
     </div>`;
   }).join('');

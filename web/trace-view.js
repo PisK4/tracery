@@ -5,7 +5,7 @@ import { esc } from './html.js';
 import { currentLocale, t } from './i18n.js';
 import { icon, rolePill } from './icons.js';
 import { bodyStateText } from './row-summary.js';
-import { clipChars, summaryParts, summaryTargets, toolSummary } from './tool-summary.js';
+import { summaryParts, summaryTargets, toolSummary, baseName } from './tool-summary.js';
 
 /** 步骤短语列表的分隔符：中文用全角，英文退回半角。 */
 const listJoin = () => (currentLocale() === 'zh' ? '；' : '; ');
@@ -620,9 +620,10 @@ function toolRowParts(step, callOf) {
   if (step.kind === 'tool') {
     const name = step.toolName ?? '';
     const chip = name !== '' ? nameChip(name) : unnamed(t('未命名工具'));
-    // 一次调用带多个文件：第一个常显，其余计数交给 +N，完整清单按需展开。
+    // 一次调用带多个文件：第一个常显（末两段折算），其余计数交给 +N，
+    // 完整路径清单由 +N 浮层展开；summaryTargets 返回完整路径，这里只折显示。
     const targets = summaryTargets(step.toolInput ?? '');
-    if (targets !== null) return { chip, args: targets[0], arrow: false, more: targets.slice(1) };
+    if (targets !== null) return { chip, args: baseName(targets[0]), arrow: false, more: targets.slice(1) };
     return { chip, args: step.toolArgs ?? '', arrow: false, more: [] };
   }
   if (step.kind === 'tool_result') {
@@ -697,14 +698,8 @@ export function renderTraceRow(row, step, callOf = null, selected = false, subTa
   const moreHtml = more.length > 0
     ? ` <span class="row-more" data-more-key="${esc(step.key)}" aria-label="${t('另有 {n} 个目标，悬停或聚焦这一行查看', { n: more.length })}" title="${t('另有 {n} 个目标', { n: more.length })}">+${more.length}</span>`
     : '';
-  // 悬停给完整信息：调用行放完整参数 JSON，结果行放调用摘要与完整结果正文；属性按 TITLE_MAX 截断。
-  let title = '';
-  if (step.kind === 'tool') {
-    title = clipChars(step.toolInput ?? '');
-  } else if (step.kind === 'tool_result') {
-    title = clipChars(args !== '' ? `${args} → ${step.text}` : step.text);
-  }
-  const titleAttr = title !== '' ? ` title="${esc(title)}"` : '';
+  // 完整信息由悬停浮层承担（data-pop-key → step-popover 现取现渲染）：
+  // 调用行给参数键值与原文，结果行给全文；原生 title 不再塞完整参数与正文。
   const previewHtml = isTool
     ? `${args !== '' ? `<code>${esc(args)}</code>` : ''}${moreHtml}${
       arrow ? '<span class="row-arrow" aria-hidden="true">→</span>' : ''}${
@@ -722,13 +717,13 @@ export function renderTraceRow(row, step, callOf = null, selected = false, subTa
   // 与显示用的「子代理 S1 / S1」无关。
   const subTagHtml = subTag === ''
     ? ''
-    : `<span class="row-sub-tag" title="${esc(row.subagent ?? '')}" aria-label="${t('子代理 S{no}', { no: row.subagent_no })}">${subTag}</span>`;
+    : `<span class="row-sub-tag" tabindex="0" data-pop-key="sub:${row.req_id}" aria-label="${t('子代理 S{no}', { no: row.subagent_no })}">${subTag}</span>`;
   return `<div class="compact-step" data-req-id="${row.req_id}">
 <div class="compact-row${step.isError === true ? ' step-error' : ''}${step.kind === 'flag' ? ' step-flag' : ''}"${statusAttr}>
-  <button class="compact-select" data-step-key="${esc(step.key)}" data-kind="${step.kind}"${step.callOrd === null ? '' : ` data-call-ord="${step.callOrd}"`} aria-current="${selected}">
+  <button class="compact-select" data-step-key="${esc(step.key)}" data-kind="${step.kind}"${step.callOrd === null ? '' : ` data-call-ord="${step.callOrd}"`}${isTool ? ` data-pop-key="${esc(step.key)}"` : ''} aria-current="${selected}">
     ${subTagHtml}${labelHtml}
     ${chip}
-    <span class="compact-preview"${titleAttr}>${previewHtml}</span>${bgNoteHtml}<span class="compact-reading">${readingHtml}</span>
+    <span class="compact-preview">${previewHtml}</span>${bgNoteHtml}<span class="compact-reading">${readingHtml}</span>
   </button>
 </div>
 </div>`;
