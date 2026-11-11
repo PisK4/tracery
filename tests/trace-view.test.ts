@@ -86,13 +86,14 @@ test('投影顺序与稳定键：旧 ord 不进步骤，承载 delta 的消息�
     '7:message:2', '7:message:3', '7:message:4:text:0', '7:message:4:call:1', '7:message:4:text:2',
   ]);
   expect(steps[4]?.source).toEqual({ side: 'request', path: 'request.messages[4].content[2]', messageOrd: 4, blockIndex: 2 });
-  // 渲染：每行只有一个选择入口，类型与内容之外不再附加状态、结果链接或箭头。
-  const html = renderTraceRows(r, steps, 4, null);
-  expect(html.match(/data-request-ordinal="4"/g)?.length).toBe(5);
+  // 渲染：每行只有一个选择入口，类型与内容之外不再附加状态、结果链接或箭头；
+  // 请求序号由模块卡组头承担，行内不再写 data-request-ordinal。
+  const html = renderTraceRows(r, steps, null);
+  expect(html).not.toContain('data-request-ordinal');
   expect(html.match(/<button /g)?.length).toBe(5);
   expect(html).not.toMatch(/compact-metrics|step-status|step-result-link|step-expand/);
   expect(html).not.toContain('<time');
-  const selected = renderTraceRows(r, steps, 4, '7:message:4:call:1');
+  const selected = renderTraceRows(r, steps, '7:message:4:call:1');
   expect(selected).toContain('data-step-key="7:message:4:call:1" data-kind="tool" aria-current="true"');
   // 末尾回复投影不进入承载组：同一回复由 projectTailReply 单独给出，键沿用 reply:*。
   const tail = projectTailReply(r, read(d, entries, reply));
@@ -133,7 +134,7 @@ test('注入与空 content 不是用户', () => {
   const reply = { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] };
   const steps = projectSteps(row(), read(d, entries, reply));
   expect(steps.map(s => s.kind)).toEqual(['user']);
-  const html = renderTraceRows(row(), steps, 1, null);
+  const html = renderTraceRows(row(), steps, null);
   expect(html).not.toContain('<img src=x');
   expect(html).toContain('&lt;img src=x');
 });
@@ -156,7 +157,7 @@ test('System 步骤：顶层独立来源键，消息级带原路径，输入总�
   // ord1 是 System 消息，不是用户输入；输入总数不含它。
   expect(steps.some(s => s.kind === 'user')).toBe(false);
   // 渲染：System 英文标签收进图标 pill 的可访问名，全文放右栏。
-  const html = renderTraceRows(row(), steps, 1, null);
+  const html = renderTraceRows(row(), steps, null);
   expect(html).toContain('aria-label="System" title="System"');
   expect(html).toContain('be nice');
 });
@@ -323,10 +324,12 @@ test('工具行上屏：chip 承载工具身份，未配对结果保持中性 To
   const steps = projectSteps(row(), read(d, [mixed, assistantEntry(3, [
     { kind: 'call', text: 'Bash({"command":"ls","description":"列目录"})', index: 0, raw: { type: 'tool_use', id: 'c1', name: 'Bash', input: { command: 'ls', description: '列目录' } }, path: 'content[0]' },
   ])], null));
-  const html = renderTraceRows(row(), steps, 3, null);
-  // 角色 pill 改为图标后，原名保留在可访问名与悬停说明里。
+  const html = renderTraceRows(row(), steps, null);
+  // 角色 pill 改为图标后，原名保留在可访问名与悬停说明里；结果行是回车形 icon
+  //（role-tool-result），不再与调用行共用扳手。
   expect(html).toContain('aria-label="Assistant" title="Assistant"');
-  expect(html).toContain('aria-label="Tool" title="Tool"');
+  expect(html).toContain('aria-label="Tool result" title="Tool result"');
+  expect(html).toContain('<path d="M18 14L8 24L18 34"/>');
   // 调用行：工具名 chip 带色类，参数段不再重复工具名。
   expect(html).toContain('row-tint">Bash</span>');
   expect(html).toContain('<code>列目录</code>');
@@ -354,12 +357,12 @@ test('结果行前缀三级：缓存内同款摘要、缓存外只工具名、�
     expect(callOrd).toBe(1);
     return { name: 'Read', inputText: JSON.stringify({ file_path: '/u/src/q.ts', offset: 1400, limit: 130 }) };
   };
-  const cached = renderTraceRows(row(), steps, 1, null, callOf);
+  const cached = renderTraceRows(row(), steps, null, callOf);
   // 一级：chip 只包工具名，参数摘要以普通文本跟随，muted 箭头后接结果正文。
   expect(cached).toContain('row-tint">Read</span>');
   expect(cached).toContain('<code>src/q.ts · 1400–1530 行</code><span class="row-arrow" aria-hidden="true">→</span><code>文件正文</code>');
   // 二级：装配层查不到调用方（返回 null）时只显示工具名，箭头后直接接结果正文。
-  const outside = renderTraceRows(row(), steps, 1, null,
+  const outside = renderTraceRows(row(), steps, null,
     () => null);
   expect(outside).toContain('row-tint">Read</span>');
   expect(outside).not.toContain('<code>src/q.ts');
@@ -367,7 +370,7 @@ test('结果行前缀三级：缓存内同款摘要、缓存外只工具名、�
   // 三级：未配对（pairOwner 为 null）中性 chip，不猜归属，也没有调用侧箭头。
   const unpairedSteps = projectSteps(row(), read(detail({ delta_ordinals: [2] }), [carrier],
     { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] }));
-  const unpaired = renderTraceRows(row(), unpairedSteps, 1, null, callOf);
+  const unpaired = renderTraceRows(row(), unpairedSteps, null, callOf);
   expect(unpaired).toContain('aria-label="Tool result"');
   expect(unpaired).not.toContain('row-arrow');
   // 结果行悬停给调用摘要与完整结果正文。
@@ -378,7 +381,7 @@ test('调用行悬停放完整参数 JSON，预览只放参数段', () => {
   const steps = projectSteps(row(), read(detail({ delta_ordinals: [4] }), [assistantEntry(4, [
     { kind: 'call', text: 'Read({...})', index: 0, raw: { type: 'tool_use', id: 'c1', name: 'Read', input: { file_path: '/u/very/long/path/queries.ts', offset: 1, limit: 5 } }, path: 'content[0]' },
   ])], null));
-  const html = renderTraceRows(row(), steps, 1, null);
+  const html = renderTraceRows(row(), steps, null);
   expect(html).toContain('title="{&quot;file_path&quot;:&quot;/u/very/long/path/queries.ts&quot;,&quot;offset&quot;:1,&quot;limit&quot;:5}"');
   expect(html).toContain('<code>path/queries.ts · 1–6 行</code>');
 });
@@ -397,11 +400,11 @@ test('is_error=true 的结果行带异常态，正常行没有', () => {
   const failedSteps = projectSteps(row(), read(detail({ delta_ordinals: [2] }), [failedBlock],
     { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] }));
   expect(failedSteps.find(s => s.kind === 'tool_result')?.isError).toBe(true);
-  expect(renderTraceRows(row(), failedSteps, 1, null)).toContain('compact-row step-error');
+  expect(renderTraceRows(row(), failedSteps, null)).toContain('compact-row step-error');
   const okSteps = projectSteps(row(), read(detail({ delta_ordinals: [2] }), [okBlock],
     { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] }));
   expect(okSteps.find(s => s.kind === 'tool_result')?.isError).toBe(false);
-  expect(renderTraceRows(row(), okSteps, 1, null)).not.toContain('step-error');
+  expect(renderTraceRows(row(), okSteps, null)).not.toContain('step-error');
 });
 
 test('dirty、branch、unknown 没有确定用户步骤', () => {
@@ -480,7 +483,7 @@ test('账本错误显示来源与原文，正文缺失不影响错误展示', ()
   snapshot.meta = { state: 'available', reply: null, capabilities: null } as never;
   const readable = projectSteps(row({ status: 404, body_state: 'available' }), snapshot);
   expect(readable.find(step => step.kind === 'flag')?.text).toContain('无回复');
-  expect(renderTraceRows(r, steps, 1, null)).toContain('&lt;unknown model&gt;');
+  expect(renderTraceRows(r, steps, null)).toContain('&lt;unknown model&gt;');
 });
 
 test('消息列表选择未投影的历史时仍定位请求原文', () => {
@@ -595,7 +598,7 @@ test('HTTP 失败、缺正文与已有步骤并存', () => {
   expect(steps.some(s => s.kind === 'user')).toBe(true);
   const failed = steps.find(s => s.status === 'failed');
   expect(failed?.text).toContain('HTTP 500');
-  const html = renderTraceRows(r, steps, 1, null);
+  const html = renderTraceRows(r, steps, null);
   expect(html.match(/请求失败 · HTTP 500/g)?.length).toBe(1);
   expect(html).not.toContain('step-status');
   const missingBody = projectSteps(row({ body_state: 'evicted' }), read(detail(), entries, { stop_reason: 'end_turn', content: [{ type: 'text', text: 'r' }] }));
@@ -619,7 +622,7 @@ test('多目标一次调用：行内只留第一个文件，+N 只带计数不�
     toolInput: JSON.stringify({ files: ['/a/one.ts', '/b/two.ts', '/c/three.ts'] }),
     toolArgs: 'one.ts +2',
   }] as never[];
-  const html = renderTraceRows(row(), steps, 1, null);
+  const html = renderTraceRows(row(), steps, null);
   expect(html).toContain('row-tint">Read</span>');
   expect(html).toContain('<code>a/one.ts</code>');
   expect(html).toContain('data-more-key="7:tool:1"');
@@ -876,7 +879,7 @@ test('背景作业配对标注：发起结果行带配对读数，完成通知�
   const notice = steps.find(s => s.kind === 'record' && s.key.endsWith(':bg'));
   expect(notice?.text).toBe('后台作业完成 · bg_3');
   expect(notice?.bgNote).toContain('bg_3 已配对 · 同一请求内');
-  const html = renderTraceRows(r, steps, 4, null);
+  const html = renderTraceRows(r, steps, null);
   expect(html).toContain('bg-note');
   expect(html).toContain('已配对 · 同一请求内');
   // 没有配对数据时不画标注，行为与此前一致。
@@ -905,7 +908,7 @@ test('行尾读数：承载消息的文本行挂产出请求的推理段，调�
   expect(steps.find(s => s.kind === 'tool')?.reading).toEqual({ kind: 'exec', ms: 2400 });
   expect(steps.find(s => s.kind === 'user')?.reading).toBeUndefined();
 
-  const html = renderTraceRows(r, steps, 1, null);
+  const html = renderTraceRows(r, steps, null);
   expect(html).toContain('<span class="row-reading reason"><span class="k" role="img" aria-label="思考" title="思考">');
   expect(html).toContain('<span class="row-reading exec"><span class="k" role="img" aria-label="执行" title="执行">');
   // 每行（含请求级记录）都有读数槽，User 行、第二段文本与记录行留空：槽宽不随内容跳。
@@ -926,7 +929,7 @@ test('读数按工具类别取档位，等待型工具不上色', () => {
     { call_id: 'r', ord: 1, tool_name: 'Read', result_req: 8, result_ord: 1, result_path: 'p', state: 'resolved', exec_ms: 12_000, agent_ref: null, agent_no: null },
     { call_id: 'a', ord: 2, tool_name: 'Agent', result_req: 8, result_ord: 2, result_path: 'p', state: 'resolved', exec_ms: 95_000, agent_ref: null, agent_no: null },
   ];
-  const html = renderTraceRows(r, projectSteps(r, read(d, entries, null), null, [], () => ({ reasoningMs: null, calls })), 1, null);
+  const html = renderTraceRows(r, projectSteps(r, read(d, entries, null), null, [], () => ({ reasoningMs: null, calls })), null);
   // 等人回答的 45s 不上档：数值照常显示，整枚标签退成中性色。
   expect(html).toContain('<span class="row-reading exec wait">');
   expect(html).toContain('aria-label="执行" title="执行"');
@@ -947,7 +950,7 @@ test('读不出时不写 0：推理段与执行段缺值都留空槽', () => {
   // 产出请求可读但没有推理段与结算时长：两行读数都留空。
   const steps = projectSteps(r, read(d, entries, null), null, [], () => ({ reasoningMs: null, calls }));
   expect(steps.filter(s => s.kind !== 'record' && s.kind !== 'flag').map(s => s.reading ?? null)).toEqual([null, null]);
-  const html = renderTraceRows(r, steps.filter(s => s.kind !== 'record' && s.kind !== 'flag'), 1, null);
+  const html = renderTraceRows(r, steps.filter(s => s.kind !== 'record' && s.kind !== 'flag'), null);
   expect(html).not.toContain('class="row-reading');
   expect(html.match(/<span class="compact-reading"><\/span>/g)?.length).toBe(2);
   // 已确认但产出请求不在窗口（prev_req_id 缺失）时同样不留读数。
@@ -1010,7 +1013,7 @@ test('无缺口不产出状态行；缺口收成一条并排在最前', () => {
   for (const text of ['分支链请求', '会话归属未确认', '新增输入未确认', '未收到回复', 'HTTP 状态未知', '回调报告失败']) {
     expect(steps.some(step => step.text.includes(text))).toBe(false);
   }
-  const html = renderTraceRows(gapRow, steps, 1, null);
+  const html = renderTraceRows(gapRow, steps, null);
   expect(html).toContain('data-kind="flag"');
   expect(html).toContain('class="compact-row step-flag" data-flag="missing_body"');
   // 状态行不伪装成 Event 角色行。
@@ -1066,19 +1069,19 @@ test('子代理标记只挂在组首行，读屏文案与显示文案分开', ()
   const r = row({ subagent: 'aedb2cec955a06a4b', subagent_no: 2 });
   const steps = projectSteps(r, read(detail(),
     [entry(2, { state: 'text', text: 'q', original: 'q' }, true)], null));
-  const html = renderTraceRows(r, steps, 1, null, null, 'S2');
+  const html = renderTraceRows(r, steps, null, null, 'S2');
   // 三行步骤只出一次标记，且落在首行。
   expect(html.match(/class="row-sub-tag"/g)?.length).toBe(1);
   expect(html.indexOf('class="row-sub-tag"')).toBeLessThan(html.indexOf('data-step-key', html.indexOf('data-step-key') + 1));
   expect(html).toContain('title="aedb2cec955a06a4b"');
   // 读屏文案按 S 编号生成，不受显示文案（首现全名或短标）影响。
   expect(html).toContain('aria-label="子代理 S2"');
-  expect(renderTraceRows(r, steps, 1, null, null, '子代理 S2')).toContain('>子代理 S2</span>');
+  expect(renderTraceRows(r, steps, null, null, '子代理 S2')).toContain('>子代理 S2</span>');
   // 主链行与独立子代理会话不传标记时不出标记。
-  expect(renderTraceRows(r, steps, 1, null, null, '')).not.toContain('row-sub-tag');
+  expect(renderTraceRows(r, steps, null, null, '')).not.toContain('row-sub-tag');
 });
 
-test('阅读视图筛选：主链排除辅助请求与折叠子代理，编号视图只留该子代理', () => {
+test('阅读视图筛选：时间线铺主代理全部请求，主链排除辅助请求与折叠子代理，编号视图只留该子代理', () => {
   const main = row({ req_id: 1, subagent: null, subagent_no: null });
   const aux = row({ req_id: 2, subagent: null, subagent_no: null, purpose_chain: 'exclude' });
   const subAux = row({ req_id: 3, subagent: 'a', subagent_no: 1, chain_role: 'aux' });
@@ -1086,21 +1089,22 @@ test('阅读视图筛选：主链排除辅助请求与折叠子代理，编号�
   // 独立子代理会话（droid）：整场就是子代理，不编号，归主链视图。
   const standalone = row({ req_id: 5, subagent: 's', subagent_no: null });
   const rows = [main, aux, subAux, sub, standalone];
-  expect(rows.filter(r => viewMatches(r, 'all')).length).toBe(5);
+  // 时间线是主代理的连续视图：辅助请求在内，折叠子代理不混进来。
+  expect(rows.filter(r => viewMatches(r, 'timeline')).map(r => r.req_id)).toEqual([1, 2, 5]);
   expect(rows.filter(r => viewMatches(r, 'main')).map(r => r.req_id)).toEqual([1, 5]);
   expect(rows.filter(r => viewMatches(r, 1)).map(r => r.req_id)).toEqual([4]);
   expect(isAuxRow(aux)).toBe(true);
   expect(isAuxRow(subAux)).toBe(true);
-  expect(viewOfRow(aux)).toBe('all');
+  expect(viewOfRow(aux)).toBe('timeline');
   expect(viewOfRow(sub)).toBe(1);
   expect(viewOfRow(main)).toBe('main');
   // 窗口重建后编号视图一笔不剩：有效视图退回主链，不给空列表。
   expect(effectiveView(rows, 2)).toBe('main');
   expect(effectiveView(rows, 1)).toBe(1);
-  expect(effectiveView(rows, 'all')).toBe('all');
+  expect(effectiveView(rows, 'timeline')).toBe('timeline');
 });
 
-test('构建点标记只挂在启动子代理的调用行，带可点的 S 编号', () => {
+test('启动子代理的跳转入口唯一落在记录块，工具名 chip 回纯展示', () => {
   const r = row();
   const entries = [assistantEntry(3, [
     { kind: 'call', text: 'Agent({})', index: 0, raw: { type: 'tool_use', id: 'a1', name: 'Agent', input: {} }, path: 'content[0]' },
@@ -1113,14 +1117,20 @@ test('构建点标记只挂在启动子代理的调用行，带可点的 S 编�
   ];
   const steps = projectSteps(r, read(d, entries, null), null, [], () => ({ reasoningMs: null, calls }));
   expect(steps.filter(s => s.kind === 'tool').map(s => s.agentNo ?? null)).toEqual([1, null]);
-  const html = renderTraceRows(r, steps, 1, null);
-  // 启动点落在工具名 chip 上：只有带启动回执的 Agent 变可跳，并带 ↗ 图标。
-  expect(html.match(/class="row-tint is-spawn"/g)?.length).toBe(1);
+  // 带启动回执的调用后追加一条记录块：键稳定、无协议坐标，agentNo 供跳转委托。
+  const spawn = steps.find(s => s.kind === 'record' && s.key.endsWith(':spawn:3:0'));
+  expect(spawn?.text).toBe('启动子代理 S1');
+  expect(spawn?.agentNo).toBe(1);
+  expect(spawn?.source).toBeNull();
+  // 记录块渲染成 rec-line jump：data-agent-no 是唯一跳转入口，不可按步骤键寻址。
+  const html = renderTraceRows(r, steps, null);
+  expect(html.match(/class="rec-line jump"/g)?.length).toBe(1);
   expect(html).toContain('data-agent-no="1"');
   expect(html).toContain('aria-label="跳转到子代理 S1"');
-  expect(html).toContain('row-tint-arrow');
-  expect(html).not.toContain('row-agent');
-  // 没有启动回执的调用行，工具名保持普通 chip，也不写一个空的 S0。
+  expect(html).not.toContain('is-spawn');
+  expect(html).not.toContain('data-step-key="7:spawn');
+  // 没有启动回执的调用行不产出记录块，工具名保持普通 chip。
   const noRef = projectSteps(r, read(d, entries, null), null, [], () => ({ reasoningMs: null, calls: calls.map(c => ({ ...c, agent_ref: null, agent_no: null })) }));
-  expect(renderTraceRows(r, noRef, 1, null)).not.toContain('is-spawn');
+  expect(noRef.some(s => s.kind === 'record' && (s.agentNo ?? null) !== null)).toBe(false);
+  expect(renderTraceRows(r, noRef, null)).not.toContain('rec-line jump');
 });

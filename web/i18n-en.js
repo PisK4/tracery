@@ -210,6 +210,10 @@ export const dict = {
   '命中': 'hit',
   '缓存读数未上报': 'Cache readings not reported',
   '耗时': 'Duration',
+
+  /* rail-facts:右栏三段 */
+  '当前 trace': 'Current trace',
+  '角色': 'Role',
   '总时长；首 token 到第一个内容，首个文本到第一个文本块，速度＝输出 ÷（总 − 首 token）': 'Total duration; first token to first content, first text to first text block, speed = output ÷ (total − first token)',
   '没有计时读数': 'No timing readings',
 
@@ -274,7 +278,7 @@ export const dict = {
   '子代理 {tag} · 前驱正文不可读': 'Subagent {tag} · predecessor body unreadable',
   '子代理 {tag}': 'Subagent {tag}',
   '子代理 S{no}': 'Subagent S{no}',
-  '全部': 'All',
+  '时间线': 'Timeline',
   '主链': 'Main chain',
   '阅读视图': 'Reading view',
   '跳转到子代理 S{no}': 'Jump to subagent S{no}',
@@ -298,7 +302,7 @@ export const dict = {
   '正在读取后续记录…': 'Reading later records…',
   '加载后续记录': 'Load later records',
   '这个会话没有已记录的请求。': 'This session has no recorded requests.',
-  '当前视图在这个窗口里没有请求；切到「全部」查看其他请求。': 'This view has no requests in the loaded window; switch to All to see the others.',
+  '当前视图在这个窗口里没有请求；切到「时间线」查看其他请求。': 'This view has no requests in the loaded window; switch to Timeline to see the others.',
   '当前窗口的请求都没有可读正文，不在对话时间线里；请求记录在会话头。': 'No request in the loaded window has a readable body, so none appear on the conversation timeline; request records are in the session header.',
   '已是最新记录': 'This is the latest record',
   '正在读取{session}的请求…': 'Reading requests of {session}…',
@@ -489,7 +493,7 @@ export const dict = {
   '执行': 'Execution',
   '失败': 'Failed',
   '缺口': 'Gap',
-  '序号表示当前窗口内的请求 · 请求 {ordinal}': 'Ordinal = request position in the loaded window · request {ordinal}',
+  '启动子代理 S{no}': 'Launch subagent S{no}',
 
   /* body-view / body-model */
   '正文未到；回调可能稍后到达。': 'Body not yet arrived; the callback may come later.',
@@ -717,6 +721,8 @@ export const dict = {
   '工具执行': 'Tool execution',
   '其他开销': 'Other overhead',
   '轮次活跃': 'turn active',
+  '窗口活跃': 'window active',
+  '耗时统计：已加载窗口的模型侧耗时，Σ 单笔 ms 拆成等待、思考与回复；工具执行在详情里未计入': 'Timing: model-side time of the loaded window, per-request ms split into wait, reasoning and reply; tool execution lives in details and is not counted here',
   '另一张图没有对应阶段': 'no counterpart in the other chart',
   'Token 统计：轮次末笔请求的上下文构成，输入侧按 prompt.parts 分类，输出侧按该笔回复分类；中心是两者之和，不跨请求相加': 'Token stats: context composition of the last request in the turn, prompt side by prompt.parts and output side by that reply; the centre is their sum, never summed across requests',
   '耗时统计：整个轮次的活跃时长，Σ ms + Σ exec_ms；只画有计时字段的阶段': 'Timing: active time of the whole turn, Σ ms + Σ exec_ms; only phases with timing fields are drawn',

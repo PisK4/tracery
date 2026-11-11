@@ -55,3 +55,4 @@ Status: implemented
 `chain_role='aux'` 与 `purpose_chain='exclude'` 的判定此前只用在行投影里，现在多了一处视图筛选；两处共用 `isAuxRow`，口径不会分叉。
 
 未做：子代理组折叠（视图筛选已覆盖「先收起再看」的主要需求，折叠仍记 todo）。视图不跨会话保留。
+「全部」视图后来被[请求级 Trace 模块与会话时间线视图](2026-11-10-request-level-trace-modules.md)部分取代：内部取值改 `timeline`，主代理按时间连续铺完整模块，辅助请求不再压成占位行；本篇的三视图模型、默认主链与 `isAuxRow` 口径继续有效。

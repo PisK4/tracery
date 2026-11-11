@@ -20,6 +20,7 @@ import { messagePathOf, replyView, topSystemText } from './body-model.js';
 import { isErrorText, loadStateText, pairStateText } from './trace-pair.js';
 import { bodyLabelText, bodyStateText } from './row-summary.js';
 import { secs, secsValue, tierOf, TIER_LIMITS } from './duration.js';
+import { KIND_LABEL } from './trace-view.js';
 import { t } from './i18n.js';
 import { usagePanelsHtml } from './usage-donuts.js';
 
@@ -457,6 +458,43 @@ export function ledgerRowsHtml(r, detail = null) {
   return `${p.timing}${p.usage}`;
 }
 
+/** 右栏概要卡共用的键值行：值空缺给占位破折号，不空着误导。 @param {string} label @param {string} value */
+function railKvRow(label, value) {
+  return `<div class="chain-row"><dt>${esc(label)}</dt><dd>${value === '' ? '<i class="miss">—</i>' : esc(value)}</dd></div>`;
+}
+
+/**
+ * 当前 trace 卡：跟随选中步骤切换，只写角色与协议坐标（messageOrd / callOrd /
+ * blockIndex / path，由 resolveSelectedSource 落出）。来源、展示行号与 messageOrd
+ * 三个泛化行按 Pis 复审撤除：角色已表明侧别，坐标比行号精确，重复面即冗余。
+ * 步骤为空或不在模块行列里时整卡省略。
+ * @param {{step: import('./trace-view.js').TraceStep | null, moduleSteps: import('./trace-view.js').TraceStep[], selectedKey: string | null, read: RequestRead | null}} input
+ * @returns {string}
+ */
+export function railCurrentTraceHtml({ step, moduleSteps, selectedKey, read }) {
+  if (step === null) return '';
+  const index = moduleSteps.findIndex(item => item.key === step.key);
+  if (index < 0) return '';
+  const source = resolveSelectedSource(step, selectedKey, read);
+  // messageOrd 与 path=request.messages[N] 重复同一个信息，按 Pis 复审不单独成行；
+  // callOrd/blockIndex/path 是不可从上下文推出的协议定位，保留。
+  const coords = [
+    source.side === 'reply' && source.target === 'call' && typeof source.callOrd === 'number'
+      ? railKvRow('callOrd', String(source.callOrd)) : '',
+    source.side === 'reply' && (source.target === 'text' || source.target === 'block') && typeof source.blockIndex === 'number'
+      ? railKvRow('blockIndex', String(source.blockIndex)) : '',
+    source.side !== 'none' && source.side !== 'evidence' && source.path !== ''
+      ? railKvRow('path', source.path) : '',
+  ].filter(Boolean).join('');
+  return `<section class="rail-section"><h3>${t('当前 trace')}<span class="grow"></span><span class="hint">${index + 1} / ${moduleSteps.length}</span></h3>
+    <dl class="chain">
+      ${railKvRow(t('角色'), KIND_LABEL[step.kind] ?? step.kind)}
+      ${coords}
+    </dl>
+    <pre class="raw" tabindex="0">${esc(step.text)}</pre>
+  </section>`;
+}
+
 /**
  * 客户端随请求声明的 reasoning_effort：正文首片的 request_fields 顶层字段。
  * 值来自骨架而不是尝试链，单次干净调用没有异常态也读得到。
@@ -610,8 +648,10 @@ export function replyFoldHtml(view, tools, reqId, completeness) {
   const rows = view.blocks.map(block => {
     const call = block.kind === 'call'
       ? tools.find(tool => tool.ord === block.index) ?? null : null;
+    // 网格是固定两列（icon 列 14px + 内容列）；art 为空也要占住第一列，
+    // 否则 rb-body 掉进 14px 列，正文一字一行竖排。
     const art = block.kind === 'thinking' ? icon('brain', 12)
-      : block.kind === 'call' ? icon('role-tool', 12) : '';
+      : block.kind === 'call' ? icon('role-tool', 12) : '<span class="ico" aria-hidden="true"></span>';
     const link = call === null ? ''
       : `<button type="button" class="fold-link" data-tool-owner="${call.owner ?? reqId}" data-call-ord="${call.ord}">${t('查看工具')}</button>`;
     const kind = block.kind === 'thinking' ? t('思考') : block.kind === 'call' ? t('调用') : block.kind === 'result' ? t('结果') : t('正文');

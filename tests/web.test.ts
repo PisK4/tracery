@@ -9,14 +9,14 @@ import { renderTraceRows } from '../web/trace-view.js';
 import { summaryTargets } from '../web/tool-summary.js';
 import {
   cacheHitOf, contextStatsHtml,
-  ledgerParts, ledgerRowsHtml, railFactsHtml, readingChangedNote,
+  ledgerParts, ledgerRowsHtml, railCurrentTraceHtml, railFactsHtml, readingChangedNote,
   structureFoldHtml, structureMoreParts, structureUnread, systemContextOf, toolOverviewHtml, toolSchemaSection,
   usageFoldHtml,
 } from '../web/rail-facts.js';
 import {
   railTabFromParam, railTabParam, resolveTraceTarget, routeReadTarget,
 } from '../web/url-route.js';
-import { agentLabel, railSummaryListHtml, sessionHead, sessionHiddenFold, sessionsListFoldHtml } from '../web/session-view.js';
+import { agentLabel, moduleHeadHtml, railSummaryListHtml, sessionHead, sessionHiddenFold, sessionsListFoldHtml } from '../web/session-view.js';
 import { hostOf } from '../web/host.js';
 import { icon } from '../web/icons.js';
 
@@ -159,6 +159,59 @@ const readingOf = (state: 'available' | 'pending' | 'ambiguous' | 'unpaired' | '
 const entryOf = (ord: number, text: string) => ({
   ord, role: 'user' as const, rawRole: 'user', blocks: [{ kind: 'text', text, index: 0, raw: text, path: 'content[0]' }],
   preview: text, input: null, isInput: false,
+});
+
+test('组头右端是推理时间与提示 token：推理按档位换色，整笔耗时不再出现', () => {
+  const base = { req_kind: 'chat', in_tok: 18_900, reasoning_span_ms: null };
+  // 无推理段：只有 token 也右对齐——sp 在任何读数前输出；整笔耗时无论多大都不进组头。
+  const plain = moduleHeadHtml({ ...base, ms: 17_470 } as never, 5);
+  expect(plain).toContain('<span class="n">#5</span>');
+  expect(plain).toContain('<span class="kind">chat</span>');
+  expect(plain).toContain('<span class="sp"></span><span class="tok"');
+  expect(plain).not.toContain('17.47');
+  expect(plain).toContain('class="tok" title="输入 token，不含缓存读取与写入"');
+  expect(plain).toContain('<svg');
+  expect(plain).toContain('18.9k');
+  // 推理段：icon + 档位色（>5s 落 t-warn），数值走 compact 口径，sp 在右端。
+  const slow = moduleHeadHtml({ ...base, reasoning_span_ms: 12_960 } as never, 5);
+  expect(slow).toContain('class="sp"');
+  expect(slow).toContain('title="思考"');
+  expect(slow).toContain('<b class="v t-warn">13.0s</b>');
+  // 5s 内是正常档弱灰。
+  const fast = moduleHeadHtml({ ...base, reasoning_span_ms: 1_200 } as never, 5);
+  expect(fast).toContain('<b class="v t-good">1.2s</b>');
+});
+
+test('当前 trace 卡：只写角色与协议坐标，来源/展示行号/messageOrd 撤除，不在模块行列表整卡省略', () => {
+  const moduleSteps = [
+    { key: '7:system', kind: 'system', text: 'sys', source: { side: 'request', path: 'request.system' } },
+    { key: '7:message:0', kind: 'user', text: '你好', source: { side: 'request', path: 'request.messages[0]', messageOrd: 0 } },
+    { key: '7:message:1', kind: 'assistant', text: '回答', source: { side: 'request', path: 'request.messages[1]', messageOrd: 1 } },
+    { key: '7:call:0', kind: 'tool', text: 'Bash({})', source: { side: 'reply', path: 'reply.calls[0]', callOrd: 0 }, callOrd: 0 },
+  ] as never[];
+  const message = railCurrentTraceHtml({ step: moduleSteps[1], moduleSteps, selectedKey: '7:message:0', read: null }) as string;
+  expect(message).toContain('2 / 4');
+  expect(message).toContain('<dt>角色</dt><dd>User</dd>');
+  expect(message).toContain('<dt>path</dt><dd>request.messages[0]</dd>');
+  // 泛化三行撤除：来源、展示行号不再重复角色与标题里的位置。
+  expect(message).not.toContain('<dt>来源</dt>');
+  expect(message).not.toContain('<dt>messageOrd</dt>');
+  expect(message).not.toContain('<dt>展示行号</dt>');
+  expect(message).toContain('<pre class="raw" tabindex="0">你好</pre>');
+  // 记录行（无协议位置）只剩角色一行；回复调用行给 callOrd。
+  const withRecord = [...moduleSteps, { key: '7:spawn:3:0', kind: 'record', text: '启动子代理 S1', source: null }] as never[];
+  const record = railCurrentTraceHtml({
+    step: withRecord[4], moduleSteps: withRecord, selectedKey: null, read: null,
+  }) as string;
+  expect(record).toContain('5 / 5');
+  expect(record).toContain('<dt>角色</dt>');
+  expect(record).not.toContain('<dt>messageOrd</dt>');
+  expect(record).not.toContain('<dt>来源</dt>');
+  const call = railCurrentTraceHtml({ step: moduleSteps[3], moduleSteps, selectedKey: null, read: null }) as string;
+  expect(call).toContain('<dt>callOrd</dt><dd>0</dd>');
+  // 无选中与投影切换间隙都整卡省略，不给半张卡。
+  expect(railCurrentTraceHtml({ step: null, moduleSteps, selectedKey: null, read: null })).toBe('');
+  expect(railCurrentTraceHtml({ step: { key: '9:message:0', kind: 'user', text: 'x', source: null } as never, moduleSteps, selectedKey: null, read: null })).toBe('');
 });
 
 function factsHtml(structureHtml: string) {
@@ -870,7 +923,7 @@ test('会话头：会话文件累计用量单独成行并标「会话累计」',
 });
 
 test('会话头：阅读视图切换只在有可过滤行时出现，计数按视图给出', () => {
-  // 窗口里没有辅助请求也没有折叠子代理：主链与全部同形，不给开关。
+  // 窗口里没有辅助请求也没有折叠子代理：主链与时间线同形，不给开关。
   const plain = sessionHead({ ...headBase, rows: [requestRow()] as never });
   expect(plain).not.toContain('view-switch');
   const html = sessionHead({
@@ -878,14 +931,14 @@ test('会话头：阅读视图切换只在有可过滤行时出现，计数按�
     rows: [requestRow(), requestRow({ req_id: 2, subagent: 'a', subagent_no: 1 })] as never,
     view: 'main',
     viewOptions: [
-      { value: 'all', label: '全部', count: 2 },
+      { value: 'timeline', label: '时间线', count: 1 },
       { value: 'main', label: '主链', count: 1 },
       { value: 1, label: '子代理 S1', count: 1 },
     ],
   });
   expect(html).toContain('class="seg view-switch"');
   expect(html).toContain('aria-label="阅读视图"');
-  expect(html).toContain('data-view="all" aria-pressed="false"');
+  expect(html).toContain('data-view="timeline" aria-pressed="false"');
   expect(html).toContain('data-view="main" aria-pressed="true"');
   expect(html).toContain('data-view="1" aria-pressed="false"');
   expect(html).toContain('子代理 S1<span class="ct">1</span>');
@@ -978,6 +1031,19 @@ test('会话指标：底部分隔栏开关控制详情，两级折叠默认收�
   expect(opened).toContain('<div class="cue-detail" id="cue-detail" role="group"');
   expect(opened).not.toContain('<div class="cue-detail" id="cue-detail" hidden');
   expect(opened).toContain('<div class="kpi-groups" id="kpi-detail" hidden>');
+  // 窗口行没有计时数据：耗时整组不出现，不给空图。
+  expect(opened).not.toContain('stat-panel');
+  // 有计时的窗口：耗时是圆环面板（与右栏同语言），在第一层、全部明细之前。
+  const timed = sessionHead({
+    ...headBase, rows: [requestRow({ ms: 2000, ttft_ms: 500 })] as never,
+    summary: summaryFixture() as never, summaryStatus: 'ready', cueOpen: true,
+  });
+  expect(timed).toContain('<section class="stat-panel" aria-label="耗时统计">');
+  expect(timed).toContain('<svg class="donut"');
+  expect(timed).toContain('模型等待');
+  expect(timed).toContain('模型回复');
+  expect(timed).toContain('窗口活跃');
+  expect(timed.indexOf('stat-panel')).toBeLessThan(timed.indexOf('kpi-more'));
 });
 
 test('两条堆叠条分段合计等于调用总数，0 值段不画', () => {
@@ -1209,7 +1275,7 @@ test('+N 目标清单越过 500 条后，先渲染的 chip 仍能取到完整清
     key: firstKey, kind: 'tool', toolName: 'Read', callOrd: 1,
     toolInput: JSON.stringify({ files: ['/a/one.ts', '/b/two.ts', '/c/three.ts'] }),
   }] as never[];
-  expect(renderTraceRows({ req_id: 101 } as never, steps, 1, null)).toContain(`data-more-key="${firstKey}"`);
+  expect(renderTraceRows({ req_id: 101 } as never, steps, null)).toContain(`data-more-key="${firstKey}"`);
   // 之后 600 个工具步骤陆续登记，越过旧实现的「超过 500 整表清空」上限。
   for (let reqId = 102; reqId <= 701; reqId++) moreTargets.remember(`${reqId}:call:1`, targets ?? []);
   // 旧实现在这里整表 clear，先渲染的 chip 悬停拿不到清单、静默失效；清单必须仍在。

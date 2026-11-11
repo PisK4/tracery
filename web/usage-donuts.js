@@ -201,6 +201,28 @@ function linkedTimeOf(tokenKey) {
 }
 
 /**
+ * 会话级耗时面板：与右栏「耗时统计」同语言的圆环加图例与时间轴，供中栏
+ * 会话指标复用。图例是只读的（span，无 data-cat），不参与跨图选中委托；
+ * 分段由调用方算好传入，中心写总量、右上角写速度。
+ * @param {DonutSeg[]} segs
+ * @param {{center: string, centerLabel: string, side: string, title: string}} meta
+ */
+export function timingPanelHtml(segs, meta) {
+  const total = segs.reduce((sum, seg) => sum + Math.max(0, seg.value), 0) || 1;
+  const rows = segs.map(seg => {
+    const pct = (seg.value / total * 100).toFixed(1);
+    return `<span class="sp-row time" title="${esc(`${seg.label} · ${pct}% · ${shortDur(seg.value)}`)}">`
+      + `<i style="background:var(--cat-${seg.color})"></i><span class="nm">${esc(seg.label)}</span>`
+      + `<span class="pct">${pct}%</span><span class="val">${esc(shortDur(seg.value))}</span></span>`;
+  }).join('');
+  return `<section class="stat-panel" aria-label="${esc(t('耗时统计'))}">
+    <header class="sp-head" title="${esc(meta.title)}">${icon('stopwatch', 12)}<span class="sp-title">${t('耗时统计')}</span><span class="sp-side">${esc(meta.side)}</span></header>
+    <div class="sp-body">${donutSvg(segs, meta.center, meta.centerLabel, 'time', null)}<div class="sp-legend">${rows}</div></div>
+    ${timeline(segs, null)}
+  </section>`;
+}
+
+/**
  * 轮次读数：Token 侧取该轮末笔有 prompt 分类的请求（单笔口径，不跨请求相加——
  * 每笔都重发完整上下文，相加会把系统提示重复计入几十次）；耗时侧按轮内请求
  * 与工具配对求和（Σ ms + Σ exec_ms 是轮次活跃时长）。

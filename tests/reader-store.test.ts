@@ -753,7 +753,7 @@ test('孤立请求原文分页失败可重试，工具结果不伪造配对', as
   const result = steps.find(step => step.kind === 'tool_result');
   expect(result?.pairOwner).toBeNull();
   expect(resolveSelectedSource(result ?? null)).toEqual({ side: 'request', target: 'message', path: 'request.messages[0]', messageOrd: 0 });
-  const html = renderTraceRows(request as never, steps, 1, null);
+  const html = renderTraceRows(request as never, steps, null);
   expect(html).not.toContain('<script>synthetic result</script>');
   expect(html).toContain('&lt;script&gt;synthetic result&lt;/script&gt;');
   expect(fx.count('body', i => i.from === 1 && i.to === 41)).toBe(2);

@@ -379,10 +379,20 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 .history-start{font-size:calc(11px * var(--fs-scale));color:var(--muted)}
 /* 滚动定位的让位随会话头实际高度走：app.js 的 syncBandTop 把头与带的高度
    写进 --head-h / --band-h，头部增减、汇总到达或清单展开都不用改样式。 */
-.trace-group{scroll-margin-top:var(--head-h,155px)}
-/* 选中高亮只落在当前步骤；请求组只留轻微边界，不再与步骤共用底色。 */
-.trace-group[aria-current="true"]{box-shadow:inset 2px 0 0 var(--line-strong)}
+/* 请求级模块卡：一笔请求一张卡。卡间距 12px、浅底细边框、组头与框内行之间
+   不画横线；选中只落在当前步骤，组作为当前模块做中性提升，不用强调色边。 */
+.trace-group{scroll-margin-top:var(--head-h,155px);margin:0 0 12px;border:1px solid var(--line);border-radius:var(--r-card);background:var(--canvas);padding:3px 4px 5px;transition:border-color var(--t-fast) var(--ease-out),background var(--t-fast) var(--ease-out)}
+.trace-group:hover{border-color:var(--line-strong)}
+.trace-group[aria-current="true"]{border-color:var(--line-strong);background:var(--surface);box-shadow:var(--shadow-card)}
 .trace-group[data-status="failed"]{box-shadow:inset 2px 0 0 var(--bad)}
+/* 组头：窗口序号、req_kind，右端推理时间与提示 token。请求级身份行，不参与行选择。 */
+.module-head{display:flex;align-items:center;gap:9px;padding:5px 8px 6px;font:calc(11px * var(--fs-scale)) var(--mono);font-variant-numeric:tabular-nums;color:var(--muted);flex-wrap:wrap;min-width:0}
+.module-head .n{font-weight:600;color:var(--text)}
+.module-head .kind{color:var(--text-2)}
+.module-head .sp{margin-left:auto}
+/* 右端读数：icon + 数值；推理时间数值按行内读数同一组档位色类换色（t-good/warn/bad 全局已定义）。 */
+.module-head .ms,.module-head .tok{display:inline-flex;align-items:center;gap:4px;font-weight:500;font-size:calc(10px * var(--fs-scale));color:var(--muted);font-variant-numeric:tabular-nums}
+.module-head .ms .v{font-weight:600;font-variant-numeric:tabular-nums}
 /* 折叠子代理的整组左缘实线：与选中（实线 strong）、失败（实线 bad）区分开，
    组底铺一档 inset。两者同时出现时实线右移 2px，和选中/失败的实线并排而不是叠在一起。
    子代理身份只在组首行给标记，后续行由这条线与组底延续；整组统一右移 8px 表示它
@@ -397,24 +407,29 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 /* 组首标记：正文级字号，全视图首现写「子代理 S1」，其后只写 S1。 */
 .row-sub-tag{flex:none;font:calc(10px * var(--fs-scale))/1.5 var(--ui);font-weight:500;letter-spacing:0;color:var(--text-2);cursor:help}
 /* 版本恢复期间显示的是上一版投影：标记绝对定位、不占高度，出现与消失都不移行；
-   组内首行右侧留出让位，文字不钻到标记下面。 */
+   组头右侧留出让位，文字不钻到标记下面。 */
 .trace-group[data-stale]{position:relative}
 .trace-group[data-stale]::after{
   content:attr(data-stale);position:absolute;top:8px;right:10px;z-index:1;
   font-size:calc(10px * var(--fs-scale));color:var(--warn);background:var(--warn-soft);border:1px solid currentColor;
   border-radius:3px;padding:1px 6px;pointer-events:none;white-space:nowrap;
 }
-.trace-group[data-stale] .compact-step:first-child .compact-select{padding-right:120px}
-.compact-step{border-bottom:1px solid var(--line)}
-.compact-row{display:flex;align-items:center;gap:10px;height:36px;min-width:0;padding-inline:5px}
+.trace-group[data-stale] .module-head{padding-right:120px}
+/* 框内行：自然行高，行间不画分隔线；组头与行之间同样无横线，由卡片边界承担分组。 */
+.compact-row{display:flex;align-items:center;gap:10px;min-height:32px;min-width:0;padding:4px 8px}
 .compact-select{display:flex;align-items:center;gap:9px;flex:1;min-width:0;text-align:left;height:100%}
 .compact-select:hover{background:var(--hover)}
 .compact-select[aria-current="true"]{background:var(--accent-soft);box-shadow:inset 2px 0 0 var(--accent)}
-/* 序号槽整个当前窗口共用一个宽度：基准 28px，按窗口最大序号的位数以等宽
-   字体的 ch 加内距扩展（--ord-digits 由步骤列表按 rows.length 写入），
-   不按每行的数字单独撑宽，标签起点不参差。 */
-.compact-meta{display:flex;align-items:center;flex:none;width:max(28px,calc(var(--ord-digits,1)*1ch + 8px));font:calc(9px * var(--fs-scale)) var(--mono);color:var(--muted)}
-.compact-meta b{font-weight:400;color:var(--text-2)}
+/* 启动子代理的记录块：点线事件行形态，是跳进 S 视图的唯一入口。 */
+.rec-line{display:flex;align-items:flex-start;gap:9px;padding:4px 8px;min-width:0;border-radius:6px}
+.rec-line .dot{width:5px;height:5px;border-radius:50%;background:var(--line-strong);flex:none;margin-top:7px}
+.rec-line .rule{width:16px;height:1px;background:var(--line-strong);flex:none;margin-top:9px}
+.rec-line .txt{font-size:calc(11px * var(--fs-scale));line-height:1.55;color:var(--text-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rec-line .txt b{font-weight:500;color:var(--text)}
+.rec-line.jump{cursor:pointer}
+.rec-line.jump .txt b,.rec-line.jump .txt{color:var(--accent-text)}
+.rec-line.jump:hover{background:var(--accent-soft)}
+.rec-line.jump:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 /* 图标：一份 16 网格、整枚缩放；颜色一律继承外层，不单独定色。 */
 .ico{display:inline-block;flex:none;vertical-align:-.18em}
 /* 折叠 affordance 统一为一枚 12px chevron：闭合朝右，展开旋转 90° 朝下。
@@ -439,14 +454,6 @@ body.rail-collapsed .col-rail,body.rail-collapsed .resize-handle{visibility:hidd
 /* 工具 chip 沿用 row-label 的低饱和底色模式，色类只包工具名；宽度随内容伸缩，
    超长省略号截断。参数摘要与结果正文以普通文本跟随，不进色类。 */
 .row-tint{flex:none;max-width:170px;padding:2px 5px;border-radius:999px;font:calc(9.5px * var(--fs-scale)) var(--mono);font-weight:600;background:var(--inset);color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* 启动点：工具名 chip 变成可跳的入口。↗ 只在有启动回执时出现，链接态随它条件化；
-   hover 与焦点只落在 chip 自身，不随整行亮，避免与行选择语义混淆。 */
-.row-tint.is-spawn{display:inline-flex;align-items:center;gap:3px;color:var(--accent);background:var(--accent-soft);cursor:pointer}
-.row-tint.is-spawn:hover{box-shadow:inset 0 0 0 1px var(--accent)}
-.row-tint.is-spawn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.row-tint-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.row-tint-arrow{display:inline-flex;flex:none;line-height:0}
-.row-tint-arrow .ico{vertical-align:0}
 .row-arrow{color:var(--muted);font-size:calc(10px * var(--fs-scale));margin:0 4px}
 /* 失败的工具结果行不再满铺 warn 软色，改虚线左缘。 */
 .compact-row.step-error{border-left:2px dashed var(--warn);padding-left:3px}
@@ -591,6 +598,14 @@ button.kpi-hero:hover{box-shadow:inset 0 0 0 1px var(--line-strong)}
 .cue-kv i{font:500 calc(9.5px * var(--fs-scale)) var(--ui);font-style:normal;letter-spacing:.03em;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis}
 .cue-kv b{font:600 calc(10.5px * var(--fs-scale)) var(--mono);color:var(--text);font-variant-numeric:tabular-nums;flex:none;margin-left:auto}
 .cue-kv.bad b{color:var(--bad)}
+/* 会话指标里的耗时面板：与右栏「耗时统计」同款 stat-panel，但铺满中栏宽度——
+   圆环与图例左右排、时间轴通栏；右栏 70px 圆环在这里放大一档。 */
+.cue-detail .stat-panel{padding:8px 10px 7px}
+.cue-detail .stat-panel .sp-body{grid-template-columns:86px minmax(0,1fr);gap:14px}
+.cue-detail .stat-panel .donut-wrap{width:86px;height:86px}
+.cue-detail .stat-panel .sp-row{cursor:default;padding:2px 2px;margin:0 -2px}
+.cue-detail .stat-panel .sp-row .nm,.cue-detail .stat-panel .sp-row .pct{font-size:calc(9.5px * var(--fs-scale))}
+.cue-detail .stat-panel .sp-row .val{font-size:calc(9.5px * var(--fs-scale))}
 @container (max-width:560px){
   .cue-board{grid-template-columns:1fr;grid-template-rows:none;gap:8px}
   .cue-account,.cue-activity{grid-row:auto;display:flex;flex-direction:column;gap:8px}
@@ -620,7 +635,6 @@ button.kpi-hero:hover{box-shadow:inset 0 0 0 1px var(--line-strong)}
 .step-list.band-above .trace-group{scroll-margin-top:calc(var(--head-h,155px) + var(--band-h,32px))}
 /* 轮次面板的空态比整栏空态紧凑。 */
 .turn-panel-empty{padding:10px 4px;text-align:left}
-@media(max-width:1300px){.compact-meta{font-size:calc(8px * var(--fs-scale))}}
 @media(max-width:620px){.compact-row{gap:5px}.compact-select{gap:5px}.compact-preview{font-size:calc(11px * var(--fs-scale))}.row-label{width:32px;height:19px}.row-tint{max-width:120px;font-size:calc(9px * var(--fs-scale))}.compact-reading{min-width:64px}.row-reading{font-size:calc(9px * var(--fs-scale));gap:3px;padding:2px 4px}.row-reading .k{font-size:calc(8.5px * var(--fs-scale))}}
 
 .msg-list{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--surface)}

@@ -21,7 +21,7 @@ import { t } from './i18n.js';
  *   placeholder: boolean, subagentTag: string, rows: CommitItem[]}} GroupModel
  *   组身份是字符串键：承载请求的组是 `req:<id>`，末尾回复组是 `tail:<id>`，同号可以相邻。
  *   `reqId` 仍是数字请求号，写进 DOM 的 `data-req` 供定位与读取；节点复用与锚点按字符串键工作。
- * @typedef {{headHtml: string, bandHtml: string, listClass: string, ordDigits: number,
+ * @typedef {{headHtml: string, bandHtml: string, listClass: string,
  *   loaderHtml: string, emptyHtml: string, endHtml: string, groups: GroupModel[],
  *   selectedStep: string | null}} MainModel
  * @typedef {{node: Element, html: string}} Shown
@@ -460,7 +460,6 @@ export function createMainView(main, options = {}) {
       listClass = model.listClass;
       list.className = listClass;
     }
-    list.style.setProperty('--ord-digits', String(model.ordDigits));
     commitChildren(model, items);
     for (const group of model.groups) commitGroup(group);
     applySelection(model.selectedStep);
