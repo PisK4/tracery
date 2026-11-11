@@ -305,3 +305,12 @@
 
 **新 worktree 的依赖软链与 `info/exclude`。**
 - 证据：2026-10-25 新建 worktree 后 `tsc --noEmit` 找不到 `@types/bun`；规则正文见[落地方案在 worktree 分支里做](implemented/process/2026-10-28-implementation-worktree.md)的「依赖」节。
+**改类型断言时先确认运行时语义，不能只让 tsc 变绿。**
+- 证据：2026-11-12 修 usage-popover 的 `tile.a.seg` 类型错（TileVal 无 seg 字段），把取值改成对 `tile.a` 整体断言成 seg 形状——类型过了，运行时取到的是包装对象而不是 seg，浏览器验收 `unknown_icon:undefined` 才暴露。正确修法是断言包装形状后取 `.seg`。
+- 防护：`/** @type */` 断言只改编译期视图；断言前后各写一行注释说明运行时拿到的是什么。断言替代取值链（`x.y` → `x`）时必须回头核对该字段在运行时是否存在。
+- Seen 1× (2026-11-12).
+
+**二进制令牌文件进 HTTP 头前先转 base64url，`cat` 直接展开会在 HTTP 层 400。**
+- 证据：2026-11-12 生产验收用 `$(cat read.token)` 放 Bearer，30 字节裸二进制里有非 ASCII，Bun 直接回无体 400（不是应用的 401/403），看起来像服务坏了。运维手册 653 行已有约定，但验收时没先查。
+- 防护：拿 `read.token`/`hook.token`/`otlp.token` 做 Bearer 时统一走 `bun -e 'readFileSync(...).toString("base64url")'`；看到「无体 400 + Connection: close」先怀疑请求头非法，不是应用逻辑。
+- Seen 1× (2026-11-12).

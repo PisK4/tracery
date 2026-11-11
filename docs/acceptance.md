@@ -2987,3 +2987,26 @@ Pis 第五轮反馈「工具的回复类换成回车键 icon」：
 ### load-more 箭头反向与副本复验（2026-11-11，同一隔离实例）
 
 Pis 第六轮反馈「查看更多 trace 的箭头反了」：`load-more` 注册表路径是向上 chevron，两个消费口（会话列表「加载更多会话」、中栏「加载后续记录」）都是向尾部追加，语义反向。注册表一处改为向下 chevron（`M12 30L24 42L36 30`），两处同修。探针确认 `#load-later` 的 svg 只含向下路径（`probe13.mjs`，会话 `015e3f87`），截图 `fix7-load-more.png`；`bun test`（web/trace-view/i18n）124 项全过，`bun run typecheck` 干净。
+
+### 轨迹悬停浮层：合成验收与生产只读验收（2026-11-12，master 4eae4f2）
+
+浮层方案（A1-A4/B1-B5/C1/E1-E5/F1-F5/G1-G2/R1，除 B2/F6/C2-C4）一批施工，合并 `4eae4f2` 后分两路验收。
+
+**合成验收**（`prototypes/synthetic-server.ts`，worktree 代码，ego-browser 桌面 1440×900）：
+
+- 工具结果行 hover：浮层出现，等宽全文（`sp-pre-main`）+ 行/字节脚注，scope「未报告」。
+- 组头 token chip hover：用量浮层 4 瓦片 + 4 明细行 + 命中大字；窄瓦片（<72×72）不写字只有色块。
+- 组头耗时 chip hover：3 段 3 行（等待/思考/回复），比例条与行序一致。
+- 会话行 hover：概况浮层 4 键值；轮次 chip hover：完整输入文本；路径 chip hover：「写入路径」标题 + 完整路径。
+- 形态切换：kv 形态浮层点「原文」后 pane hidden 切换正确、`aria-pressed` 更新、不重渲染。
+- 400px 窄屏（CDP `Emulation.setDeviceMetricsOverride`，`mobile:false`）：会话浮层 340px 宽落在视口内（left 10 / right 350）。
+- `bun test tests/web.test.ts` 80 项、`tests/http.test.ts` + `tests/read-boundaries.test.ts` 32 项全过；`bun run typecheck` 干净；`verify:notes:staged` 过。
+
+**生产只读验收**（`bun run service restart` 后，127.0.0.1:8320，未打开写入路径）：
+
+- 新静态资源带 Bearer（base64url 形式）可达：`/step-popover.js`、`/usage-popover.js` 200。
+- 真实会话行 hover：概况浮层 6 键值（含 conv_key）。
+- 真实组头 token chip hover：用量浮层 2 瓦片（新输入 37.7k 大瓦片 + 输出窄条），明细含缓存读取 0 与缓存写入 0 的淡显行，命中率 0% 为该笔真实值，费用 $0。
+- 真实组头耗时 chip hover：等待 18.9s / 思考 2m 29s / 回复 2.9s 三段，合计 2m 51s，比例条与读数一致。
+- 真实工具调用行 hover：Skill 调用浮层（键值形态 + 配对状态行）。窗口内无 Edit 调用行，diff 形态未在生产浏览器复验（单测覆盖 `sp-diff` 结构与增删计数）。
+- **已知边界**：浮层 show 态 200ms 隐藏窗口内会拦截其覆盖区域上的点击（`pointer-events:auto`），与既有 `more-pop` 同模式；hover 锚点后直接点击相邻行可能第一次落空，移开鼠标 200ms 后恢复。
