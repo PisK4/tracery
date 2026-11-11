@@ -14,7 +14,8 @@ import { currentLocale, t } from './i18n.js';
 import { agentLogoHtml } from './agent-logos.js';
 import { kk } from './rail-facts.js';
 import { bodyStateText } from './row-summary.js';
-import { compact, EXEC_MS_HINT, secs } from './duration.js';
+import { compact, EXEC_MS_HINT, secs, tierOf, TIER_LIMITS } from './duration.js';
+import { timeSegments, timingPanelHtml } from './usage-donuts.js';
 import { pairStateText } from './trace-pair.js';
 
 /** 日期格式化的 locale 标签随当前界面语言；调用点在渲染时求值，切换语言即生效。 */
@@ -206,12 +207,39 @@ function sessionKeyLabel(key) {
   return key;
 }
 
+/**
+ * 请求组的模块卡组头：窗口序号、req_kind，右端推理时间与提示 token。字段全部
+ * 来自 RequestRow，不依赖正文读取；准备中的组也照画，备齐后只有行区在变。
+ * 推理时间按行内读数同一组时长档位换色；整笔耗时进会话头指标详情，不落组头。
+ * 组头不可按步骤键寻址：它是请求级身份行，点击不产生选择。
+ * @param {RequestRow} r @param {number} ordinal
+ * @returns {string}
+ */
+export function moduleHeadHtml(r, ordinal) {
+  const parts = [
+    `<span class="n">#${ordinal}</span>`,
+    `<span class="kind">${esc(r.req_kind)}</span>`,
+  ];
+  const readings = [];
+  if (r.reasoning_span_ms !== null) {
+    const tier = ` t-${tierOf(r.reasoning_span_ms, TIER_LIMITS.reason)}`;
+    readings.push(`<span class="ms" title="${esc(t('思考'))}">${icon('reason', 12)}<b class="v${tier}">${esc(compact(r.reasoning_span_ms))}</b></span>`);
+  }
+  if (r.in_tok !== null) {
+    readings.push(`<span class="tok" title="${esc(t('输入 token，不含缓存读取与写入'))}">${icon('ctx-cache', 12)}${esc(kk(r.in_tok))}</span>`);
+  }
+  // sp 是推齐符：有读数就要有它，否则只有 token 的组头贴在 kind 后面。
+  if (readings.length > 0) parts.push('<span class="sp"></span>', ...readings);
+  return `<div class="module-head">${parts.join('')}</div>`;
+}
+
 /** @param {RequestRow[]} rows */
 function timingSummary(rows) {
   const ttfts = rows.map(r => r.ttft_ms).filter(v => v !== null).sort((a, b) => a - b);
   const durations = rows.map(r => r.ms).filter(v => v !== null);
   const median = ttfts.length === 0 ? null : ttfts[Math.floor(ttfts.length / 2)] ?? null;
   const average = durations.length === 0 ? null : durations.reduce((a, v) => a + v, 0) / durations.length;
+  const total = durations.length === 0 ? null : durations.reduce((a, v) => a + v, 0);
   // 速度只统计计时与输出都在的行：分母漏一行、分子照加，会把 OTLP 行放大成
   // 8000 tok/s。没有计时行时不给速度。
   const timed = rows.filter(r => r.out_tok !== null
@@ -221,9 +249,30 @@ function timingSummary(rows) {
     return a + Math.max(0, (r.ms ?? 0) - (r.ttft_ms ?? 0));
   }, 0);
   const outTok = timed.reduce((a, r) => a + (r.out_tok ?? 0), 0);
+  // 会话级耗时分段只拆模型侧三段：等待（Σ ttft）、思考（Σ 推理段）、回复（Σ 其余）。
+  // 工具执行在详情里、窗口内未必已读，不进会话级分段；缺 ttft 的行整笔落回复段，
+  // 与 turnUsageOf 同一降级口径，不画「其他开销」摊账。
+  let wait = 0, reasoning = 0, reply = 0;
+  let anyTiming = false;
+  for (const r of rows) {
+    if (r.ms === null) continue;
+    anyTiming = true;
+    const ttft = r.ttft_ms;
+    if (ttft === null) { reply += r.ms; continue; }
+    wait += ttft;
+    const span = r.reasoning_span_ms ?? 0;
+    reasoning += span;
+    reply += Math.max(0, r.ms - ttft - span);
+  }
   return {
-    median, average,
+    median, average, total,
     speed: genMs > 0 && outTok > 0 ? Math.round(outTok / (genMs / 1000)) : null,
+    segs: timeSegments({
+      wait: anyTiming ? wait : null,
+      reasoning: anyTiming ? reasoning : null,
+      reply: anyTiming ? reply : null,
+      exec: null, other: null,
+    }),
   };
 }
 
@@ -458,6 +507,7 @@ function sessionBoard(s, status, rows, hidden, sessionKey, hiddenFoldOpen, cueOp
   const resource = resourceGroup(s, status, rows);
   if (resource !== null) left.push(cueRow(resource.desc, resource.data));
   const perf = performanceData(rows);
+  const timing = timingSummary(rows);
   const hiddenEntry = sessionHiddenFold(rows, hidden, sessionKey, hiddenFoldOpen);
   if (perf !== '' || hiddenEntry !== '') {
     // 重绘按 data-fold 恢复 open 属性时，展开类要在构建时带上，否则单行裁掉清单。
@@ -478,7 +528,7 @@ function sessionBoard(s, status, rows, hidden, sessionKey, hiddenFoldOpen, cueOp
   }
   if (left.length === 0 && right.length === 0) return '';
   const solo = left.length === 0 || right.length === 0 ? ' solo' : '';
-  const detail = s === null ? '' : metricsDetailHtml(s, cueOpen, kpiMore);
+  const detail = s === null ? '' : metricsDetailHtml(s, cueOpen, kpiMore, perf !== '' ? timing : null);
   const toggle = s === null ? '' : `<button type="button" class="cue-toggle" data-cue-toggle aria-expanded="${cueOpen}" aria-controls="cue-detail">
     <span class="cue-chev" aria-hidden="true">${icon('chevron-right', 12)}</span>
     <span class="cue-toggle-text">${t(cueOpen ? '收起会话指标' : '展开会话指标')}</span></button>`;
@@ -509,9 +559,12 @@ function metricBar(label, total, segments, ariaNote) {
 /**
  * 指标详情：两条覆盖堆叠条 + 三张重点卡 + 默认收起的全部明细。
  * 全部字段来自首屏 `SessionSummary`，不发起读取；0 值整格省略，不写 0 也不写 —。
+ * timing 是已加载窗口的会话级耗时摘要（Σ 单笔耗时、单笔平均、首字中位、速度，
+ * 加模型侧三段 segs），由调用方从同一份 rows 算出传入；无计时行时整组省略。
  * @param {SessionSummary} s @param {boolean} open @param {boolean} more
+ * @param {{total: number|null, average: number|null, median: number|null, speed: number|null, segs: import('./usage-donuts.js').DonutSeg[]} | null} timing
  */
-function metricsDetailHtml(s, open, more) {
+function metricsDetailHtml(s, open, more, timing = null) {
   const c = s.coverage;
   const failed = s.tools.reduce((sum, tool) => sum + tool.errors, 0);
   const knownOk = Math.max(0, c.calls_error_known - failed);
@@ -587,9 +640,21 @@ function metricsDetailHtml(s, open, more) {
     s.paths.read.length > 0 ? kv('读取路径', s.paths.read.length) : '',
     readCalls > 0 ? kv('读取调用', readCalls) : '',
   ].filter(Boolean));
+  /** 耗时面板：与右栏「耗时统计」同语言的圆环加图例与时间轴，展开第一层即可见。
+   *  分段只拆模型侧三段（等待/思考/回复），中心是窗口活跃总量、右上角速度。 */
+  const timingGroup = (/** @type {{total: number|null, average: number|null, median: number|null, speed: number|null, segs: import('./usage-donuts.js').DonutSeg[]} | null} */ t0) => {
+    if (t0 === null || t0.segs.length === 0) return '';
+    return timingPanelHtml(t0.segs, {
+      center: t0.total !== null ? secs(t0.total) : '—',
+      centerLabel: t('窗口活跃'),
+      side: t0.speed !== null ? `${t0.speed} tok/s` : '',
+      title: t('耗时统计：已加载窗口的模型侧耗时，Σ 单笔 ms 拆成等待、思考与回复；工具执行在详情里未计入'),
+    });
+  };
   const groups = coverage + anomalies + scale;
   return `<div class="cue-detail" id="cue-detail"${open ? '' : ' hidden'} role="group" aria-label="${t('会话指标')}">
     <div class="kpi-visual">${bars}<div class="kpi-hero-grid">${heroes}</div></div>
+    ${timingGroup(timing)}
     ${groups === '' ? '' : `<div class="kpi-more">
       <button type="button" class="kpi-more-btn" data-kpi-more aria-expanded="${more}" aria-controls="kpi-detail">
         ${icon('chevron-right', 10)}<span>${t(more ? '收起全部明细' : '全部明细')}</span></button>
@@ -604,8 +669,8 @@ function metricsDetailHtml(s, open, more) {
  *    missingReqId: number | null, offPageReqId: number | null, windowError: string | null,
  *    summary: SessionSummary | null, summaryStatus?: 'idle' | 'loading' | 'ready' | 'absent',
  *    hiddenRows?: RequestRow[], hiddenFoldOpen?: boolean,
- *    view?: 'all' | 'main' | number, spawnFrom?: number | null,
- *    viewOptions?: Array<{value: 'all' | 'main' | number, label: string, count: number}> | null,
+ *    view?: 'timeline' | 'main' | number, spawnFrom?: number | null,
+ *    viewOptions?: Array<{value: 'timeline' | 'main' | number, label: string, count: number}> | null,
  *    cueOpen?: boolean, kpiMore?: boolean,
  *    windowAnchor: 'start' | 'latest'}} input */
 export function sessionHead(input) {

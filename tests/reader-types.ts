@@ -102,7 +102,7 @@ if (source !== null) {
 const invalidSide: number = source!.side;
 void invalidSide;
 
-const html: string = renderTraceRows(row, steps, 3, 'k');
+const html: string = renderTraceRows(row, steps, 'k');
 const summary: string = toolSummary('Bash', '{}');
 // @ts-expect-error renderTraceRows返回string；any退化时应报TS2578。
 const invalidHtml: number = renderTraceRows(row, steps, 3, null);

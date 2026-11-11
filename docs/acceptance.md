@@ -2915,3 +2915,75 @@ master `0b5c9a1`（`--no-ff` 合并 `feat/desktop-ui`）。合并后主检出的
 - `raw_prune_backlog` 仍为 `true`，是 raw 7 天 TTL 的既有积压，与本轮会话删除无关，但会叠加写负载。
 - 历史与空间面板的启用流程、数字、中英字典、1440/1180 宽度、键盘与 `prefers-reduced-motion` 仍未人工走查；本轮启用走 API，未经过面板点击。
 - 95% 磁盘兜底未在真实库触发；`runMode` 执行、桌面宿主、LaunchAgent 安装器与 6–12 个月 soak 未做。
+
+## 请求级 Trace 模块与时间线视图：隔离副本浏览器验收（2026-11-11）
+
+master `543c9e1` 基础上的 worktree `feat/request-level-trace-modules`，纯前端与文档改动，未改 schema、摄入与用途判定。本节记录单测（合成数据）与隔离实例（生产库 `.backup` 副本）上的无头浏览器验收；未部署到 8320，400px 真机复核未做。
+
+### 合成（单测）
+
+- `bun test`：244 项全过，零失败。其中 `tests/trace-view.test.ts`（119）钉时间线视图语义（`viewMatches('timeline')` 只收主代理行、辅助行归时间线）、spawn 记录块（`rec-line jump` + `data-agent-no`，chip 无 `is-spawn`，无启动回执不产出记录块）与无行内序号；`tests/web.test.ts`（71）新增两卡断言：模块概要固定段字段齐全、`trace 行数` 陈旧给占位、`prev_relation` 未读给占位、费用按 `cost_state` 门控；当前 trace 卡展示行号与协议坐标分开列、记录行无坐标、步骤不在模块行列或无选中时整卡省略。
+- `bun run typecheck` 通过。
+
+### 真实流量副本（隔离实例 8399，未碰 8320）
+
+生产库 `sqlite3 .backup` 副本（user_version 18，10.3 GB）加复制 `redaction.salt`，独立 `ATC_DATA_DIR` 与 `ATC_PORT=8399` 起服务；样本会话 `e547e109`（数百笔请求，含 10 个带 `agent_ref` 的启动回执）。无头 Chrome 探针 18+3 项：
+
+- **四档宽度（500/860/1180/1440）+ 深色**：四档全部无页面横向滚动；组头与 `trace-group` 数量一致（7/7）、`[data-request-ordinal]` 为 0；右栏首个 section 是模块概要（`#5`）。深色截图无配色异常。
+- **行点击**：两次点选（第 1 行 → 第 3 行）之间模块概要卡 outerHTML 逐字节相同；当前 trace 卡跟随换行（2/17 → 4/17），角色、来源、展示行号、`messageOrd`、`path` 齐全，末尾正文引用。
+- **子代理跳转**：点「启动子代理 S1」记录块后 URL `trace=39117`（子代理首笔），视图按钮 `data-view="1"` 独占选中，与记录块文案 S1 一致；目标组头 `#7`。
+- **翻页锚点**：行高改自然值后点「加载后续记录」向尾部追加一页，首条可见行不变、锚点残差 0px。
+- **视图命名**：切换按钮组为 `时间线 / 主链 / 子代理 S1`，无「全部」。
+- 样本截图（浅色/深色/选中态）存 `/tmp/atc-accept-modules-20261111/`，验收后随临时目录一并删除。
+
+### 边界与遗留
+
+- 400px 真机未验：headless Chrome 把 CSS 视口夹到 500px，500 档无横向溢出不能外推到手机；与 note Risks 一致，留给真机复核。
+- 会话头「这个会话不在已加载列表里」深链说明为既有行为，与本轮改动无关。
+- 探针首轮 16/18：两项失败均为探针自身写法（异步到达窗口期做全等比较、`data-view` 数字值断言写成 `S1`），产品行为无缺陷；修正探针后全部通过。
+
+### Pis 复审改三处与副本复验（2026-11-11，同一隔离实例）
+
+复审意见落地后的单测与副本复验，样本换会话 `015e3f87`（首笔窗口含带 `firstReasoning` 的行）：
+
+- **右栏撤模块概要卡**：`#rail-body` 无「模块概要」，顶部直接是当前 trace 卡，行点击后仍在；请求级事实回到读数页各卡。`railModuleSummaryHtml` 与对应单测删除。
+- **组头右端读数**：21/21 组头带 token icon；带推理段的组头是 icon + `v t-warn`（rgb(180,83,9)，阈值沿用 `TIER_LIMITS.reason` 的 5s/30s）；整笔耗时不再出现在组头。单测钉住无推理段不给 `sp`、档位色类、`compact` 数值口径。注意 `firstReasoning` 只有约 37% 的 route_summary 有值，无推理段的组头只有 token 一枚读数，是数据事实不是渲染缺陷。
+- **会话指标耗时组**：展开「会话指标」后「耗时」组齐全（总耗时 Σ 单笔 `ms`、单笔平均、首字中位、速度），实测总耗时 336.75 s 与 `timingSummary` 的窗口口径一致；无计时行时整组省略。
+- 复验后 `bun test` 246 项全过，`bun run typecheck` 干净。
+
+### Pis 第二轮截图反馈三处修正与副本复验（2026-11-11，同一隔离实例）
+
+- **组头读数错位**：只有 token 的组头读数贴在 `req_kind` 后——`sp` 推齐符原来只在推理分支输出。改为有任一读数就输出后，探针量得 token-only 组头 token 距组头右缘 8px、距 kind 514px，与带推理段组头一致（同为 8px）。单测断言反转为 `sp` 必在 token 前。
+- **耗时统计不可见**：耗时组原在「全部明细」二级折叠（默认 hidden），第一层展开看不到。提到 hero 卡与「全部明细」之间独立横排（`.kpi-timing` 四格行，560px 容器内回两列），展开「会话指标」第一层即见：总耗时 336.75 s · 单笔平均 11.22 s · 首字中位 2.41 s · 速度 62 tok/s；探针证实该组不在 `.kpi-groups` 内且位于 `.kpi-more` 之前。无计时行整组不出现的口径不变，单测补两条断言。
+- **本次回复正文块竖排**：正文与结果块的 icon 为空，`rb-body` 掉进 `reply-block` 固定网格的 14px icon 列，正文一字一行。空 icon 补占位 `<span class="ico">` 后探针量得正文块预览宽 380px、高 14px（一行内），调用与思考块不受影响。
+- 复验探针 3/3 PASS（`/tmp/atc-accept-modules-20261111/probe8.mjs`，会话 `015e3f87`，1440×900），截图 `fix1/fix2/fix3-*.png`；`bun test tests/web.test.ts tests/i18n-coverage.test.ts` 74 项全过，`bun run typecheck` 干净。
+
+### 耗时改成图：会话指标耗时面板与副本复验（2026-11-11，同一隔离实例）
+
+Pis 第三轮反馈「耗时统计是要图，现在仍然没有」——文字行不算图。会话指标里换成与右栏用量卡同语言的「耗时统计」面板（圆环 + 图例 + 时间轴），复用 `usage-donuts.js` 新导出 `timingPanelHtml`：
+
+- **分段口径**：只拆模型侧三段——模型等待＝Σ 单笔 `ttft_ms`（18.2%）、模型思考＝Σ 推理段（3.3%）、模型回复＝Σ 其余（78.5%），缺 `ttft` 的整笔落回复段，与 `turnUsageOf` 同一降级口径；**工具执行不进会话级分段**（`exec_ms` 在详情里、窗口内未必已读，画了会随读取进度漂移），无「其他开销」摊账。中心是窗口活跃总量 336.75 s，右上角 62 tok/s，时间轴刻度 0/1m1s/1m12s/5m37s。
+- **探针复验**（`probe10.mjs`，会话 `015e3f87`，1440×900）：面板存在、圆环 3 段、图例 3 行与段数一致、时间轴在、圆环 86px、位于「全部明细」之前；截图 `fix4-timing-chart.png`。
+- **单测**：断言换成 stat-panel/donut SVG/图例标签（模型等待、模型回复、窗口活跃）与位置序（stat-panel 在 kpi-more 前）；无计时行不出现 stat-panel。`bun test`（web/i18n/trace-view）124 项全过，`bun run typecheck` 干净；`verify:notes` 过。
+- **i18n**：新增「窗口活跃」与耗时面板 title 两键；删除不再被引用的「总耗时/单笔平均/首字中位」三键（闸门确认无残留引用）。
+- 遗留同前：400px 真机未验；图例只读、不参与双圆环跨图选中（跨图联动需要同一屏的两个图，会话指标不与 token 图同屏，无联动语义）。
+
+### 当前 trace 卡撤三个泛化行与副本复验（2026-11-11，同一隔离实例）
+
+Pis 第四轮反馈「当前 trace 中 来源/展示行号/messageOrd 可以移除」：
+
+- **撤除**：`railCurrentTraceHtml` 只留角色与协议坐标（`callOrd`/`blockIndex`/`path`）；来源（`request / message` 等 side/target 拼接）、展示行号（与标题 hint `2 / 4` 重复）、`messageOrd`（与 `path=request.messages[0]` 重复）三行删除。记录行无坐标，只剩角色一行。
+- **i18n**：删孤儿键四个（来源/展示行号/组级证据/请求级记录），闸门确认无残留引用。
+- **单测**：当前 trace 卡测试换断言——三行 `not.toContain`、坐标行保留、记录行只剩角色；`bun test`（web/i18n）74 项全过，`bun run typecheck` 干净。
+
+### 工具结果行换回车形图标与副本复验（2026-11-11，同一隔离实例）
+
+Pis 第五轮反馈「工具的回复类换成回车键 icon」：
+
+- **改动**：`icons.js` 注册表新增 `role-tool-result`（corner-down-left 回车形）；`rolePill` 映射加 `Tool result` 键；`KIND_LABEL.tool_result` 由 `'Tool'` 改 `'Tool result'`（只进 icon 选择与 aria-label/title，可见 chip 仍是工具名）；色类不变（tool 橙系），不新增色彩档位。
+- **探针复验**（`probe12.mjs`，会话 `015e3f87`，1440×900）：53/53 结果行标签为回车形，0 扳手残留；53 调用行保持扳手（机器人 pill）不受影响；截图 `fix6-result-icon.png`。
+- **单测**：未配对结果行测试改断言（`aria-label="Tool result"`、回车形 path 出现）；`bun test`（trace-view/web/i18n）124 项全过，`bun run typecheck` 干净。
+
+### load-more 箭头反向与副本复验（2026-11-11，同一隔离实例）
+
+Pis 第六轮反馈「查看更多 trace 的箭头反了」：`load-more` 注册表路径是向上 chevron，两个消费口（会话列表「加载更多会话」、中栏「加载后续记录」）都是向尾部追加，语义反向。注册表一处改为向下 chevron（`M12 30L24 42L36 30`），两处同修。探针确认 `#load-later` 的 svg 只含向下路径（`probe13.mjs`，会话 `015e3f87`），截图 `fix7-load-more.png`；`bun test`（web/trace-view/i18n）124 项全过，`bun run typecheck` 干净。

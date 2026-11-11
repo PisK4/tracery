@@ -146,32 +146,34 @@ export function isAuxRow(row) {
 }
 
 /**
- * 阅读视图筛选：all 看全窗口；main 只看主链（不含辅助请求与折叠子代理）；
- * 数字只看对应 S 编号的子代理。辅助请求没有自己的视图。
+ * 阅读视图筛选：timeline 是主代理的会话时间线，按窗口顺序从首笔连续铺到末笔，
+ * 辅助与压缩请求都以完整模块出现，折叠子代理不混进来；main 只看主链（不含
+ * 辅助请求与折叠子代理），作为上下文续写证据的读数；数字只看对应 S 编号的
+ * 子代理。辅助请求没有自己的视图。
  * @param {import('../src/queries/projection').RequestRow} row
- * @param {'all' | 'main' | number} view
+ * @param {'timeline' | 'main' | number} view
  */
 export function viewMatches(row, view) {
-  if (view === 'all') return true;
+  if (view === 'timeline') return row.subagent_no === null;
   if (isAuxRow(row)) return false;
   return view === 'main' ? row.subagent_no === null : row.subagent_no === view;
 }
 
 /**
- * 行归属的视图：辅助请求归 all，折叠子代理归自己的 S 编号，其余走主链。
+ * 行归属的视图：辅助请求归时间线，折叠子代理归自己的 S 编号，其余走主链。
  * @param {import('../src/queries/projection').RequestRow} row
- * @returns {'all' | 'main' | number}
+ * @returns {'timeline' | 'main' | number}
  */
 export function viewOfRow(row) {
-  if (isAuxRow(row)) return 'all';
+  if (isAuxRow(row)) return 'timeline';
   return row.subagent_no === null ? 'main' : row.subagent_no;
 }
 
 /**
  * 窗口变化后 S 编号可能一笔都不剩：有效视图退回主链，不把空列表当结果交给读者。
  * @param {import('../src/queries/projection').RequestRow[]} rows
- * @param {'all' | 'main' | number} view
- * @returns {'all' | 'main' | number}
+ * @param {'timeline' | 'main' | number} view
+ * @returns {'timeline' | 'main' | number}
  */
 export function effectiveView(rows, view) {
   if (typeof view !== 'number') return view;
@@ -380,6 +382,17 @@ export function projectSteps(row, read, systemContext = null, bgJobs = [], prevI
             agentNo: pair?.agent_no ?? null,
             reading: execReading(pair),
           });
+          // 带启动回执的调用在其后给一条「启动子代理」记录块：跳转入口唯一落在这里，
+          // 工具名 chip 回纯展示。组级记录无协议坐标，source 留空。
+          if (pair?.agent_no !== null && pair?.agent_no !== undefined) {
+            steps.push({
+              key: `${row.req_id}:spawn:${entry.ord}:${block.index}`, reqId: row.req_id,
+              kind: 'record', text: t('启动子代理 S{no}', { no: pair.agent_no }),
+              agentNo: pair.agent_no,
+              messageOrd: null, callOrd: null, source: null, raw: null, unrecognized: false,
+              status: null, result: null, pairOwner: null,
+            });
+          }
         }
         continue;
       }
@@ -586,32 +599,27 @@ export function projectTailReply(row, read) {
 
 // 参与角色英文标签 + 内容类型：调用由 Assistant 发出、结果显示在 Tool 上，
 // 辅助与记录表达请求用途和事件，不伪装成模型消息。工具身份改由着色 chip 承载，
-// 不再使用 Tool call / Tool result 文字小标。
-const KIND_LABEL = { user: 'User', assistant: 'Assistant', tool: 'Assistant', tool_result: 'Tool', system: 'System', record: 'Event', aux: 'Aux', flag: '!' };
+// 不再使用 Tool call / Tool result 文字小标；tool_result 用独立标签名只为了
+// rolePill 选回车形 icon（返回语义），与调用行的扳手区分，可见 chip 仍是工具名。
+export const KIND_LABEL = { user: 'User', assistant: 'Assistant', tool: 'Assistant', tool_result: 'Tool result', system: 'System', record: 'Event', aux: 'Aux', flag: '!' };
 const KIND_CLASS = { user: 'user', assistant: 'reply', tool: 'reply', tool_result: 'tool', system: 'system', record: 'aux', aux: 'aux', flag: 'flag' };
 
 /**
  * 工具行的身份 chip 与调用侧参数段。色类只包工具名：参数摘要以普通文本跟随，
  * 不进色类。结果行在调用方可知时给 `参数摘要 → 结果正文`；配对确认但调用方
  * 不在缓存时只给 `→ 结果正文`；未配对保持中性 `Tool result`，不猜归属。
+ * chip 一律纯展示：启动子代理的跳转入口唯一落在「启动子代理 S{n}」记录块上。
  * @param {TraceStep} step
  * @param {((ownerReq: number, callOrd: number) => {name: string, inputText: string} | null) | null} callOf
- * @param {number | null} [agentNo] 该调用启动的子代理编号；null 表示没有启动回执
  * @returns {{chip: string, args: string, arrow: boolean, more: string[]}}
  */
-function toolRowParts(step, callOf, agentNo = null) {
-  // 工具名 chip 是这条调用的身份；只有带启动回执的调用才把它变成可跳的入口。
-  // ↗ 同时承担「点这里去别处」与「这条有启动点」两件事，无回执的 Agent 保持纯展示。
-  const spawnArrow = agentNo === null ? ''
-    : `<span class="row-tint-arrow" aria-hidden="true">${icon('spawn-arrow', 11)}</span>`;
-  const spawnChip = (/** @type {string} */ name) => agentNo === null
-    ? `<span class="row-tint">${esc(name)}</span>`
-    : `<span class="row-tint is-spawn" data-agent-no="${agentNo}" role="link" tabindex="0" aria-label="${t('跳转到子代理 S{no}', { no: agentNo })}" title="${t('跳转到子代理 S{no}', { no: agentNo })}"><span class="row-tint-name">${esc(name)}</span>${spawnArrow}</span>`;
+function toolRowParts(step, callOf) {
+  const nameChip = (/** @type {string} */ name) => `<span class="row-tint">${esc(name)}</span>`;
   // 无名工具没有名字可写：身份 chip 用一个形状表示，原名仍进 aria-label 与 title。
   const unnamed = (/** @type {string} */ label) => `<span class="row-tint ico" role="img" aria-label="${label}" title="${label}">${icon('role-tool', 16)}</span>`;
   if (step.kind === 'tool') {
     const name = step.toolName ?? '';
-    const chip = name !== '' ? spawnChip(name) : unnamed(t('未命名工具'));
+    const chip = name !== '' ? nameChip(name) : unnamed(t('未命名工具'));
     // 一次调用带多个文件：第一个常显，其余计数交给 +N，完整清单按需展开。
     const targets = summaryTargets(step.toolInput ?? '');
     if (targets !== null) return { chip, args: targets[0], arrow: false, more: targets.slice(1) };
@@ -624,7 +632,7 @@ function toolRowParts(step, callOf, agentNo = null) {
       return { chip: unnamed('Tool result'), args: '', arrow: false, more: [] };
     }
     const name = call !== null ? call.name : /** @type {string} */ (step.toolName);
-    const chip = name !== '' ? `<span class="row-tint">${esc(name)}</span>` : unnamed(t('未命名工具'));
+    const chip = name !== '' ? nameChip(name) : unnamed(t('未命名工具'));
     const args = call !== null ? summaryParts(call.name, call.inputText).args : '';
     return { chip, args, arrow: true, more: [] };
   }
@@ -653,26 +661,37 @@ function readingChip(reading, step) {
 }
 
 /**
- * 单行轨迹只显示请求序号、角色、工具身份 chip 与内容，点击行在右栏阅读详情。
- * 工具行的预览不做字符截断：参数摘要与结果正文完整进 DOM，超长由中栏列宽的
- * 省略号处理；其余行仍按 140 字符截断。输出不包含状态摘要（选中由
- * `aria-current` 表达，默认 false），按稳定步骤键可单独比较与提交。
+ * 单行轨迹只显示角色、工具身份 chip 与内容，点击行在右栏阅读详情；请求级身份
+ * 由模块卡组头承担，行内不再重复序号。工具行的预览不做字符截断：参数摘要与
+ * 结果正文完整进 DOM，超长由中栏列宽的省略号处理；其余行仍按 140 字符截断。
+ * 输出不包含状态摘要（选中由 `aria-current` 表达，默认 false），按稳定步骤键
+ * 可单独比较与提交。
  * @param {import('../src/queries/projection').RequestRow} row
  * @param {TraceStep} step
- * @param {number} ordinal 当前窗口展示号（仅显示，身份用 req_id）
  * @param {((ownerReq: number, callOrd: number) => {name: string, inputText: string} | null) | null} [callOf]
  *   调用方正文在窗口缓存内时由装配层提供；查不到或未传时结果行降级为只工具名。
  * @param {boolean} [selected] 该步骤是否为当前选择
- * @param {string} [subTag] 折叠子代理的组首标记：全视图首现给「子代理 S1」，其后给 S1；空串表示不标
+ * @param {string} [subTag] 组首短标；空串表示不标
  * @returns {string}
  */
-export function renderTraceRow(row, step, ordinal, callOf = null, selected = false, subTag = '') {
+export function renderTraceRow(row, step, callOf = null, selected = false, subTag = '') {
+  // 启动子代理的记录块是行内跳转入口，不是步骤选择：不可按 data-step-key 寻址，
+  // 点击与键盘都走 [data-agent-no] 委托，跳转后返回启动点回到这一行所在组。
+  if (step.kind === 'record' && step.agentNo !== null && step.agentNo !== undefined) {
+    return `<div class="compact-step" data-req-id="${row.req_id}">
+<div class="rec-line jump" data-agent-no="${step.agentNo}" role="link" tabindex="0"
+  aria-label="${t('跳转到子代理 S{no}', { no: step.agentNo })}" title="${t('跳转到子代理 S{no}', { no: step.agentNo })}">
+  <span class="dot" aria-hidden="true"></span><span class="rule" aria-hidden="true"></span>
+  <span class="txt"><b>${esc(step.text)}</b></span>
+</div>
+</div>`;
+  }
   const label = KIND_LABEL[step.kind] ?? 'Event';
   // 组级状态行的标签位只放形状：失败是裸 X、其余缺口是三角；事实句子仍在行内说明。
   const labelHtml = step.kind === 'flag'
     ? `<span class="row-label flag" role="img" aria-label="${step.status === 'failed' ? t('失败') : t('缺口')}" title="${step.status === 'failed' ? t('失败') : t('缺口')}">${icon(step.status === 'failed' ? 'failure' : 'gap')}</span>`
     : rolePill(label, KIND_CLASS[step.kind] ?? 'aux');
-  const { chip, args, arrow, more } = toolRowParts(step, callOf, step.agentNo ?? null);
+  const { chip, args, arrow, more } = toolRowParts(step, callOf);
   const isTool = step.kind === 'tool' || step.kind === 'tool_result';
   // 多目标只出计数：清单不落 DOM，悬浮或聚焦行时由 app 层按 key 现取现渲染。
   const moreHtml = more.length > 0
@@ -704,11 +723,10 @@ export function renderTraceRow(row, step, ordinal, callOf = null, selected = fal
   const subTagHtml = subTag === ''
     ? ''
     : `<span class="row-sub-tag" title="${esc(row.subagent ?? '')}" aria-label="${t('子代理 S{no}', { no: row.subagent_no })}">${subTag}</span>`;
-  return `<div class="compact-step" data-request-ordinal="${ordinal}" data-req-id="${row.req_id}">
+  return `<div class="compact-step" data-req-id="${row.req_id}">
 <div class="compact-row${step.isError === true ? ' step-error' : ''}${step.kind === 'flag' ? ' step-flag' : ''}"${statusAttr}>
   <button class="compact-select" data-step-key="${esc(step.key)}" data-kind="${step.kind}"${step.callOrd === null ? '' : ` data-call-ord="${step.callOrd}"`} aria-current="${selected}">
-    <span class="compact-meta" title="${t('序号表示当前窗口内的请求 · 请求 {ordinal}', { ordinal })}"><b>${ordinal}</b></span>${subTagHtml}
-    ${labelHtml}
+    ${subTagHtml}${labelHtml}
     ${chip}
     <span class="compact-preview"${titleAttr}>${previewHtml}</span>${bgNoteHtml}<span class="compact-reading">${readingHtml}</span>
   </button>
@@ -720,16 +738,15 @@ export function renderTraceRow(row, step, ordinal, callOf = null, selected = fal
  * 请求组的多行拼接：逐行复用 `renderTraceRow`，选中只影响 `aria-current`。
  * @param {import('../src/queries/projection').RequestRow} row
  * @param {TraceStep[]} steps
- * @param {number} ordinal
  * @param {string|null} selected
  * @param {((ownerReq: number, callOrd: number) => {name: string, inputText: string} | null) | null} [callOf]
- * @param {string} [subTag] 折叠子代理的短标，只挂在首行
+ * @param {string} [subTag] 组首短标，只挂在首行
  * @returns {string}
  */
-export function renderTraceRows(row, steps, ordinal, selected, callOf = null, subTag = '') {
+export function renderTraceRows(row, steps, selected, callOf = null, subTag = '') {
   const pieces = [];
   for (let index = 0; index < steps.length; index += 1) {
-    pieces.push(renderTraceRow(row, steps[index], ordinal, callOf, steps[index].key === selected,
+    pieces.push(renderTraceRow(row, steps[index], callOf, steps[index].key === selected,
       index === 0 ? subTag : ''));
   }
   return pieces.join('');

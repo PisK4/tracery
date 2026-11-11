@@ -276,3 +276,4 @@ Status: implemented
 - 阅读稳定性：[稳定的渐进式轨迹阅读](../../proposed/architecture/2026-10-27-stable-progressive-trace-reader.md)；末尾组只在完整加载时计算，历史加载不改已显示行，与该提案的稳定性要求在历史加载范围内一致。
 - 窗口锚定：[轨迹窗口锚定会话开头](2026-10-28-start-anchored-trace-window.md)。
 - 验收：[验收记录](../../../../docs/acceptance.md)。
+- 组的可见边界与组头：[请求级 Trace 模块与会话时间线视图](2026-11-10-request-level-trace-modules.md)把组壳升级成模块卡并给组头，内容归属沿用本篇的 delta 投影。
