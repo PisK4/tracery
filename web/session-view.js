@@ -17,6 +17,8 @@ import { bodyStateText } from './row-summary.js';
 import { compact, EXEC_MS_HINT, secs, tierOf, TIER_LIMITS } from './duration.js';
 import { timeSegments, timingPanelHtml } from './usage-donuts.js';
 import { pairStateText } from './trace-pair.js';
+import { headPopHtml, pathPopHtml, rememberPop } from './step-popover.js';
+import { usagePopHtml } from './usage-popover.js';
 
 /** 日期格式化的 locale 标签随当前界面语言；调用点在渲染时求值，切换语言即生效。 */
 const localeTag = () => (currentLocale() === 'zh' ? 'zh-CN' : 'en-US');
@@ -223,10 +225,14 @@ export function moduleHeadHtml(r, ordinal) {
   const readings = [];
   if (r.reasoning_span_ms !== null) {
     const tier = ` t-${tierOf(r.reasoning_span_ms, TIER_LIMITS.reason)}`;
-    readings.push(`<span class="ms" title="${esc(t('思考'))}">${icon('reason', 12)}<b class="v${tier}">${esc(compact(r.reasoning_span_ms))}</b></span>`);
+    // 耗时 chip 与 token chip 都可聚焦、悬停出浮层（head/tok key → 现取现渲染）；
+    // 口径说明仍留在 title，浮层只回答这一笔的读数。
+    rememberPop(`head:${r.req_id}`, () => headPopHtml(r));
+    readings.push(`<span class="ms" tabindex="0" data-pop-key="head:${r.req_id}" title="${esc(t('思考'))}">${icon('reason', 12)}<b class="v${tier}">${esc(compact(r.reasoning_span_ms))}</b></span>`);
   }
   if (r.in_tok !== null) {
-    readings.push(`<span class="tok" title="${esc(t('输入 token，不含缓存读取与写入'))}">${icon('ctx-cache', 12)}${esc(kk(r.in_tok))}</span>`);
+    rememberPop(`tok:${r.req_id}`, () => usagePopHtml(r));
+    readings.push(`<span class="tok" tabindex="0" data-pop-key="tok:${r.req_id}" title="${esc(t('输入 token，不含缓存读取与写入'))}">${icon('ctx-cache', 12)}${esc(kk(r.in_tok))}</span>`);
   }
   // sp 是推齐符：有读数就要有它，否则只有 token 的组头贴在 kind 后面。
   if (readings.length > 0) parts.push('<span class="sp"></span>', ...readings);
@@ -437,9 +443,12 @@ function pathGroup(list, side, sessionKey) {
   const label = side === 'w' ? t('写入尝试') : t('读取请求');
   const short = side === 'w' ? t('写入') : t('读取');
   const names = list.map(p => p.path);
-  const chip = (/** @type {{path: string, count: number}} */ p) =>
-    `<button class="path-chip ${side}" data-summary-path="${esc(p.path)}" data-summary-side="${side}"
-      title="${esc(p.path)} · ${t('{label} {n} 次', { label, n: p.count })}"><span class="nm">${esc(pathLabel(p.path, names))}</span><span class="c">${p.count}</span></button>`;
+  const chip = (/** @type {{path: string, count: number}} */ p) => {
+    const key = `path:${side}:${p.path}`;
+    rememberPop(key, () => pathPopHtml(p.path, p.count, side));
+    return `<button class="path-chip ${side}" data-summary-path="${esc(p.path)}" data-summary-side="${side}"
+      data-pop-key="${esc(key)}" aria-label="${esc(p.path)} · ${t('{label} {n} 次', { label, n: p.count })}"><span class="nm">${esc(pathLabel(p.path, names))}</span><span class="c">${p.count}</span></button>`;
+  };
   const head = list.slice(0, 3).map(chip).join('');
   const more = list.length > 3
     ? `<details class="path-more ${side}" data-fold="headmore:${side}:${esc(sessionKey ?? '')}"><summary title="${t('{label}共 {n} 条路径', { label, n: list.length })}">+${list.length - 3}</summary>

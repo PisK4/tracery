@@ -6,7 +6,9 @@ import { restoreScroll } from '../web/scroll.js';
 import { backendStateHtml, backendStateText } from '../web/backend-state.js';
 import { replyCompleteness } from '../web/row-summary.js';
 import { renderTraceRows } from '../web/trace-view.js';
-import { summaryTargets } from '../web/tool-summary.js';
+import { editDiff, summaryParts, summaryTargets } from '../web/tool-summary.js';
+import { headPopHtml, resultPopHtml, toolPopHtml } from '../web/step-popover.js';
+import { usagePopHtml } from '../web/usage-popover.js';
 import {
   cacheHitOf, contextStatsHtml,
   ledgerParts, ledgerRowsHtml, railCurrentTraceHtml, railFactsHtml, readingChangedNote,
@@ -169,7 +171,7 @@ test('组头右端是推理时间与提示 token：推理按档位换色，整�
   expect(plain).toContain('<span class="kind">chat</span>');
   expect(plain).toContain('<span class="sp"></span><span class="tok"');
   expect(plain).not.toContain('17.47');
-  expect(plain).toContain('class="tok" title="输入 token，不含缓存读取与写入"');
+  expect(plain).toContain('title="输入 token，不含缓存读取与写入"');
   expect(plain).toContain('<svg');
   expect(plain).toContain('18.9k');
   // 推理段：icon + 档位色（>5s 落 t-warn），数值走 compact 口径，sp 在右端。
@@ -1478,4 +1480,98 @@ test('图标统一走 IconPark 48 网格与 4 描边，调用名全部可解析'
   const css = readFileSync('web/app.css', 'utf8');
   expect(css).toContain('viewBox=\'0 0 48 48\'');
   expect(css).not.toContain('0 0 24 24');
+});
+
+/* ---------------- 悬停浮层：注册表现取现渲染（trace-popovers） ---------------- */
+
+test('editDiff 行级对照给出增删计数，超长护栏退 guarded', () => {
+  const d = editDiff('a\nb\nc', 'a\nx\nc');
+  expect(d.guarded).toBe(false);
+  expect(d.add).toBe(1);
+  expect(d.del).toBe(1);
+  expect(d.lines).toEqual([
+    { sign: 'ctx', text: 'a' }, { sign: 'del', text: 'b' }, { sign: 'add', text: 'x' }, { sign: 'ctx', text: 'c' },
+  ]);
+  // 任一侧超过 300 行不跑 DP：调用方退统计或全文，不把 O(n×m) 塞进悬停。
+  const big = Array.from({ length: 301 }, (_, i) => `l${i}`).join('\n');
+  const guarded = editDiff(big, 'x');
+  expect(guarded.guarded).toBe(true);
+  expect(guarded.lines).toBeNull();
+});
+
+test('行内摘要覆盖代码块、清单与 MCP 族', () => {
+  expect(summaryParts('eval', JSON.stringify({ code: 'print(1)\nprint(2)', language: 'py' })).args).toBe('py · 2 行');
+  expect(summaryParts('TodoWrite', JSON.stringify({ todos: [{ status: 'completed' }, { status: 'pending' }] })).args).toBe('2 条 · 1 完成');
+  expect(summaryParts('mcp__x__find', JSON.stringify({ query: 'abc', limit: 5 })).args).toBe('abc · 5');
+  expect(summaryParts('memory', JSON.stringify({ entries: [{ text: 'a' }, { text: 'b' }] })).args).toBe('2 条');
+});
+
+test('summaryTargets 返回完整路径，不在数据源截断', () => {
+  const targets = summaryTargets(JSON.stringify({ files: ['/a/b/one.ts', '/c/two.ts'] })) ?? [];
+  expect(targets).toEqual(['/a/b/one.ts', '/c/two.ts']);
+});
+
+test('工具参数浮层按形状分派：diff 形态免切换，普通形态给键值/原文与复制', () => {
+  const pop = toolPopHtml({
+    toolName: 'Edit',
+    toolInput: JSON.stringify({ file_path: '/a/b.ts', old_string: 'x', new_string: 'y' }),
+    result: { state: 'resolved' },
+  });
+  expect(pop.html).toContain('sp-diff');
+  expect(pop.html).toContain('已配对 · 结果已收到');
+  expect(pop.html).not.toContain('sp-tabs');
+  expect(pop.copy).toBe('{"file_path":"/a/b.ts","old_string":"x","new_string":"y"}');
+  const kv = toolPopHtml({ toolName: 'Grep', toolInput: JSON.stringify({ pattern: 'abc' }), result: { state: 'pending' } });
+  expect(kv.html).toContain('sp-tabs');
+  expect(kv.html).toContain('sp-kv-row');
+  expect(kv.html).toContain('待配对');
+});
+
+test('浮层正文一律转义，长参数不漏插 HTML', () => {
+  const pop = toolPopHtml({ toolName: 'mcp__t__run', toolInput: JSON.stringify({ cmd: '<img src=x onerror=alert(1)>' }) });
+  expect(pop.html).not.toContain('<img');
+  expect(pop.html).toContain('&lt;img');
+});
+
+test('结果浮层按状态与形状分派：全文、Skill 文档', () => {
+  const ok = resultPopHtml({ toolName: 'Bash', text: 'hello', isError: false });
+  expect(ok.html).toContain('>成功</span>');
+  expect(ok.html).toContain('sp-pre-main');
+  const bad = resultPopHtml({ toolName: 'Bash', text: 'boom', isError: true });
+  expect(bad.html).toContain('>失败</span>');
+  const skill = resultPopHtml({ toolName: 'Skill', text: '# Title\n- item', isError: false });
+  expect(skill.html).toContain('sp-h');
+  expect(skill.html).toContain('sp-li');
+});
+
+test('耗时分段与右栏同公式：缺 ttft 整笔落回复，有 ttft 才拆等待与思考', () => {
+  const noTtft = headPopHtml({ ms: 1000, ttft_ms: null, reasoning_span_ms: 200 });
+  expect(noTtft).not.toContain('等待 · 首 token');
+  expect(noTtft).not.toContain('思考 · 推理段');
+  expect(noTtft).toContain('sp-seg t1');
+  const withTtft = headPopHtml({ ms: 1000, ttft_ms: 300, reasoning_span_ms: 200 });
+  expect(withTtft).toContain('等待 · 首 token');
+  expect(withTtft).toContain('思考 · 推理段');
+  // 回复段 = 1000 − 300 − 200。
+  expect(withTtft).toContain('>500ms<');
+  const noMs = headPopHtml({ ms: null, ttft_ms: null, reasoning_span_ms: null });
+  expect(noMs).toContain('没有计时读数');
+});
+
+test('用量浮层：正值段铺树图，0 与缺失不占面积、明细写 —', () => {
+  const html = usagePopHtml({ in_tok: 700, out_tok: 300, cache_read: 0, cache_write: null, cost: 0.0042, cost_state: 'priced' } as never);
+  // in_tok 与 out_tok 两段正值铺图；0 与缺失不占面积。
+  expect((html.match(/class="up-tile/g) ?? []).length).toBe(2);
+  expect(html).toContain('up-row zero');
+  expect(html).toContain('>—</b>');
+  expect(html).toContain('$0.0042');
+  // cache_read = 0 → 命中率 0%。
+  expect(html).toContain('>0%</b>');
+});
+
+test('组头 chip 的浮层锚按读数开合：in_tok 缺失不出 tok 浮层', () => {
+  const plain = moduleHeadHtml({ req_id: 5, req_kind: 'chat', in_tok: null, reasoning_span_ms: null, ms: 100 } as never, 5);
+  expect(plain).not.toContain('data-pop-key="tok:');
+  const withTok = moduleHeadHtml({ req_id: 5, req_kind: 'chat', in_tok: 18_900, reasoning_span_ms: null, ms: 100 } as never, 5);
+  expect(withTok).toContain('data-pop-key="tok:5"');
 });

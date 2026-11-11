@@ -5,6 +5,7 @@ import { esc } from './html.js';
 import { t } from './i18n.js';
 import { icon } from './icons.js';
 import { bodyLabelText, bodyStateText } from './row-summary.js';
+import { rememberPop, turnPopHtml } from './step-popover.js';
 
 /**
  * 轮次目录与右栏轮次态的纯渲染。轮次带是轨迹的目录层：一行高度横滚、吸顶贴
@@ -42,7 +43,9 @@ export function renderTurnBand(items, selected, rows) {
     const row = rows.find(candidate => candidate.req_id === turn.start_req) ?? null;
     if (row === null) continue;
     const preview = typeof row.input_preview === 'string' ? row.input_preview : '';
-    chips.push(`<button class="turn-chip" data-turn="${turn.turn}" aria-pressed="${selected === turn.turn}" title="${esc(preview)}"><b>${turn.turn}</b><span>${esc(clip(preview, 32))}</span></button>`);
+    // 完整 input_preview 由悬停浮层展开；chip 自身保持轮号加摘要的扫读形态。
+    rememberPop(`turn:${turn.turn}`, () => turnPopHtml(preview));
+    chips.push(`<button class="turn-chip" data-turn="${turn.turn}" data-pop-key="turn:${turn.turn}" aria-pressed="${selected === turn.turn}" aria-label="${t('轮 {n}', { n: turn.turn })} · ${esc(preview)}"><b>${turn.turn}</b><span>${esc(clip(preview, 32))}</span></button>`);
   }
   if (chips.length === 0) return '';
   return `<nav class="turn-band" id="turn-band" aria-label="${t('轮次')}">${chips.join('')}</nav>`;

@@ -57,13 +57,14 @@ export function itemDisplay(kind, it) {
 /**
  * squarify（Bruls, Huizing & van Wijk）：把 vals 按序铺进矩形，
  * 让各块边长尽量接近。返回铺好的矩形；零值与空矩形直接返回空。
+ * 用量浮层（usage-popover.js）共用这一份几何，导出即两处单一来源。
  * @typedef {{v: number, item?: PromptItem, rest?: PromptItem[], part?: RoutePromptPart}} TileVal
  * @typedef {{a: TileVal, x: number, y: number, w: number, h: number}} Laid
  * @param {TileVal[]} vals
  * @param {number} x @param {number} y @param {number} w @param {number} h
  * @returns {Laid[]}
  */
-function squarify(vals, x, y, w, h) {
+export function squarify(vals, x, y, w, h) {
   /** @type {Laid[]} */
   const out = [];
   vals = vals.filter(a => a.v > 0);

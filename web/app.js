@@ -48,6 +48,9 @@ import {
   sessionsGroupLabel, sessionsListFoldHtml,
 } from './session-view.js';
 import { applyIntent, createMoreTargets } from './selection.js';
+import {
+  initPop, rememberPop, resetPops, sessionPopHtml, stepPopHtml, subPopHtml,
+} from './step-popover.js';
 import { armSpider, spiderArt } from './empty-state.js';
 import { restoreScroll } from './scroll.js';
 import { createMainView } from './trace-dom.js';
@@ -434,6 +437,7 @@ if (typeof document !== 'undefined') {
     traceModel.reset();
     changedReads.clear();
     moreTargets.reset();
+    resetPops();
   }
 
   /**
@@ -602,7 +606,9 @@ if (typeof document !== 'undefined') {
       const titleHtml = titleLoading
         ? `<span class="sess-title is-loading" aria-label="${t('读取标题中')}" aria-hidden="false">${t('读取标题中…')}</span>`
         : `<span class="sess-title">${esc(s.title || t('（无标题）'))}</span>`;
-      return `<button class="sess" data-session="${esc(s.conv_key)}" aria-current="${s.conv_key === state.session}">
+      // 会话概况进悬停浮层（B3）：行内保持 logo+who+笔数+时间的扫读形态。
+      rememberPop(`sess:${s.conv_key}`, () => sessionPopHtml(s));
+      return `<button class="sess" data-session="${esc(s.conv_key)}" data-pop-key="sess:${esc(s.conv_key)}" aria-current="${s.conv_key === state.session}">
         ${titleHtml}
         <span class="sess-meta">
           ${agentLogoHtml(firstAgent)}
@@ -877,16 +883,21 @@ if (typeof document !== 'undefined') {
   /** @param {RequestRow} r @param {import('./trace-view.js').TraceStep[]} steps
    *  @param {boolean} fallback @returns {string[]} */
   function rowHtmls(r, steps, fallback) {
+    // 浮层与 `+N` 的登记先于行 HTML 缓存判断：登记是幂等的 Map.set，
+    // 缓存命中时注册表也要补齐（resetPops 之后不重渲染行）。
+    if (r.subagent_no !== null) rememberPop(`sub:${r.req_id}`, () => subPopHtml(r));
+    for (const step of steps) {
+      if (step.kind !== 'tool' && step.kind !== 'tool_result') continue;
+      if (step.kind === 'tool') {
+        const targets = summaryTargets(step.toolInput ?? '');
+        if (targets !== null) moreTargets.remember(step.key, targets);
+      }
+      rememberPop(step.key, () => stepPopHtml(step));
+    }
     const cached = rowHtmlCache.get(steps);
     if (cached !== undefined && cached.fallback === fallback) return cached.htmls;
     const callOf = callOfFor(steps, fallback);
     const htmls = steps.map(step => renderTraceRow(r, step, callOf, false));
-    for (const step of steps) {
-      if (step.kind !== 'tool') continue;
-      const targets = summaryTargets(step.toolInput ?? '');
-      if (targets === null) continue;
-      moreTargets.remember(step.key, targets);
-    }
     rowHtmlCache.set(steps, { fallback, htmls });
     return htmls;
   }
@@ -2791,7 +2802,7 @@ if (typeof document !== 'undefined') {
     const pop = morePopEl();
     pop.setAttribute('aria-label', t('完整目标清单'));
     pop.innerHTML = `<div class="mp-head">${t('完整目标 {n}', { n: list.length })}</div>`
-      + list.map(item => `<div class="mp-item" title="${esc(item)}">${esc(item)}</div>`).join('');
+      + list.map(item => `<div class="mp-item">${esc(item)}</div>`).join('');
     pop.classList.add('show');
     const r = anchor.getBoundingClientRect();
     const box = pop.getBoundingClientRect();
@@ -2823,6 +2834,10 @@ if (typeof document !== 'undefined') {
     if (anchor instanceof HTMLElement) showMore(anchor);
   });
   document.addEventListener('focusout', () => { if (moreAnchor !== null) scheduleHideMore(); });
+
+  // 通用悬停浮层（step-popover）：工具参数/结果、组头读数、路径、轮次、会话概况、
+  // 用量树图共用一个单例外壳，注册表在渲染时登记、悬停时现取现渲染。
+  initPop();
 
   // treemap tile 与内容列表行双向高亮：tile 的 data-ctx-its 列出它代表的 item 身份（iid），
   // 行的 data-ctx-key 就是 iid；悬停一方，另一方按成员关系点亮。读数页重绘重建节点，
