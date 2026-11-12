@@ -606,8 +606,8 @@ if (typeof document !== 'undefined') {
       const titleHtml = titleLoading
         ? `<span class="sess-title is-loading" aria-label="${t('读取标题中')}" aria-hidden="false">${t('读取标题中…')}</span>`
         : `<span class="sess-title">${esc(s.title || t('（无标题）'))}</span>`;
-      // 左栏第一任务是选会话：行内不挂悬停浮层，概况并入选中后的会话头。
-      return `<button class="sess" data-session="${esc(s.conv_key)}" aria-current="${s.conv_key === state.session}">
+      // 左栏第一任务是选会话：不挂悬停浮层，完整标题用原生 title 兜底。
+      return `<button class="sess" data-session="${esc(s.conv_key)}" title="${esc(s.title || t('（无标题）'))}" aria-current="${s.conv_key === state.session}">
         ${titleHtml}
         <span class="sess-meta">
           ${agentLogoHtml(firstAgent)}
