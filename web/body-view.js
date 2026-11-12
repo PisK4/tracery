@@ -199,7 +199,7 @@ export function renderTools(tools) {
     const text = parts.args === '' ? parts.label : `${parts.label} · ${parts.args}`;
     // 参数键值/原文由悬停浮层展开（C1）：与中栏调用行同一工厂，不切页签。
     const key = `call:${tool.owner}:${tool.ord}`;
-    rememberPop(key, () => toolPopHtml({ toolName: tool.name, toolInput: tool.inputText, result: { state: tool.state } }));
+    rememberPop(key, () => toolPopHtml({ toolName: tool.name, toolInput: tool.inputText, result: { state: tool.state } }), true);
     return `<div class="tool-row">
       <span class="tool-chip call" tabindex="0" data-pop-key="${esc(key)}" role="img" aria-label="${esc(text)}"><span>${esc(text)}</span></span>
       ${open}${warn}

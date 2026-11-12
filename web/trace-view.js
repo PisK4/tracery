@@ -699,7 +699,7 @@ export function renderTraceRow(row, step, callOf = null, selected = false, subTa
     ? ` <span class="row-more" data-more-key="${esc(step.key)}" aria-label="${t('另有 {n} 个目标，悬停或聚焦这一行查看', { n: more.length })}" title="${t('另有 {n} 个目标', { n: more.length })}">+${more.length}</span>`
     : '';
   // 完整信息由悬停浮层承担（data-pop-key → step-popover 现取现渲染）：
-  // 调用行给参数键值与原文，结果行给全文；原生 title 不再塞完整参数与正文。
+  // 锚点只落在摘要区，行的标签、工具名与读数不触发，扫读时不易误弹。
   const previewHtml = isTool
     ? `${args !== '' ? `<code>${esc(args)}</code>` : ''}${moreHtml}${
       arrow ? '<span class="row-arrow" aria-hidden="true">→</span>' : ''}${
@@ -718,12 +718,13 @@ export function renderTraceRow(row, step, callOf = null, selected = false, subTa
   const subTagHtml = subTag === ''
     ? ''
     : `<span class="row-sub-tag" tabindex="0" data-pop-key="sub:${row.req_id}" aria-label="${t('子代理 S{no}', { no: row.subagent_no })}">${subTag}</span>`;
+  const popAttr = isTool ? ` data-pop-key="${esc(step.key)}"` : '';
   return `<div class="compact-step" data-req-id="${row.req_id}">
 <div class="compact-row${step.isError === true ? ' step-error' : ''}${step.kind === 'flag' ? ' step-flag' : ''}"${statusAttr}>
-  <button class="compact-select" data-step-key="${esc(step.key)}" data-kind="${step.kind}"${step.callOrd === null ? '' : ` data-call-ord="${step.callOrd}"`}${isTool ? ` data-pop-key="${esc(step.key)}"` : ''} aria-current="${selected}">
+  <button class="compact-select" data-step-key="${esc(step.key)}" data-kind="${step.kind}"${step.callOrd === null ? '' : ` data-call-ord="${step.callOrd}"`} aria-current="${selected}">
     ${subTagHtml}${labelHtml}
     ${chip}
-    <span class="compact-preview">${previewHtml}</span>${bgNoteHtml}<span class="compact-reading">${readingHtml}</span>
+    <span class="compact-preview"${popAttr}>${previewHtml}</span>${bgNoteHtml}<span class="compact-reading">${readingHtml}</span>
   </button>
 </div>
 </div>`;

@@ -49,7 +49,7 @@ import {
 } from './session-view.js';
 import { applyIntent, createMoreTargets } from './selection.js';
 import {
-  initPop, rememberPop, resetPops, sessionPopHtml, stepPopHtml, subPopHtml,
+  initPop, rememberPop, resetPops, stepPopHtml, subPopHtml,
 } from './step-popover.js';
 import { armSpider, spiderArt } from './empty-state.js';
 import { restoreScroll } from './scroll.js';
@@ -606,9 +606,8 @@ if (typeof document !== 'undefined') {
       const titleHtml = titleLoading
         ? `<span class="sess-title is-loading" aria-label="${t('读取标题中')}" aria-hidden="false">${t('读取标题中…')}</span>`
         : `<span class="sess-title">${esc(s.title || t('（无标题）'))}</span>`;
-      // 会话概况进悬停浮层（B3）：行内保持 logo+who+笔数+时间的扫读形态。
-      rememberPop(`sess:${s.conv_key}`, () => sessionPopHtml(s));
-      return `<button class="sess" data-session="${esc(s.conv_key)}" data-pop-key="sess:${esc(s.conv_key)}" aria-current="${s.conv_key === state.session}">
+      // 左栏第一任务是选会话：不挂悬停浮层，完整标题用原生 title 兜底。
+      return `<button class="sess" data-session="${esc(s.conv_key)}" title="${esc(s.title || t('（无标题）'))}" aria-current="${s.conv_key === state.session}">
         ${titleHtml}
         <span class="sess-meta">
           ${agentLogoHtml(firstAgent)}
@@ -892,7 +891,7 @@ if (typeof document !== 'undefined') {
         const targets = summaryTargets(step.toolInput ?? '');
         if (targets !== null) moreTargets.remember(step.key, targets);
       }
-      rememberPop(step.key, () => stepPopHtml(step));
+      rememberPop(step.key, () => stepPopHtml(step), true);
     }
     const cached = rowHtmlCache.get(steps);
     if (cached !== undefined && cached.fallback === fallback) return cached.htmls;
