@@ -12,9 +12,9 @@ Status: implemented
 
 ### 一、单例注册表现取现渲染，不内联 HTML
 
-[R1 提案 note](../../../proposed/feature/2026-11-11-usage-popover.md) 原定「纯 CSS 内联浮层」；实现改为单例加注册表，与 [`more-pop`](../../../../web/app.js) 同构。理由：行内联一份浮层 HTML 的形态在长会话窗口（100+ 组头，每组 2 个 chip）下 DOM 与属性字节的增量不可接受；注册表在渲染时登记 `data-pop-key` → 内容闭包，悬停或聚焦时现拼 HTML，浮层 DOM 零增量，Tab 序零增量（锚点本来就是可聚焦元素）。交互型浮层（工具参数/结果）与纯展示浮层（组头读数、路径、轮次、会话项）共用同一外壳 [`step-popover.js`](../../../../web/step-popover.js)，后者没有形态切换与复制控件。
+[R1 提案 note](../../../proposed/feature/2026-11-11-usage-popover.md) 原定「纯 CSS 内联浮层」；实现改为单例加注册表，与 [`more-pop`](../../../../web/app.js) 同构。理由：行内联一份浮层 HTML 的形态在长会话窗口（100+ 组头，每组 2 个 chip）下 DOM 与属性字节的增量不可接受；注册表在渲染时登记 `data-pop-key` → 内容闭包（重内容带 `heavy` 标记），悬停或聚焦时现拼 HTML，浮层 DOM 零增量，Tab 序零增量（锚点本来就是可聚焦元素）。交互型浮层（工具参数/结果）与纯展示浮层（组头读数、路径、轮次）共用同一外壳 [`step-popover.js`](../../../../web/step-popover.js)，后者没有形态切换与复制控件。
 
-生命周期与 `more-pop` 同参：160ms 悬停延迟、200ms 隐藏、focusin/focusout 同源。注册表随 `resetReading`（换会话与显式刷新）整表重置；行 HTML 缓存命中时登记仍要补齐，所以 [`rowHtmls`](../../../../web/app.js) 把 `rememberPop` 移到缓存判断之前——登记是幂等的 `Map.set`，缓存命中路径不重渲染行也要保证注册表在 reset 后重新填上。
+生命周期由[悬停浮层的触发意图与指针定位](2026-11-12-popover-hover-intent.md)改写：分级延迟、关闭冷却、指针旁定位与 Esc/外部点击关闭。注册表随 `resetReading`（换会话与显式刷新）整表重置；行 HTML 缓存命中时登记仍要补齐，所以 [`rowHtmls`](../../../../web/app.js) 把 `rememberPop` 移到缓存判断之前——登记是幂等的 `Map.set`，缓存命中路径不重渲染行也要保证注册表在 reset 后重新填上。
 
 ### 二、形状分派与 diff 护栏
 
@@ -30,13 +30,12 @@ Status: implemented
 
 ### 四、锚点与登记位
 
-- 中栏轨迹行：工具调用行与结果行的 `data-step-key` 兼任 `data-pop-key`；原生 `title` 不再塞参数与结果正文。
+- 中栏轨迹行：摘要区 `.compact-preview` 挂 `data-pop-key`，整行 button 保留 `data-step-key` 与键盘焦点；工具名、标签与行尾读数不触发浮层。
 - 组头：推理耗时 chip 登记 `head:`，token chip 登记 `tok:`（`in_tok` 为 null 时不渲染，浮层锚随之消失）；口径说明保留在 title，浮层只回答这一笔的读数。
 - 右栏工具往返 chip：`call:{owner}:{ord}`，与中栏调用行同一工厂。
 - 轮次带 chip：`turn:`，浮层给完整 input_preview 与字数。
-- 会话栏：每行登记 `sess:`，浮层给 Agent、请求、费用、最近活动、标志与 conv_key。
+- 左栏会话行不再挂悬停浮层，完整标题由原生 `title` 兜底；会话概况不从这里出现。
 - 路径 chip 与子代理短标沿用各自既有键位。
-- 会话概况浮层（B3）与原生 title 删除是替代关系；`more-pop` 的 mp-item 重复 title 一并移除。
 
 ## Alternatives considered
 
@@ -53,4 +52,5 @@ Status: implemented
 ## 取代检查
 
 - [R1 提案 note](../../../proposed/feature/2026-11-11-usage-popover.md) 的机制从「纯 CSS 内联浮层」改为单例注册表，该 note 保持 proposed，由本 note 记录机制分歧；其余内容（树图几何、四段类别、命中大字）照搬落地。
-- 原生 `title` 承担完整信息的位置（中栏 preview、右栏 chip、轮次 chip、路径 chip、mp-item）全部移除，`tool-summary.js` 的 `TITLE_MAX` 属性护栏保留给仍有 title 的位置。
+- 生命周期、位置、锚点范围与会话行浮层由[悬停浮层的触发意图与指针定位](2026-11-12-popover-hover-intent.md)部分取代；本 note 的单例注册表、内容形状分派、diff 护栏与用量树图继续有效。
+- `title` 承担完整信息的位置（中栏 preview、右栏 chip、轮次 chip、路径 chip、mp-item）移除，`tool-summary.js` 的 `TITLE_MAX` 属性护栏保留给仍有 title 的位置；左栏会话行恢复 `title` 兜底完整标题。
