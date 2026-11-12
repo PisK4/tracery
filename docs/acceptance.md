@@ -3010,3 +3010,23 @@ Pis 第六轮反馈「查看更多 trace 的箭头反了」：`load-more` 注册
 - 真实组头耗时 chip hover：等待 18.9s / 思考 2m 29s / 回复 2.9s 三段，合计 2m 51s，比例条与读数一致。
 - 真实工具调用行 hover：Skill 调用浮层（键值形态 + 配对状态行）。窗口内无 Edit 调用行，diff 形态未在生产浏览器复验（单测覆盖 `sp-diff` 结构与增删计数）。
 - **已知边界**：浮层 show 态 200ms 隐藏窗口内会拦截其覆盖区域上的点击（`pointer-events:auto`），与既有 `more-pop` 同模式；hover 锚点后直接点击相邻行可能第一次落空，移开鼠标 200ms 后恢复。
+
+### 轨迹悬停浮层：触发意图与指针定位验收（2026-11-12，master 6f6d005）
+
+Pis 反馈三条体验问题：浮层位置固定挡视线、浮现太快太死、取消时扫过另一个 trace 误弹。合并 `6f6d005`（分支 `feat/popover-ux-polish`）后分两路验收。
+
+**合成验收**（`prototypes/synthetic-server.ts`，worktree 代码，ego-browser 1440×900）：
+
+- 工具摘要 hover 约 700ms 出现（600ms 设计加调度开销），浮层相对指针 `+14/+19px`，指针不在浮层矩形内；组头读数约 500ms 出现（400ms 设计）。
+- 工具名 chip、行尾读数停 800ms 不弹；摘要区触发。整行 button 的 `data-pop-key` 为 0。
+- Esc 与浮层外点击立即关闭；浮层可悬停，移出 350ms 后消失。
+- 冷却期内进入并停住，约 900ms 后弹出；进入 100ms 即离开，1s 后不弹；快速扫过多个锚点后离开，1.1s 后不弹。
+- `bun test tests/web.test.ts` 81 项全过，`bun run typecheck` 干净；`verify-change-notes --range origin/master..HEAD` 与 `--staged` 均过。
+
+**生产验收**（`bun run service restart` 后 pid 65742，127.0.0.1:8320）：
+
+- 带同源头可达：`/` 200；`/step-popover.js` 含 `placePop` 与 `HEAVY_DELAY`；`/app.js` 无 `sessionPopHtml`，会话行带原生 `title`。
+- 真实页面：20 个会话、125 个锚点、82 个工具摘要锚点；`.compact-select[data-pop-key]` 0、`.sess[data-pop-key]` 0，20 个会话行都有 `title`。
+- 真实 Bash 摘要 hover：浮层出现，相对指针 `+15/+19px`，不盖指针，标题 Bash。
+
+**已知边界**：重内容仍是 hover 600ms，点击钉住未做；左栏会话概况不再悬停，只保留完整标题的 `title`；单例浮层与锚点无 DOM 关系的固有问题仍在，行重渲染时浮层会被下一次 pointerout、scroll 或 pointerdown 收起。
